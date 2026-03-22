@@ -1,0 +1,1070 @@
+<!DOCTYPE html>
+<html lang="tr" data-theme="dark">
+<head>
+<!--
+   ______                            __
+  / ____/___  ____ ___  ____  __  __/ /____  _____
+ / /   / __ \/ __ `__ \/ __ \/ / / / __/ _ \/ ___/
+/ /___/ /_/ / / / / / / /_/ / /_/ / /_/  __/ /
+\____/\____/_/ /_/ /_/ .___/\__,_/\__/\___/_/
+                    /_/
+        Created with Perplexity Computer
+        https://www.perplexity.ai/computer
+-->
+<meta name="generator" content="Perplexity Computer">
+<meta name="author" content="Perplexity Computer">
+<meta property="og:see_also" content="https://www.perplexity.ai/computer">
+<link rel="author" href="https://www.perplexity.ai/computer">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ElTurco Task Dashboard — Amazon & AppleCare (Live)</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================
+   CONFIG — SheetDB API IDs
+   Değiştirmeniz gereken tek yer burası
+   ============================================ */
+
+:root, [data-theme="light"] {
+  --bg: #f5f5f7;
+  --surface: #ffffff;
+  --surface-2: #fafafa;
+  --surface-offset: #f0f0f2;
+  --border: #e0e0e4;
+  --divider: #eaeaec;
+  --text: #1d1d1f;
+  --text-muted: #6e6e73;
+  --text-faint: #aeaeb2;
+  --primary: #0071e3;
+  --primary-hover: #0060c0;
+  --primary-bg: rgba(0,113,227,0.08);
+  --amazon-accent: #ff9900;
+  --amazon-bg: rgba(255,153,0,0.08);
+  --apple-accent: #34c759;
+  --apple-bg: rgba(52,199,89,0.08);
+  --success: #34c759;
+  --success-bg: rgba(52,199,89,0.1);
+  --warning: #ff9500;
+  --warning-bg: rgba(255,149,0,0.1);
+  --error: #ff3b30;
+  --error-bg: rgba(255,59,48,0.1);
+  --ongoing-accent: #af52de;
+  --ongoing-bg: rgba(175,82,222,0.1);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+  --radius: 10px;
+  --radius-sm: 6px;
+  --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --mono: 'JetBrains Mono', monospace;
+}
+
+[data-theme="dark"] {
+  --bg: #0d0d0f;
+  --surface: #1a1a1e;
+  --surface-2: #222226;
+  --surface-offset: #151517;
+  --border: #2c2c30;
+  --divider: #232327;
+  --text: #e5e5ea;
+  --text-muted: #8e8e93;
+  --text-faint: #48484a;
+  --primary: #3b9aff;
+  --primary-hover: #5aafff;
+  --primary-bg: rgba(59,154,255,0.12);
+  --amazon-accent: #ffb340;
+  --amazon-bg: rgba(255,179,64,0.12);
+  --apple-accent: #30d158;
+  --apple-bg: rgba(48,209,88,0.12);
+  --success: #30d158;
+  --success-bg: rgba(48,209,88,0.15);
+  --warning: #ff9f0a;
+  --warning-bg: rgba(255,159,10,0.15);
+  --error: #ff453a;
+  --error-bg: rgba(255,69,58,0.15);
+  --ongoing-accent: #bf5af2;
+  --ongoing-bg: rgba(191,90,242,0.15);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  grid-template-rows: auto 1fr;
+  height: 100dvh;
+}
+
+/* SIDEBAR */
+.sidebar {
+  grid-row: 1 / -1;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.sidebar-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--divider);
+}
+.sidebar-logo svg { flex-shrink: 0; }
+.sidebar-logo h1 { font-size: 15px; font-weight: 700; letter-spacing: -0.02em; }
+.sidebar-logo span { font-size: 11px; color: var(--text-muted); display: block; font-weight: 400; }
+
+.filter-section { display: flex; flex-direction: column; gap: 6px; }
+.filter-section h3 {
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--text-muted); padding: 0 4px;
+}
+
+.filter-group { display: flex; flex-direction: column; gap: 2px; }
+
+.filter-btn {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 7px 10px; border-radius: var(--radius-sm); cursor: pointer;
+  font-size: 13px; font-weight: 500; border: none; background: transparent;
+  color: var(--text); text-align: left; transition: all 0.15s; width: 100%;
+}
+.filter-btn:hover { background: var(--surface-offset); }
+.filter-btn.active { background: var(--primary-bg); color: var(--primary); }
+.filter-btn .count {
+  font-size: 11px; font-weight: 600; font-family: var(--mono);
+  color: var(--text-muted); min-width: 28px; text-align: right;
+}
+.filter-btn.active .count { color: var(--primary); }
+.filter-btn .dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  margin-right: 8px; flex-shrink: 0; display: inline-block; vertical-align: middle;
+}
+
+.filter-divider { height: 1px; background: var(--divider); margin: 4px 0; }
+
+.filter-select-wrapper { position: relative; }
+.filter-select-trigger {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 7px 10px; border-radius: var(--radius-sm); cursor: pointer;
+  font-size: 13px; background: var(--surface-offset); border: 1px solid var(--border);
+  color: var(--text); width: 100%; transition: all 0.15s;
+}
+.filter-select-trigger:hover { border-color: var(--primary); }
+.filter-dropdown {
+  position: absolute; top: 100%; left: 0; right: 0;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow-md);
+  z-index: 100; max-height: 240px; overflow-y: auto;
+  display: none; margin-top: 4px;
+}
+.filter-dropdown.open { display: block; }
+.filter-dropdown-search {
+  width: 100%; padding: 8px 10px; border: none;
+  border-bottom: 1px solid var(--divider); background: transparent;
+  color: var(--text); font-size: 12px; outline: none;
+}
+.filter-dropdown label {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; font-size: 12px; cursor: pointer; transition: background 0.1s;
+}
+.filter-dropdown label:hover { background: var(--surface-offset); }
+.filter-dropdown input[type="checkbox"] { accent-color: var(--primary); }
+
+/* HEADER */
+.header {
+  grid-column: 2; background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 24px; display: flex;
+  align-items: center; justify-content: space-between; gap: 16px;
+}
+.header-left { display: flex; align-items: center; gap: 12px; }
+
+.view-tabs {
+  display: flex; background: var(--surface-offset);
+  border-radius: var(--radius-sm); padding: 3px; gap: 2px;
+}
+.view-tab {
+  padding: 6px 14px; border-radius: 4px; font-size: 13px; font-weight: 500;
+  cursor: pointer; border: none; background: transparent; color: var(--text-muted);
+  transition: all 0.15s;
+}
+.view-tab.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
+.view-tab:hover:not(.active) { color: var(--text); }
+
+.search-box {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface-offset); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 6px 12px; width: 280px;
+  transition: border-color 0.15s;
+}
+.search-box:focus-within { border-color: var(--primary); }
+.search-box svg { color: var(--text-muted); flex-shrink: 0; }
+.search-box input {
+  border: none; background: transparent; color: var(--text);
+  font-size: 13px; outline: none; width: 100%;
+}
+
+.header-right { display: flex; align-items: center; gap: 8px; }
+
+.theme-toggle, .refresh-btn {
+  padding: 6px; border-radius: var(--radius-sm); cursor: pointer;
+  border: none; background: transparent; color: var(--text-muted); transition: all 0.15s;
+}
+.theme-toggle:hover, .refresh-btn:hover { background: var(--surface-offset); color: var(--text); }
+.refresh-btn.loading svg { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.export-btn {
+  padding: 6px 14px; border-radius: var(--radius-sm); font-size: 13px;
+  font-weight: 500; cursor: pointer; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); transition: all 0.15s;
+}
+.export-btn:hover { background: var(--surface-offset); }
+
+/* MAIN */
+.main {
+  grid-column: 2; overflow-y: auto; overscroll-behavior: contain;
+  padding: 24px; display: flex; flex-direction: column; gap: 20px;
+}
+
+/* LOADING */
+.loading-overlay {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 16px; padding: 80px 20px;
+}
+.loading-spinner {
+  width: 40px; height: 40px; border: 3px solid var(--border);
+  border-top-color: var(--primary); border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.loading-text { font-size: 14px; color: var(--text-muted); }
+.loading-sub { font-size: 12px; color: var(--text-faint); }
+
+/* STATUS BAR */
+.status-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 14px; border-radius: var(--radius-sm);
+  background: var(--surface-offset); font-size: 12px; color: var(--text-muted);
+}
+.status-bar .live-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--success); display: inline-block;
+  margin-right: 6px; animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ACTIVE FILTER PILLS */
+.active-filters { display: flex; flex-wrap: wrap; gap: 6px; min-height: 0; }
+.active-filters:empty { display: none; }
+.filter-pill {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 500;
+  background: var(--primary-bg); color: var(--primary); border: none; cursor: pointer;
+  transition: all 0.15s;
+}
+.filter-pill:hover { background: var(--error-bg); color: var(--error); }
+.filter-pill svg { width: 12px; height: 12px; }
+.clear-all-btn {
+  padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 500;
+  background: transparent; color: var(--text-muted);
+  border: 1px dashed var(--border); cursor: pointer;
+}
+.clear-all-btn:hover { background: var(--error-bg); color: var(--error); border-color: var(--error); }
+
+/* KPI CARDS */
+.kpi-grid {
+  display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px;
+}
+.kpi-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px 18px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.kpi-card .kpi-label {
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--text-muted);
+}
+.kpi-card .kpi-value {
+  font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em; line-height: 1.1;
+}
+.kpi-card .kpi-sub {
+  font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums;
+}
+.kpi-card.amazon .kpi-value { color: var(--amazon-accent); }
+.kpi-card.apple .kpi-value { color: var(--apple-accent); }
+.kpi-card.ongoing .kpi-value { color: var(--ongoing-accent); }
+
+/* CHARTS */
+.charts-row {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+}
+.chart-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 18px;
+}
+.chart-card h3 { font-size: 13px; font-weight: 600; margin-bottom: 12px; color: var(--text-muted); }
+.chart-container { position: relative; height: 260px; }
+
+/* DATA TABLE */
+.table-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); overflow: hidden;
+}
+.table-header {
+  padding: 14px 18px; display: flex; align-items: center;
+  justify-content: space-between; border-bottom: 1px solid var(--divider);
+}
+.table-header h3 { font-size: 14px; font-weight: 600; }
+.table-header .result-count { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.table-wrap { overflow-x: auto; overscroll-behavior-x: contain; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+thead { position: sticky; top: 0; z-index: 2; }
+th {
+  padding: 10px 14px; text-align: left; font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);
+  background: var(--surface-2); border-bottom: 1px solid var(--divider);
+  cursor: pointer; user-select: none; white-space: nowrap; transition: color 0.15s;
+}
+th:hover { color: var(--text); }
+th.sorted { color: var(--primary); }
+th .sort-arrow { font-size: 10px; margin-left: 4px; }
+td {
+  padding: 9px 14px; border-bottom: 1px solid var(--divider);
+  white-space: nowrap; max-width: 200px; overflow: hidden; text-overflow: ellipsis;
+}
+tr:hover td { background: var(--surface-offset); }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600;
+}
+.badge.delivered { background: var(--success-bg); color: var(--success); }
+.badge.ongoing { background: var(--ongoing-bg); color: var(--ongoing-accent); }
+.badge.cancelled { background: var(--error-bg); color: var(--error); }
+.badge.amazon { background: var(--amazon-bg); color: var(--amazon-accent); }
+.badge.apple { background: var(--apple-bg); color: var(--apple-accent); }
+
+.pagination {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 18px; border-top: 1px solid var(--divider);
+}
+.pagination-info { font-size: 12px; color: var(--text-muted); }
+.pagination-btns { display: flex; gap: 4px; }
+.page-btn {
+  padding: 6px 10px; border-radius: var(--radius-sm); font-size: 12px;
+  font-weight: 500; cursor: pointer; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); font-variant-numeric: tabular-nums;
+  transition: all 0.15s;
+}
+.page-btn:hover:not(:disabled) { background: var(--surface-offset); }
+.page-btn:disabled { opacity: 0.4; cursor: default; }
+.page-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+.view-overview .charts-row, .view-overview .kpi-grid { display: grid; }
+.view-table .charts-row, .view-table .kpi-grid { display: none; }
+.view-charts .table-card, .view-charts .kpi-grid { display: none; }
+.view-charts .charts-row { grid-template-columns: 1fr; }
+
+/* Mobile */
+@media (max-width: 900px) {
+  .app { grid-template-columns: 1fr; }
+  .sidebar { display: none; position: fixed; top: 0; left: 0; bottom: 0; width: 280px; z-index: 200; box-shadow: var(--shadow-lg); }
+  .sidebar.open { display: flex; }
+  .mobile-toggle { display: flex !important; }
+  .charts-row { grid-template-columns: 1fr; }
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+}
+.mobile-toggle { display: none; }
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--text-faint); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-label="ElTurco Dashboard">
+        <rect width="32" height="32" rx="8" fill="var(--primary)"/>
+        <path d="M8 11h16M8 16h12M8 21h8" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+      <div>
+        <h1>ElTurco Tasks</h1>
+        <span>Live Dashboard</span>
+      </div>
+    </div>
+    <div class="filter-section"><h3>Kaynak</h3><div class="filter-group" id="sourceFilters"></div></div>
+    <div class="filter-section"><h3>Sekme</h3><div class="filter-group" id="sheetFilters"></div></div>
+    <div class="filter-section"><h3>Durum</h3><div class="filter-group" id="statusFilters"></div></div>
+    <div class="filter-divider"></div>
+    <div class="filter-section"><h3>Çevirmen (TR)</h3><div class="filter-select-wrapper"><button class="filter-select-trigger" id="trTrigger">Tümü <span style="font-size:11px">▼</span></button><div class="filter-dropdown" id="trDropdown"></div></div></div>
+    <div class="filter-section"><h3>Revizyoncu (Rev)</h3><div class="filter-select-wrapper"><button class="filter-select-trigger" id="revTrigger">Tümü <span style="font-size:11px">▼</span></button><div class="filter-dropdown" id="revDropdown"></div></div></div>
+    <div class="filter-section"><h3>Hesap</h3><div class="filter-select-wrapper"><button class="filter-select-trigger" id="accTrigger">Tümü <span style="font-size:11px">▼</span></button><div class="filter-dropdown" id="accDropdown"></div></div></div>
+    <div class="filter-section"><h3>Revizyon Tipi</h3><div class="filter-group" id="revTypeFilters"></div></div>
+    <div class="filter-section"><h3>Tarih Aralığı</h3><div style="display:flex;gap:6px;flex-direction:column"><input type="date" id="dateFrom" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--surface-offset);color:var(--text);font-size:12px"><input type="date" id="dateTo" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--surface-offset);color:var(--text);font-size:12px"></div></div>
+    <div style="margin-top:auto;padding-top:12px;border-top:1px solid var(--divider)"><a href="https://www.perplexity.ai/computer" target="_blank" rel="noopener noreferrer" style="font-size:11px;color:var(--text-faint);text-decoration:none">Created with Perplexity Computer</a></div>
+  </aside>
+
+  <!-- HEADER -->
+  <header class="header">
+    <div class="header-left">
+      <button class="mobile-toggle theme-toggle" onclick="document.getElementById('sidebar').classList.toggle('open')">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+      </button>
+      <div class="view-tabs">
+        <button class="view-tab active" data-view="overview">Genel Bakış</button>
+        <button class="view-tab" data-view="table">Tablo</button>
+        <button class="view-tab" data-view="charts">Grafikler</button>
+      </div>
+      <div class="search-box">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <input type="text" id="searchInput" placeholder="Proje ara (ID, hesap...)">
+      </div>
+    </div>
+    <div class="header-right">
+      <button class="refresh-btn" id="refreshBtn" title="Veriyi yenile" onclick="loadAllData()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+      </button>
+      <button class="export-btn" onclick="exportCSV()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>CSV
+      </button>
+      <button class="theme-toggle" id="themeToggle" aria-label="Tema değiştir">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- MAIN -->
+  <main class="main" id="mainContent">
+    <div id="loadingArea"></div>
+    <div id="statusBar"></div>
+    <div class="active-filters" id="activeFilters"></div>
+    <div class="kpi-grid" id="kpiGrid"></div>
+    <div class="charts-row" id="chartsRow">
+      <div class="chart-card"><h3>Aylık Görev Dağılımı</h3><div class="chart-container"><canvas id="chartTimeline"></canvas></div></div>
+      <div class="chart-card"><h3>Kaynak & Sekme Dağılımı</h3><div class="chart-container"><canvas id="chartSource"></canvas></div></div>
+      <div class="chart-card"><h3>Çevirmen Performansı (Top 15)</h3><div class="chart-container"><canvas id="chartTranslators"></canvas></div></div>
+      <div class="chart-card"><h3>Revizyon Tipi Dağılımı</h3><div class="chart-container"><canvas id="chartRevType"></canvas></div></div>
+    </div>
+    <div class="table-card" id="tableCard">
+      <div class="table-header"><h3>Görevler</h3><span class="result-count" id="resultCount"></span></div>
+      <div class="table-wrap" style="max-height:500px;overflow-y:auto">
+        <table><thead id="tableHead"></thead><tbody id="tableBody"></tbody></table>
+      </div>
+      <div class="pagination" id="pagination"></div>
+    </div>
+  </main>
+</div>
+
+<script>
+// ============================================
+// CONFIG
+// ============================================
+const SHEETDB_AMAZON = 'mukq6ww3ssuk0';
+const SHEETDB_APPLECARE = 'v6i82rdrqa34n';
+
+// Sheet tab mappings per spreadsheet
+const AMAZON_TABS = [
+  { tab: 'non-AFT', sheet: 'non-AFT', source: 'Amazon' },
+  { tab: 'TPT', sheet: 'TPT', source: 'Amazon' },
+  { tab: 'AFT', sheet: 'AFT', source: 'Amazon' },
+  { tab: 'Non-EN Tasks', sheet: 'Non-EN', source: 'Amazon' },
+  { tab: 'Amazon DPX', sheet: 'DPX', source: 'Amazon' },
+  { tab: 'WL', sheet: 'WL', source: 'Amazon' },
+];
+
+const APPLECARE_TABS = [
+  { tab: 'Assignments', sheet: 'Assignments', source: 'AppleCare' },
+  { tab: 'RU Assignments', sheet: 'RU Assignments', source: 'AppleCare' },
+  { tab: 'AR Assignments', sheet: 'AR Assignments', source: 'AppleCare' },
+];
+
+// ============================================
+// STATE
+// ============================================
+let TASKS = [];
+let lastFetchTime = null;
+
+const state = {
+  view: 'overview',
+  filters: {
+    sources: new Set(), sheets: new Set(), statuses: new Set(),
+    translators: new Set(), reviewers: new Set(), accounts: new Set(),
+    revTypes: new Set(), dateFrom: null, dateTo: null, search: ''
+  },
+  sort: { col: 'deadline', dir: 'desc' },
+  page: 1, perPage: 50,
+};
+
+// Config is hardcoded — no setup needed
+function getConfig() {
+  return { amazon: SHEETDB_AMAZON, applecare: SHEETDB_APPLECARE };
+}
+
+// ============================================
+// DATA LOADING
+// ============================================
+function parseDate(d) {
+  if (!d || !String(d).trim()) return null;
+  d = String(d).trim();
+  // dd.mm.yyyy hh:mm
+  let m = d.match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})/);
+  if (m) {
+    const [, day, month, year] = m;
+    try {
+      const dt = new Date(+year, +month - 1, +day);
+      if (!isNaN(dt)) return dt.toISOString().slice(0, 10);
+    } catch(e) {}
+  }
+  return null;
+}
+
+function parseNum(v) {
+  if (!v || !String(v).trim()) return 0;
+  v = String(v).trim().replace(',', '.').replace(/\s/g, '');
+  const n = parseFloat(v);
+  return isNaN(n) ? 0 : n;
+}
+
+function normalizeDelivered(v) {
+  v = String(v || '').trim().toLowerCase();
+  if (v === 'yes' || v === 'y') return 'Delivered';
+  if (v === 'cancelled' || v === 'canceled') return 'Cancelled';
+  if (v) return v.charAt(0).toUpperCase() + v.slice(1);
+  return 'Ongoing';
+}
+
+function normalizeTrDone(v) {
+  v = String(v || '').trim().toLowerCase();
+  if (!v) return 'Ongoing';
+  if (v.startsWith('yes')) return 'Done';
+  return v.charAt(0).toUpperCase() + v.slice(1);
+}
+
+function normalizeRevType(v) {
+  v = String(v || '').trim();
+  const lower = v.toLowerCase();
+  if (lower === 'self-edit' || lower === 'self edit') return 'Self-Edit';
+  if (lower === 'target read') return 'Target Read';
+  if (lower === 'qa only') return 'QA Only';
+  return v;
+}
+
+function mapAmazonNonAFT(row, sheet) {
+  return {
+    source: 'Amazon', sheet,
+    account: (row['Account'] || '').trim(),
+    projectId: (row['Project ID'] || '').trim(),
+    translator: (row['TR '] || row['TR'] || '').trim(),
+    reviewer: (row['Rev'] || '').trim(),
+    trDone: normalizeTrDone(row['TR Dlvr'] || row['TR Dlvr?'] || ''),
+    delivered: normalizeDelivered(row['Delivered?'] || ''),
+    revType: normalizeRevType(row['Rev Type'] || ''),
+    deadline: parseDate(row['TR Deadline'] || ''),
+    total: parseNum(row['Total'] || ''),
+    wwc: parseNum(row['TR WWC'] || row['WWC'] || ''),
+    lqi: (row['LQI?'] || '').trim(),
+    qs: (row['QS'] || '').trim(),
+    licence: (row['Licence'] || '').trim(),
+    trPO: (row['TR PO'] || '').trim(),
+    revPO: (row['Rev PO'] || '').trim(),
+  };
+}
+
+function mapAmazonTPT(row, sheet) {
+  return {
+    source: 'Amazon', sheet,
+    account: (row['Account'] || 'TPT-Amazon').trim(),
+    projectId: (row['ID'] || '').trim(),
+    translator: (row['TR'] || '').trim(),
+    reviewer: (row['REV'] || '').trim(),
+    trDone: normalizeTrDone(row['TR\nDone?'] || row['TR Done?'] || ''),
+    delivered: normalizeDelivered(row['Delivered?'] || ''),
+    revType: normalizeRevType(row['Rev\nType'] || row['Rev Type'] || ''),
+    deadline: parseDate(row['TR\nDeadline'] || row['TR Deadline'] || ''),
+    total: parseNum(row['Total'] || ''),
+    wwc: parseNum(row['WWC'] || ''),
+    trPO: (row['TR PO'] || '').trim(),
+    revPO: (row['Rev PO'] || '').trim(),
+  };
+}
+
+function mapAmazonAFT(row, sheet) {
+  return {
+    source: 'Amazon', sheet,
+    account: (row['m'] || '').trim(),
+    projectId: (row['Project ID'] || '').trim(),
+    translator: (row['TR'] || '').trim(),
+    reviewer: (row['Rev'] || '').trim(),
+    trDone: normalizeTrDone(row['TR Dlvr?'] || ''),
+    delivered: normalizeDelivered(row['Delivered?'] || ''),
+    revType: normalizeRevType(row['Rev Type'] || ''),
+    deadline: parseDate(row['TR Deadline'] || ''),
+    total: parseNum(row['Total'] || ''),
+    wwc: parseNum(row['TR WWC'] || ''),
+    trPO: (row['TR PO'] || '').trim(),
+    revPO: (row['Rev PO'] || '').trim(),
+  };
+}
+
+function mapAmazonNonEN(row, sheet) {
+  return {
+    source: 'Amazon', sheet,
+    account: (row['Account'] || '').trim(),
+    projectId: (row['Project ID'] || '').trim(),
+    translator: (row['TR'] || '').trim(),
+    reviewer: (row['Rev'] || '').trim(),
+    delivered: normalizeDelivered(row['Delivered?'] || ''),
+    revType: normalizeRevType(row['Rev Type'] || ''),
+    deadline: parseDate(row['TR Deadline'] || ''),
+    total: parseNum(row['Total'] || ''),
+    wwc: parseNum(row['TR WWC'] || ''),
+    trPO: (row['TR PO'] || '').trim(),
+    revPO: (row['Rev PO'] || '').trim(),
+  };
+}
+
+function mapAmazonDPX(row, sheet) {
+  return {
+    source: 'Amazon', sheet,
+    account: (row[' Account'] || row['Account'] || 'Amazon DPX').trim(),
+    projectId: (row['Project ID'] || '').trim(),
+    reviewer: (row['Rev'] || '').trim(),
+    delivered: normalizeDelivered(row['Delivered?'] || ''),
+    deadline: parseDate(row['Deadline'] || ''),
+    total: parseNum(row['Total'] || ''),
+    revPO: (row['Rev PO'] || '').trim(),
+  };
+}
+
+function mapAppleCare(row, sheet) {
+  return {
+    source: 'AppleCare', sheet,
+    account: (row['Account'] || '').trim(),
+    projectId: (row['ID'] || '').trim(),
+    projectTitle: (row['Project Title'] || '').trim(),
+    translator: (row['TR'] || '').trim(),
+    reviewer: (row['Rev'] || '').trim(),
+    trDone: normalizeTrDone(row['TR Dlvr?'] || row['TR Dlv?'] || ''),
+    delivered: normalizeDelivered(row['Delivered?'] || ''),
+    revType: normalizeRevType(row['Rev Type'] || ''),
+    deadline: parseDate(row['TR Deadline'] || ''),
+    total: parseNum(row['TWC'] || row['Total'] || ''),
+    wwc: parseNum(row['WWC'] || ''),
+    trPO: (row['TR PO'] || '').trim(),
+    revPO: (row['Rev PO'] || '').trim(),
+  };
+}
+
+const MAPPERS = {
+  'non-AFT': mapAmazonNonAFT,
+  'TPT': mapAmazonTPT,
+  'AFT': mapAmazonAFT,
+  'Non-EN': mapAmazonNonEN,
+  'DPX': mapAmazonDPX,
+  'WL': mapAmazonNonAFT,
+  'Assignments': mapAppleCare,
+  'RU Assignments': mapAppleCare,
+  'AR Assignments': mapAppleCare,
+};
+
+async function fetchSheetData(apiId, tabName, sheetLabel) {
+  const url = `https://sheetdb.io/api/v1/${apiId}?sheet=${encodeURIComponent(tabName)}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.warn(`Failed to fetch ${tabName}: ${res.status}`);
+      return [];
+    }
+    const data = await res.json();
+    if (!Array.isArray(data)) return [];
+    const mapper = MAPPERS[sheetLabel] || mapAmazonNonAFT;
+    return data
+      .map(row => mapper(row, sheetLabel))
+      .filter(t => t.projectId);
+  } catch (e) {
+    console.warn(`Error fetching ${tabName}:`, e);
+    return [];
+  }
+}
+
+async function loadAllData() {
+  const config = getConfig();
+
+  const btn = document.getElementById('refreshBtn');
+  btn.classList.add('loading');
+
+  document.getElementById('loadingArea').innerHTML = `
+    <div class="loading-overlay">
+      <div class="loading-spinner"></div>
+      <div class="loading-text">Google Sheets'ten canlı veri çekiliyor...</div>
+      <div class="loading-sub" id="loadProgress">Hazırlanıyor...</div>
+    </div>`;
+
+  const totalTabs = AMAZON_TABS.length + APPLECARE_TABS.length;
+  document.getElementById('loadProgress').textContent = `${totalTabs} sekme paralel yükleniyor...`;
+
+  // Fetch all tabs in parallel for speed
+  const amazonPromises = AMAZON_TABS.map(t => fetchSheetData(config.amazon, t.tab, t.sheet));
+  const applePromises = APPLECARE_TABS.map(t => fetchSheetData(config.applecare, t.tab, t.sheet));
+  const results = await Promise.all([...amazonPromises, ...applePromises]);
+  const allTasks = results.flat();
+
+  TASKS = allTasks;
+  lastFetchTime = new Date();
+
+  document.getElementById('loadingArea').innerHTML = '';
+  btn.classList.remove('loading');
+
+  document.getElementById('statusBar').innerHTML = `
+    <div class="status-bar">
+      <span><span class="live-dot"></span>Canlı — ${TASKS.length.toLocaleString()} görev yüklendi (${lastFetchTime.toLocaleTimeString('tr-TR')})</span>
+      <span>${AMAZON_TABS.length + APPLECARE_TABS.length} sekme</span>
+    </div>`;
+
+  state.page = 1;
+  render();
+}
+
+// ============================================
+// FILTER ENGINE (same as before)
+// ============================================
+function getFiltered() {
+  const f = state.filters;
+  return TASKS.filter(t => {
+    if (f.sources.size && !f.sources.has(t.source)) return false;
+    if (f.sheets.size && !f.sheets.has(t.sheet)) return false;
+    if (f.statuses.size && !f.statuses.has(t.delivered)) return false;
+    if (f.translators.size && !f.translators.has(t.translator)) return false;
+    if (f.reviewers.size && !f.reviewers.has(t.reviewer)) return false;
+    if (f.accounts.size && !f.accounts.has(t.account)) return false;
+    if (f.revTypes.size && !f.revTypes.has(t.revType)) return false;
+    if (f.dateFrom && t.deadline && t.deadline < f.dateFrom) return false;
+    if (f.dateTo && t.deadline && t.deadline > f.dateTo) return false;
+    if (f.search) {
+      const s = f.search.toLowerCase();
+      const haystack = [t.projectId, t.account, t.translator, t.reviewer, t.projectTitle || ''].join(' ').toLowerCase();
+      if (!haystack.includes(s)) return false;
+    }
+    return true;
+  });
+}
+
+function getSorted(data) {
+  const { col, dir } = state.sort;
+  return [...data].sort((a, b) => {
+    let va = a[col] ?? '', vb = b[col] ?? '';
+    if (col === 'total' || col === 'wwc') { va = +va || 0; vb = +vb || 0; }
+    if (va < vb) return dir === 'asc' ? -1 : 1;
+    if (va > vb) return dir === 'asc' ? 1 : -1;
+    return 0;
+  });
+}
+
+// ============================================
+// RENDER (same as before with minor tweaks)
+// ============================================
+function renderSidebar() {
+  const allSources = [...new Set(TASKS.map(t => t.source))].sort();
+  const allStatuses = ['Delivered', 'Ongoing', 'Cancelled'];
+  const allRevTypes = [...new Set(TASKS.map(t => t.revType).filter(Boolean))].sort();
+  const allTranslators = [...new Set(TASKS.map(t => t.translator).filter(Boolean))].sort();
+  const allReviewers = [...new Set(TASKS.map(t => t.reviewer).filter(Boolean))].sort();
+  const allAccounts = [...new Set(TASKS.map(t => t.account).filter(Boolean))].sort();
+
+  const srcEl = document.getElementById('sourceFilters');
+  srcEl.innerHTML = allSources.map(s => {
+    const cnt = TASKS.filter(t => t.source === s).length;
+    const color = s === 'Amazon' ? 'var(--amazon-accent)' : 'var(--apple-accent)';
+    const active = state.filters.sources.has(s) ? ' active' : '';
+    return `<button class="filter-btn${active}" data-filter="source" data-val="${s}"><span><span class="dot" style="background:${color}"></span>${s}</span><span class="count">${cnt.toLocaleString()}</span></button>`;
+  }).join('');
+
+  const filteredForSheets = state.filters.sources.size ? TASKS.filter(t => state.filters.sources.has(t.source)) : TASKS;
+  const sheetCounts = {};
+  filteredForSheets.forEach(t => { sheetCounts[t.sheet] = (sheetCounts[t.sheet] || 0) + 1; });
+  document.getElementById('sheetFilters').innerHTML = Object.keys(sheetCounts).sort().map(s => {
+    const active = state.filters.sheets.has(s) ? ' active' : '';
+    return `<button class="filter-btn${active}" data-filter="sheet" data-val="${s}"><span>${s}</span><span class="count">${sheetCounts[s].toLocaleString()}</span></button>`;
+  }).join('');
+
+  const statusCounts = {};
+  TASKS.forEach(t => { statusCounts[t.delivered] = (statusCounts[t.delivered] || 0) + 1; });
+  const statusColors = { 'Delivered': 'var(--success)', 'Ongoing': 'var(--ongoing-accent)', 'Cancelled': 'var(--error)' };
+  document.getElementById('statusFilters').innerHTML = allStatuses.map(s => {
+    const cnt = statusCounts[s] || 0;
+    if (!cnt) return '';
+    const active = state.filters.statuses.has(s) ? ' active' : '';
+    return `<button class="filter-btn${active}" data-filter="status" data-val="${s}"><span><span class="dot" style="background:${statusColors[s]}"></span>${s}</span><span class="count">${cnt.toLocaleString()}</span></button>`;
+  }).join('');
+
+  document.getElementById('revTypeFilters').innerHTML = allRevTypes.map(r => {
+    const cnt = TASKS.filter(t => t.revType === r).length;
+    const active = state.filters.revTypes.has(r) ? ' active' : '';
+    return `<button class="filter-btn${active}" data-filter="revType" data-val="${r}"><span>${r}</span><span class="count">${cnt.toLocaleString()}</span></button>`;
+  }).join('');
+
+  renderDropdown('trDropdown', 'trTrigger', allTranslators, state.filters.translators, 'translator');
+  renderDropdown('revDropdown', 'revTrigger', allReviewers, state.filters.reviewers, 'reviewer');
+  renderDropdown('accDropdown', 'accTrigger', allAccounts, state.filters.accounts, 'account');
+}
+
+function renderDropdown(ddId, trigId, items, selectedSet, filterKey) {
+  const dd = document.getElementById(ddId);
+  const trigger = document.getElementById(trigId);
+  trigger.innerHTML = selectedSet.size ? `${selectedSet.size} seçili <span style="font-size:11px">▼</span>` : `Tümü <span style="font-size:11px">▼</span>`;
+  dd.innerHTML = `<input class="filter-dropdown-search" placeholder="Ara..." oninput="filterDropdownItems(this)">` +
+    items.map(i => `<label><input type="checkbox"${selectedSet.has(i)?' checked':''} data-filter="${filterKey}" data-val="${i}" onchange="toggleMultiFilter(this)"><span>${i}</span></label>`).join('');
+}
+function filterDropdownItems(input) {
+  const q = input.value.toLowerCase();
+  input.parentElement.querySelectorAll('label').forEach(l => { l.style.display = l.textContent.toLowerCase().includes(q) ? 'flex' : 'none'; });
+}
+
+// Event delegation
+document.addEventListener('click', e => {
+  if (e.target.closest('.filter-btn[data-filter]')) {
+    const btn = e.target.closest('.filter-btn');
+    const map = { source: 'sources', sheet: 'sheets', status: 'statuses', revType: 'revTypes' };
+    const set = state.filters[map[btn.dataset.filter]];
+    if (set.has(btn.dataset.val)) set.delete(btn.dataset.val); else set.add(btn.dataset.val);
+    state.page = 1; render(); return;
+  }
+  if (e.target.closest('.view-tab')) {
+    state.view = e.target.closest('.view-tab').dataset.view;
+    document.querySelectorAll('.view-tab').forEach(t => t.classList.toggle('active', t.dataset.view === state.view));
+    document.getElementById('mainContent').className = `main view-${state.view}`; return;
+  }
+  const trigger = e.target.closest('.filter-select-trigger');
+  if (trigger) {
+    const dd = trigger.nextElementSibling;
+    document.querySelectorAll('.filter-dropdown.open').forEach(d => { if (d !== dd) d.classList.remove('open'); });
+    dd.classList.toggle('open'); return;
+  }
+  if (!e.target.closest('.filter-dropdown')) document.querySelectorAll('.filter-dropdown.open').forEach(d => d.classList.remove('open'));
+  if (e.target.closest('th[data-col]')) {
+    const col = e.target.closest('th').dataset.col;
+    if (state.sort.col === col) state.sort.dir = state.sort.dir === 'asc' ? 'desc' : 'asc';
+    else { state.sort.col = col; state.sort.dir = 'asc'; }
+    render(); return;
+  }
+  if (e.target.closest('.page-btn[data-page]')) {
+    state.page = +e.target.closest('.page-btn').dataset.page;
+    render(); document.querySelector('.table-wrap').scrollTop = 0; return;
+  }
+  if (e.target.closest('.filter-pill')) {
+    const pill = e.target.closest('.filter-pill');
+    state.filters[pill.dataset.key].delete(pill.dataset.val);
+    state.page = 1; render(); return;
+  }
+  if (e.target.closest('.clear-all-btn')) {
+    Object.values(state.filters).forEach(v => { if (v instanceof Set) v.clear(); });
+    state.filters.dateFrom = null; state.filters.dateTo = null; state.filters.search = '';
+    document.getElementById('searchInput').value = '';
+    document.getElementById('dateFrom').value = ''; document.getElementById('dateTo').value = '';
+    state.page = 1; render(); return;
+  }
+});
+
+function toggleMultiFilter(cb) {
+  const key = cb.dataset.filter + 's';
+  if (cb.checked) state.filters[key].add(cb.dataset.val); else state.filters[key].delete(cb.dataset.val);
+  state.page = 1; render();
+}
+
+document.getElementById('searchInput').addEventListener('input', e => { state.filters.search = e.target.value; state.page = 1; render(); });
+document.getElementById('dateFrom').addEventListener('change', e => { state.filters.dateFrom = e.target.value || null; state.page = 1; render(); });
+document.getElementById('dateTo').addEventListener('change', e => { state.filters.dateTo = e.target.value || null; state.page = 1; render(); });
+document.getElementById('themeToggle').addEventListener('click', () => {
+  const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next); destroyCharts(); render();
+});
+
+const columns = [
+  { key: 'source', label: 'Kaynak' }, { key: 'sheet', label: 'Sekme' },
+  { key: 'account', label: 'Hesap' }, { key: 'projectId', label: 'Proje ID' },
+  { key: 'translator', label: 'TR' }, { key: 'reviewer', label: 'Rev' },
+  { key: 'revType', label: 'Rev Tipi' }, { key: 'delivered', label: 'Durum' },
+  { key: 'total', label: 'Total' }, { key: 'wwc', label: 'WWC' },
+  { key: 'deadline', label: 'Deadline' }, { key: 'trPO', label: 'TR PO' },
+  { key: 'revPO', label: 'Rev PO' },
+];
+
+function render() {
+  if (!TASKS.length) return;
+  const filtered = getFiltered();
+  renderSidebar(); renderActiveFilters(); renderKPIs(filtered); renderTable(filtered); renderCharts(filtered);
+}
+
+function renderActiveFilters() {
+  const pills = [];
+  const map = { sources: 'Kaynak', sheets: 'Sekme', statuses: 'Durum', translators: 'TR', reviewers: 'Rev', accounts: 'Hesap', revTypes: 'Rev Tipi' };
+  for (const [key, label] of Object.entries(map)) {
+    state.filters[key].forEach(v => {
+      pills.push(`<button class="filter-pill" data-key="${key}" data-val="${v}">${label}: ${v} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>`);
+    });
+  }
+  if (pills.length > 1) pills.push(`<button class="clear-all-btn">Tümünü temizle</button>`);
+  document.getElementById('activeFilters').innerHTML = pills.join('');
+}
+
+function renderKPIs(data) {
+  const total = data.length;
+  const ongoing = data.filter(t => t.delivered === 'Ongoing').length;
+  const amazonCount = data.filter(t => t.source === 'Amazon').length;
+  const appleCount = data.filter(t => t.source === 'AppleCare').length;
+  const totalWWC = data.reduce((s, t) => s + (t.wwc || 0), 0);
+  const totalWords = data.reduce((s, t) => s + (t.total || 0), 0);
+  const fmtK = (n) => n >= 1000 ? (n/1000).toLocaleString('tr-TR', {maximumFractionDigits:0}) + 'K' : n.toLocaleString('tr-TR');
+
+  document.getElementById('kpiGrid').innerHTML = `
+    <div class="kpi-card"><div class="kpi-label">Toplam Görev</div><div class="kpi-value">${total.toLocaleString()}</div><div class="kpi-sub">${data.filter(t=>t.delivered==='Delivered').length.toLocaleString()} teslim</div></div>
+    <div class="kpi-card ongoing"><div class="kpi-label">Devam Eden</div><div class="kpi-value">${ongoing.toLocaleString()}</div><div class="kpi-sub">aktif görev</div></div>
+    <div class="kpi-card amazon"><div class="kpi-label">Amazon</div><div class="kpi-value">${amazonCount.toLocaleString()}</div><div class="kpi-sub">${data.filter(t=>t.source==='Amazon'&&t.delivered==='Ongoing').length} devam eden</div></div>
+    <div class="kpi-card apple"><div class="kpi-label">AppleCare</div><div class="kpi-value">${appleCount.toLocaleString()}</div><div class="kpi-sub">${data.filter(t=>t.source==='AppleCare'&&t.delivered==='Ongoing').length} devam eden</div></div>
+    <div class="kpi-card"><div class="kpi-label">Toplam Kelime</div><div class="kpi-value">${fmtK(totalWords)}</div><div class="kpi-sub">${fmtK(totalWWC)} WWC</div></div>
+    <div class="kpi-card"><div class="kpi-label">Çevirmen Sayısı</div><div class="kpi-value">${new Set(data.map(t=>t.translator).filter(Boolean)).size}</div><div class="kpi-sub">aktif çevirmen</div></div>`;
+}
+
+function renderTable(data) {
+  const sorted = getSorted(data);
+  const totalPages = Math.ceil(sorted.length / state.perPage);
+  const start = (state.page - 1) * state.perPage;
+  const pageData = sorted.slice(start, start + state.perPage);
+  document.getElementById('resultCount').textContent = `${sorted.length.toLocaleString()} sonuç`;
+
+  document.getElementById('tableHead').innerHTML = '<tr>' + columns.map(c => {
+    const sc = state.sort.col === c.key ? ' sorted' : '';
+    const arrow = state.sort.col === c.key ? (state.sort.dir === 'asc' ? '↑' : '↓') : '';
+    return `<th data-col="${c.key}" class="${sc}">${c.label}<span class="sort-arrow">${arrow}</span></th>`;
+  }).join('') + '</tr>';
+
+  document.getElementById('tableBody').innerHTML = pageData.map(t => '<tr>' + columns.map(c => {
+    let val = t[c.key] ?? '';
+    if (c.key === 'delivered') {
+      const cls = val === 'Delivered' ? 'delivered' : val === 'Ongoing' ? 'ongoing' : 'cancelled';
+      return `<td><span class="badge ${cls}">${val === 'Delivered' ? 'Teslim' : val === 'Ongoing' ? 'Devam' : 'İptal'}</span></td>`;
+    }
+    if (c.key === 'source') {
+      return `<td><span class="badge ${val === 'Amazon' ? 'amazon' : 'apple'}">${val}</span></td>`;
+    }
+    if ((c.key === 'total' || c.key === 'wwc') && val) {
+      return `<td style="text-align:right;font-family:var(--mono);font-size:12px">${Number(val).toLocaleString('tr-TR',{maximumFractionDigits:1})}</td>`;
+    }
+    if (c.key === 'deadline' && val) {
+      return `<td>${new Date(val).toLocaleDateString('tr-TR',{day:'2-digit',month:'2-digit',year:'numeric'})}</td>`;
+    }
+    return `<td title="${val}">${val}</td>`;
+  }).join('') + '</tr>').join('');
+
+  const pagEl = document.getElementById('pagination');
+  if (totalPages <= 1) { pagEl.innerHTML = `<div class="pagination-info">${sorted.length} görev</div><div></div>`; return; }
+  const pages = [];
+  let pStart = Math.max(1, state.page - 2), pEnd = Math.min(totalPages, pStart + 4);
+  if (pEnd - pStart < 4) pStart = Math.max(1, pEnd - 4);
+  pages.push(`<button class="page-btn" data-page="1" ${state.page===1?'disabled':''}>«</button>`);
+  pages.push(`<button class="page-btn" data-page="${state.page-1}" ${state.page===1?'disabled':''}>‹</button>`);
+  for (let i = pStart; i <= pEnd; i++) pages.push(`<button class="page-btn${i===state.page?' active':''}" data-page="${i}">${i}</button>`);
+  pages.push(`<button class="page-btn" data-page="${state.page+1}" ${state.page===totalPages?'disabled':''}>›</button>`);
+  pages.push(`<button class="page-btn" data-page="${totalPages}" ${state.page===totalPages?'disabled':''}>»</button>`);
+  pagEl.innerHTML = `<div class="pagination-info">${start+1}–${Math.min(start+state.perPage,sorted.length)} / ${sorted.length.toLocaleString()}</div><div class="pagination-btns">${pages.join('')}</div>`;
+}
+
+// CHARTS
+let charts = {};
+function destroyCharts() { Object.values(charts).forEach(c => c.destroy()); charts = {}; }
+
+function getChartColors() {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  return {
+    text: isDark ? '#8e8e93' : '#6e6e73', grid: isDark ? '#2c2c30' : '#e0e0e4',
+    amazon: isDark ? '#ffb340' : '#ff9900', apple: isDark ? '#30d158' : '#34c759',
+    primary: isDark ? '#3b9aff' : '#0071e3',
+    series: isDark ? ['#3b9aff','#ffb340','#30d158','#bf5af2','#ff453a','#ff9f0a','#5ac8fa','#ffd60a']
+                   : ['#0071e3','#ff9900','#34c759','#af52de','#ff3b30','#ff9500','#5ac8fa','#ffcc00']
+  };
+}
+
+function renderCharts(data) {
+  destroyCharts();
+  const c = getChartColors();
+  const opts = {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { labels: { color: c.text, font: { family: "'Inter'", size: 11 }, boxWidth: 12, padding: 12 } } },
+    scales: { x: { ticks: { color: c.text, font: { size: 10 } }, grid: { color: c.grid } }, y: { ticks: { color: c.text, font: { size: 10 } }, grid: { color: c.grid } } }
+  };
+
+  const monthly = {};
+  data.forEach(t => { if (!t.deadline) return; const m = t.deadline.slice(0,7); if (!monthly[m]) monthly[m]={amazon:0,apple:0}; t.source==='Amazon'?monthly[m].amazon++:monthly[m].apple++; });
+  const months = Object.keys(monthly).sort().slice(-24);
+  charts.timeline = new Chart(document.getElementById('chartTimeline'), {
+    type: 'bar', data: { labels: months.map(m=>{const[y,mo]=m.split('-');return`${mo}/${y.slice(2)}`;}),
+    datasets: [{ label: 'Amazon', data: months.map(m=>monthly[m]?.amazon||0), backgroundColor: c.amazon+'99', borderRadius: 3 },
+               { label: 'AppleCare', data: months.map(m=>monthly[m]?.apple||0), backgroundColor: c.apple+'99', borderRadius: 3 }] },
+    options: { ...opts, scales: { x: { ...opts.scales.x, stacked: true }, y: { ...opts.scales.y, stacked: true } } }
+  });
+
+  const sheetCounts = {};
+  data.forEach(t => { const k=`${t.source} / ${t.sheet}`; sheetCounts[k]=(sheetCounts[k]||0)+1; });
+  const sl = Object.entries(sheetCounts).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  charts.source = new Chart(document.getElementById('chartSource'), {
+    type: 'doughnut', data: { labels: sl.map(e=>e[0]), datasets: [{ data: sl.map(e=>e[1]), backgroundColor: c.series, borderWidth: 0 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: c.text, font: { family: "'Inter'", size: 11 }, boxWidth: 10, padding: 8 } } }, cutout: '55%' }
+  });
+
+  const trCounts = {};
+  data.forEach(t => { if (t.translator) trCounts[t.translator]=(trCounts[t.translator]||0)+1; });
+  const topTr = Object.entries(trCounts).sort((a,b)=>b[1]-a[1]).slice(0,15);
+  charts.translators = new Chart(document.getElementById('chartTranslators'), {
+    type: 'bar', data: { labels: topTr.map(e=>e[0]), datasets: [{ label: 'Görev', data: topTr.map(e=>e[1]), backgroundColor: c.primary+'cc', borderRadius: 3 }] },
+    options: { ...opts, indexAxis: 'y', plugins: { ...opts.plugins, legend: { display: false } } }
+  });
+
+  const rtCounts = {};
+  data.forEach(t => { if (t.revType) rtCounts[t.revType]=(rtCounts[t.revType]||0)+1; });
+  const rt = Object.entries(rtCounts).sort((a,b)=>b[1]-a[1]);
+  charts.revType = new Chart(document.getElementById('chartRevType'), {
+    type: 'bar', data: { labels: rt.map(e=>e[0]), datasets: [{ label: 'Görev', data: rt.map(e=>e[1]), backgroundColor: c.series.slice(0,rt.length), borderRadius: 3 }] },
+    options: { ...opts, plugins: { ...opts.plugins, legend: { display: false } } }
+  });
+}
+
+function exportCSV() {
+  const data = getSorted(getFiltered());
+  const headers = columns.map(c => c.label);
+  const rows = data.map(t => columns.map(c => { let v=t[c.key]??''; if(typeof v==='string'&&v.includes(','))v=`"${v}"`; return v; }));
+  const csv = [headers.join(','), ...rows.map(r=>r.join(','))].join('\n');
+  const blob = new Blob(['\ufeff'+csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `elturco_tasks_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+}
+
+// INIT
+loadAllData();
+</script>
+</body>
+</html>
