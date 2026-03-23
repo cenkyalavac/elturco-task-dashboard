@@ -17,6 +17,7 @@ export const authTokens = sqliteTable("auth_tokens", {
   email: text("email").notNull(),
   expiresAt: text("expires_at").notNull(),
   used: integer("used").notNull().default(0),
+  clientBaseUrl: text("client_base_url"), // The frontend URL to redirect back to
 });
 
 // Sessions
@@ -79,6 +80,7 @@ export const offers = sqliteTable("offers", {
   sentAt: text("sent_at").notNull(),
   respondedAt: text("responded_at"),
   sequenceOrder: integer("sequence_order"), // position in sequence (null for broadcast)
+  clientBaseUrl: text("client_base_url"), // The frontend URL for the respond page
 });
 
 // Schemas

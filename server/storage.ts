@@ -19,8 +19,8 @@ export interface IStorage {
   getAllPmUsers(): PmUser[];
 
   // Auth
-  createAuthToken(token: string, email: string, expiresAt: string): void;
-  getAuthToken(token: string): { token: string; email: string; expiresAt: string; used: number } | undefined;
+  createAuthToken(token: string, email: string, expiresAt: string, clientBaseUrl?: string): void;
+  getAuthToken(token: string): { token: string; email: string; expiresAt: string; used: number; clientBaseUrl: string | null } | undefined;
   markAuthTokenUsed(token: string): void;
   createSession(token: string, pmUserId: number, expiresAt: string): void;
   getSession(token: string): { token: string; pmUserId: number; expiresAt: string } | undefined;
@@ -62,8 +62,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Auth
-  createAuthToken(token: string, email: string, expiresAt: string) {
-    db.insert(authTokens).values({ token, email, expiresAt, used: 0 }).run();
+  createAuthToken(token: string, email: string, expiresAt: string, clientBaseUrl?: string) {
+    db.insert(authTokens).values({ token, email, expiresAt, used: 0, clientBaseUrl: clientBaseUrl || null }).run();
   }
   getAuthToken(token: string) {
     return db.select().from(authTokens).where(eq(authTokens.token, token)).get();

@@ -58,11 +58,6 @@ function generateToken(): string {
 }
 
 // Resolve the public-facing base URL for links in emails.
-// In production (deployed via Perplexity Computer), the frontend sends
-// requests through a proxy.  The Referer / Origin header carries the
-// real public URL the user sees (e.g. https://sites.pplx.app/...).
-// We strip the path so we keep only the scheme+host+port portion.
-// Resolve the public-facing base URL for links in emails.
 // The most reliable approach: the frontend sends its own window.location.origin
 // as `clientBaseUrl` in the request body.  All header-based detection is a
 // fallback for the rare cases where the body field is missing.
@@ -96,6 +91,23 @@ function resolveBaseUrl(req: Request): string {
   const proto = req.protocol || "http";
   const host  = req.headers.host || "localhost:5000";
   return `${proto}://${host}`;
+}
+
+// Build the API base URL from the request.  This is the server's own URL
+// that the email recipient's browser will hit when they click a link.
+// For deployed sites the proxy rewrites __PORT_5000__ paths, so the
+// API lives at the same origin+path-prefix as the static files.
+function buildApiBase(req: Request): string {
+  // The clientBaseUrl sent by the frontend already contains the full proxy
+  // path up to index.html.  The API sits at the same origin but under /port/5000.
+  // However we can also just reuse the same proxy host and let the
+  // __PORT_5000__ rewrite handle it.
+  //
+  // Simplest: use the forwarded / host headers to build a plain server URL.
+  const fwdProto = req.headers["x-forwarded-proto"] || req.protocol || "https";
+  const fwdHost  = req.headers["x-forwarded-host"] || req.headers.host;
+  if (fwdHost) return `${fwdProto}://${fwdHost}`;
+  return `${req.protocol || "http"}://${req.headers.host || "localhost:5000"}`;
 }
 
 // Auth middleware
@@ -188,8 +200,9 @@ function extractRevType(row: any): string {
 // ============================================
 // EMAIL TEMPLATES
 // ============================================
-function buildOfferEmailHtml(task: any, offer: any, assignment: any, baseUrl: string): string {
-  const acceptUrl = `${baseUrl}/#/respond/${offer.token}`;
+function buildOfferEmailHtml(task: any, offer: any, assignment: any, apiBase: string): string {
+  // Use server-side redirect (no '#' in URL) so email clients don't break the link
+  const acceptUrl = `${apiBase}/api/offers/redirect/${offer.token}`;
   const deadline = task.deadline || "TBD";
   const total = task.total || "N/A";
   const wwc = task.wwc || "N/A";
@@ -281,10 +294,13 @@ export async function registerRoutes(server: Server, app: Express) {
 
     const token = generateToken();
     const expiresAt = new Date(Date.now() + MAGIC_LINK_EXPIRY_MINUTES * 60 * 1000).toISOString();
-    storage.createAuthToken(token, emailNorm, expiresAt);
+    const clientBase = resolveBaseUrl(req);
+    storage.createAuthToken(token, emailNorm, expiresAt, clientBase);
 
-    const baseUrl = resolveBaseUrl(req);
-    const magicUrl = `${baseUrl}/#/auth/verify/${token}`;
+    // Use a server-side redirect URL so the email link has no '#' fragment
+    // (email clients often break or strip hash fragments).
+    const apiBase = buildApiBase(req);
+    const magicUrl = `${apiBase}/api/auth/redirect/${token}`;
 
     try {
       sendEmail([email], "ElTurco Dispatch - Login Link", buildMagicLinkEmailHtml(pmUser.name, magicUrl));
@@ -315,6 +331,29 @@ export async function registerRoutes(server: Server, app: Express) {
     storage.createSession(sessionToken, pmUser.id, expiresAt);
 
     res.json({ token: sessionToken, user: { id: pmUser.id, email: pmUser.email, name: pmUser.name, role: pmUser.role } });
+  });
+
+  // ---- REDIRECT ENDPOINTS (no '#' in URL — safe for email clients) ----
+
+  // Magic-link redirect: email links point here, then we 302 to the frontend
+  app.get("/api/auth/redirect/:token", (req: Request, res: Response) => {
+    const authToken = storage.getAuthToken(req.params.token);
+    if (!authToken || !authToken.clientBaseUrl) {
+      return res.status(404).send("Invalid or expired link.");
+    }
+    // Redirect to the frontend verify page
+    const frontendUrl = `${authToken.clientBaseUrl}#/auth/verify/${req.params.token}`;
+    res.redirect(302, frontendUrl);
+  });
+
+  // Offer redirect: freelancer email links point here
+  app.get("/api/offers/redirect/:token", (req: Request, res: Response) => {
+    const offer = storage.getOfferByToken(req.params.token);
+    if (!offer || !offer.clientBaseUrl) {
+      return res.status(404).send("Offer not found or expired.");
+    }
+    const frontendUrl = `${offer.clientBaseUrl}#/respond/${req.params.token}`;
+    res.redirect(302, frontendUrl);
   });
 
   // Get current user
@@ -448,7 +487,8 @@ export async function registerRoutes(server: Server, app: Express) {
       offeredAt: now,
     });
 
-    const baseUrl = resolveBaseUrl(req);
+    const apiBase = buildApiBase(req);
+    const clientBase = resolveBaseUrl(req);
 
     const task = taskDetails || {};
 
@@ -465,13 +505,14 @@ export async function registerRoutes(server: Server, app: Express) {
           status: "pending",
           sentAt: now,
           sequenceOrder: null,
+          clientBaseUrl: clientBase,
         });
 
         try {
           sendEmail(
             [f.email],
             `${role === "translator" ? "Translation" : "Review"} Task — ${account} — ${projectId}`,
-            buildOfferEmailHtml(task, offer, assignment, baseUrl)
+            buildOfferEmailHtml(task, offer, assignment, apiBase)
           );
         } catch (e) {
           console.error(`Failed to send email to ${f.email}:`, e);
@@ -491,13 +532,14 @@ export async function registerRoutes(server: Server, app: Express) {
           status: "pending",
           sentAt: now,
           sequenceOrder: 0,
+          clientBaseUrl: clientBase,
         });
 
         try {
           sendEmail(
             [first.email],
             `${role === "translator" ? "Translation" : "Review"} Task — ${account} — ${projectId}`,
-            buildOfferEmailHtml(task, offer, assignment, baseUrl)
+            buildOfferEmailHtml(task, offer, assignment, apiBase)
           );
         } catch (e) {
           console.error(`Failed to send email to ${first.email}:`, e);
@@ -628,7 +670,8 @@ export async function registerRoutes(server: Server, app: Express) {
 
           if (nextFreelancer) {
             const offerToken = generateToken();
-            const baseUrl = resolveBaseUrl(req);
+            const apiBase = buildApiBase(req);
+            const clientBase = resolveBaseUrl(req);
             const taskDetails = JSON.parse(assignment.taskDetails || "{}");
 
             const newOffer = storage.createOffer({
@@ -640,12 +683,13 @@ export async function registerRoutes(server: Server, app: Express) {
               status: "pending",
               sentAt: now,
               sequenceOrder: nextIndex,
+              clientBaseUrl: clientBase,
             });
 
             sendEmail(
               [nextFreelancer.email],
               `${assignment.role === "translator" ? "Translation" : "Review"} Task — ${assignment.account} — ${assignment.projectId}`,
-              buildOfferEmailHtml(taskDetails, newOffer, assignment, baseUrl)
+              buildOfferEmailHtml(taskDetails, newOffer, assignment, apiBase)
             );
           }
         } catch (e) {
