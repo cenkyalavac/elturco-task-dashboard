@@ -22,10 +22,10 @@ export default function LoginPage() {
       setSent(true);
     } catch (err: any) {
       toast({
-        title: "Hata",
+        title: "Error",
         description: err.message?.includes("404")
-          ? "Bu e-posta adresi kayıtlı değil."
-          : "E-posta gönderilemedi. Tekrar deneyin.",
+          ? "This email address is not registered."
+          : "Failed to send email. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -46,7 +46,7 @@ export default function LoginPage() {
           <h1 className="text-xl font-semibold text-foreground" data-testid="text-app-title">
             ElTurco Dispatch
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">Görev Yönetim Sistemi</p>
+          <p className="text-sm text-muted-foreground mt-1">Task Management System</p>
         </div>
 
         <Card className="border border-border">
@@ -54,9 +54,9 @@ export default function LoginPage() {
             {sent ? (
               <div className="text-center py-4" data-testid="text-email-sent">
                 <CheckCircle2 className="w-10 h-10 text-green-500 mx-auto mb-3" />
-                <p className="font-medium text-foreground mb-1">Giriş linki gönderildi</p>
+                <p className="font-medium text-foreground mb-1">Login link sent</p>
                 <p className="text-sm text-muted-foreground">
-                  <strong>{email}</strong> adresine gelen e-postadaki linke tıklayarak giriş yapabilirsiniz.
+                  Check your inbox and click the link to sign in.
                 </p>
                 <Button
                   variant="ghost"
@@ -64,14 +64,14 @@ export default function LoginPage() {
                   onClick={() => { setSent(false); setEmail(""); }}
                   data-testid="button-try-again"
                 >
-                  Farklı e-posta dene
+                  Try a different email
                 </Button>
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
                   <label className="text-sm font-medium text-foreground mb-1.5 block">
-                    E-posta adresi
+                    Email address
                   </label>
                   <div className="relative">
                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -95,14 +95,14 @@ export default function LoginPage() {
                   {sending ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Gönderiliyor...
+                      Sending...
                     </>
                   ) : (
-                    "Giriş Linki Gönder"
+                    "Send Login Link"
                   )}
                 </Button>
                 <p className="text-xs text-muted-foreground text-center">
-                  E-postanıza gelen link ile güvenli giriş yaparsınız.
+                  You'll receive a secure login link via email.
                 </p>
               </form>
             )}

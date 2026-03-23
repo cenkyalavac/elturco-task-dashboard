@@ -25,9 +25,9 @@ export default function AuthVerifyPage() {
       } catch (err: any) {
         setStatus("error");
         const msg = err.message || "";
-        if (msg.includes("kullanıldı")) setErrorMsg("Bu link zaten kullanıldı.");
-        else if (msg.includes("dolmuş")) setErrorMsg("Bu linkin süresi dolmuş.");
-        else setErrorMsg("Geçersiz veya süresi dolmuş link.");
+        if (msg.includes("kullanıldı") || msg.includes("already been used")) setErrorMsg("This link has already been used.");
+        else if (msg.includes("dolmuş") || msg.includes("expired")) setErrorMsg("This link has expired.");
+        else setErrorMsg("Invalid or expired link.");
       }
     }
     verify();
@@ -39,14 +39,14 @@ export default function AuthVerifyPage() {
         {status === "verifying" && (
           <div data-testid="text-verifying">
             <Loader2 className="w-10 h-10 animate-spin text-primary mx-auto mb-3" />
-            <p className="text-foreground font-medium">Doğrulanıyor...</p>
+            <p className="text-foreground font-medium">Verifying...</p>
           </div>
         )}
         {status === "success" && (
           <div data-testid="text-verified">
             <CheckCircle2 className="w-10 h-10 text-green-500 mx-auto mb-3" />
-            <p className="text-foreground font-medium">Giriş başarılı</p>
-            <p className="text-sm text-muted-foreground mt-1">Yönlendiriliyorsunuz...</p>
+            <p className="text-foreground font-medium">Login successful</p>
+            <p className="text-sm text-muted-foreground mt-1">Redirecting...</p>
           </div>
         )}
         {status === "error" && (
@@ -59,7 +59,7 @@ export default function AuthVerifyPage() {
               onClick={() => setLocation("/login")}
               data-testid="button-back-to-login"
             >
-              Giriş sayfasına dön
+              Back to login
             </Button>
           </div>
         )}

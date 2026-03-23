@@ -183,7 +183,7 @@ function buildOfferEmailHtml(task: any, offer: any, assignment: any, baseUrl: st
   const deadline = task.deadline || "TBD";
   const total = task.total || "N/A";
   const wwc = task.wwc || "N/A";
-  const role = assignment.role === "translator" ? "Çeviri" : "Revizyon";
+  const role = assignment.role === "translator" ? "Translation" : "Review";
 
   return `
 <!DOCTYPE html>
@@ -193,27 +193,27 @@ function buildOfferEmailHtml(task: any, offer: any, assignment: any, baseUrl: st
 <div style="max-width:600px;margin:0 auto;padding:24px">
 <div style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08)">
   <div style="background:#1a1a2e;padding:24px 32px;color:#fff">
-    <h1 style="margin:0;font-size:20px;font-weight:600">Yeni ${role} Görevi</h1>
+    <h1 style="margin:0;font-size:20px;font-weight:600">New ${role} Task</h1>
     <p style="margin:8px 0 0;opacity:0.7;font-size:14px">ElTurco Projects</p>
   </div>
   <div style="padding:28px 32px">
-    <p style="margin:0 0 16px;font-size:15px;color:#333">Merhaba <strong>${offer.freelancerName}</strong>,</p>
+    <p style="margin:0 0 16px;font-size:15px;color:#333">Hello <strong>${offer.freelancerName}</strong>,</p>
     <p style="margin:0 0 20px;font-size:14px;color:#555;line-height:1.6">
-      Aşağıdaki ${role.toLowerCase()} görevi için uygun olup olmadığını öğrenmek istiyoruz.
+      We'd like to know if you're available for the following ${role.toLowerCase()} task.
     </p>
     <table style="width:100%;border-collapse:collapse;margin:0 0 24px">
-      <tr><td style="padding:10px 12px;background:#f8f9fa;font-size:13px;font-weight:600;color:#666;border-bottom:1px solid #eee;width:140px">Hesap</td><td style="padding:10px 12px;background:#f8f9fa;font-size:14px;color:#333;border-bottom:1px solid #eee">${task.account}</td></tr>
-      <tr><td style="padding:10px 12px;font-size:13px;font-weight:600;color:#666;border-bottom:1px solid #eee">Kaynak / Sekme</td><td style="padding:10px 12px;font-size:14px;color:#333;border-bottom:1px solid #eee">${task.source} / ${task.sheet}</td></tr>
-      <tr><td style="padding:10px 12px;background:#f8f9fa;font-size:13px;font-weight:600;color:#666;border-bottom:1px solid #eee">Proje ID</td><td style="padding:10px 12px;background:#f8f9fa;font-size:14px;color:#333;border-bottom:1px solid #eee">${task.projectId}</td></tr>
+      <tr><td style="padding:10px 12px;background:#f8f9fa;font-size:13px;font-weight:600;color:#666;border-bottom:1px solid #eee;width:140px">Account</td><td style="padding:10px 12px;background:#f8f9fa;font-size:14px;color:#333;border-bottom:1px solid #eee">${task.account}</td></tr>
+      <tr><td style="padding:10px 12px;font-size:13px;font-weight:600;color:#666;border-bottom:1px solid #eee">Source / Tab</td><td style="padding:10px 12px;font-size:14px;color:#333;border-bottom:1px solid #eee">${task.source} / ${task.sheet}</td></tr>
+      <tr><td style="padding:10px 12px;background:#f8f9fa;font-size:13px;font-weight:600;color:#666;border-bottom:1px solid #eee">Project ID</td><td style="padding:10px 12px;background:#f8f9fa;font-size:14px;color:#333;border-bottom:1px solid #eee">${task.projectId}</td></tr>
       <tr><td style="padding:10px 12px;font-size:13px;font-weight:600;color:#666;border-bottom:1px solid #eee">Deadline</td><td style="padding:10px 12px;font-size:14px;color:#e74c3c;font-weight:600;border-bottom:1px solid #eee">${deadline}</td></tr>
-      <tr><td style="padding:10px 12px;background:#f8f9fa;font-size:13px;font-weight:600;color:#666;border-bottom:1px solid #eee">Toplam / WWC</td><td style="padding:10px 12px;background:#f8f9fa;font-size:14px;color:#333;border-bottom:1px solid #eee">${total} / ${wwc}</td></tr>
-      <tr><td style="padding:10px 12px;font-size:13px;font-weight:600;color:#666;border-bottom:1px solid #eee">Görev Tipi</td><td style="padding:10px 12px;font-size:14px;color:#333;border-bottom:1px solid #eee">${role}</td></tr>
+      <tr><td style="padding:10px 12px;background:#f8f9fa;font-size:13px;font-weight:600;color:#666;border-bottom:1px solid #eee">Total / WWC</td><td style="padding:10px 12px;background:#f8f9fa;font-size:14px;color:#333;border-bottom:1px solid #eee">${total} / ${wwc}</td></tr>
+      <tr><td style="padding:10px 12px;font-size:13px;font-weight:600;color:#666;border-bottom:1px solid #eee">Task Type</td><td style="padding:10px 12px;font-size:14px;color:#333;border-bottom:1px solid #eee">${role}</td></tr>
     </table>
     <div style="text-align:center;margin:28px 0">
-      <a href="${acceptUrl}" style="display:inline-block;padding:14px 48px;background:#16a34a;color:#fff;text-decoration:none;border-radius:8px;font-size:16px;font-weight:600;letter-spacing:0.02em">Görevi Kabul Et</a>
+      <a href="${acceptUrl}" style="display:inline-block;padding:14px 48px;background:#16a34a;color:#fff;text-decoration:none;border-radius:8px;font-size:16px;font-weight:600;letter-spacing:0.02em">Accept Task</a>
     </div>
     <p style="margin:0;font-size:12px;color:#999;text-align:center;line-height:1.5">
-      Bu link sadece size özeldir. Kabul etmek istemiyorsanız linke tıklayıp "Reddet" butonunu kullanabilirsiniz.
+      This link is unique to you. If you don't want to accept, click the link and use the 'Decline' button.
     </p>
   </div>
 </div>
@@ -235,9 +235,9 @@ function buildMagicLinkEmailHtml(name: string, magicUrl: string): string {
     <svg width="28" height="28" viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="8" fill="#3b82f6"/><path d="M8 11h16M8 16h12M8 21h8" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></svg>
   </div>
   <h1 style="margin:0 0 8px;font-size:22px;color:#1a1a2e">ElTurco Dispatch</h1>
-  <p style="margin:0 0 24px;font-size:14px;color:#666">Merhaba ${name}, giriş yapmak için aşağıdaki butona tıkla.</p>
-  <a href="${magicUrl}" style="display:inline-block;padding:14px 48px;background:#3b82f6;color:#fff;text-decoration:none;border-radius:8px;font-size:16px;font-weight:600">Giriş Yap</a>
-  <p style="margin:20px 0 0;font-size:12px;color:#999">Bu link ${MAGIC_LINK_EXPIRY_MINUTES} dakika geçerlidir.</p>
+  <p style="margin:0 0 24px;font-size:14px;color:#666">Hello ${name}, click the button below to sign in.</p>
+  <a href="${magicUrl}" style="display:inline-block;padding:14px 48px;background:#3b82f6;color:#fff;text-decoration:none;border-radius:8px;font-size:16px;font-weight:600">Sign In</a>
+  <p style="margin:20px 0 0;font-size:12px;color:#999">This link is valid for ${MAGIC_LINK_EXPIRY_MINUTES} minutes.</p>
 </div>
 </div>
 </body>
@@ -256,22 +256,32 @@ export async function registerRoutes(server: Server, app: Express) {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: "Email required" });
 
-    const pmUser = storage.getPmUserByEmail(email.toLowerCase().trim());
-    if (!pmUser) return res.status(404).json({ error: "Bu e-posta adresi kayıtlı değil." });
+    const emailNorm = email.toLowerCase().trim();
+    let pmUser = storage.getPmUserByEmail(emailNorm);
+    if (!pmUser) {
+      // Auto-provision any @eltur.co address
+      if (emailNorm.endsWith("@eltur.co")) {
+        const namePart = emailNorm.split("@")[0].replace(/[._-]/g, " ");
+        const name = namePart.split(" ").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+        pmUser = storage.createPmUser({ email: emailNorm, name, role: "pm" });
+      } else {
+        return res.status(404).json({ error: "This email address is not registered." });
+      }
+    }
 
     const token = generateToken();
     const expiresAt = new Date(Date.now() + MAGIC_LINK_EXPIRY_MINUTES * 60 * 1000).toISOString();
-    storage.createAuthToken(token, email.toLowerCase().trim(), expiresAt);
+    storage.createAuthToken(token, emailNorm, expiresAt);
 
     const baseUrl = resolveBaseUrl(req);
     const magicUrl = `${baseUrl}/#/auth/verify/${token}`;
 
     try {
-      sendEmail([email], "ElTurco Dispatch - Giriş Linki", buildMagicLinkEmailHtml(pmUser.name, magicUrl));
-      res.json({ success: true, message: "Giriş linki e-postanıza gönderildi." });
+      sendEmail([email], "ElTurco Dispatch - Login Link", buildMagicLinkEmailHtml(pmUser.name, magicUrl));
+      res.json({ success: true, message: "Login link sent to your email." });
     } catch (e: any) {
       console.error("Email send error:", e);
-      res.status(500).json({ error: "E-posta gönderilemedi: " + (e.message || "Bilinmeyen hata") });
+      res.status(500).json({ error: "Failed to send email: " + (e.message || "Unknown error") });
     }
   });
 
@@ -281,14 +291,14 @@ export async function registerRoutes(server: Server, app: Express) {
     if (!token) return res.status(400).json({ error: "Token required" });
 
     const authToken = storage.getAuthToken(token);
-    if (!authToken) return res.status(404).json({ error: "Geçersiz veya kullanılmış link." });
-    if (authToken.used) return res.status(400).json({ error: "Bu link zaten kullanıldı." });
-    if (new Date(authToken.expiresAt) < new Date()) return res.status(400).json({ error: "Bu linkin süresi dolmuş." });
+    if (!authToken) return res.status(404).json({ error: "Invalid or expired link." });
+    if (authToken.used) return res.status(400).json({ error: "This link has already been used." });
+    if (new Date(authToken.expiresAt) < new Date()) return res.status(400).json({ error: "This link has expired." });
 
     storage.markAuthTokenUsed(token);
 
     const pmUser = storage.getPmUserByEmail(authToken.email);
-    if (!pmUser) return res.status(404).json({ error: "Kullanıcı bulunamadı." });
+    if (!pmUser) return res.status(404).json({ error: "User not found." });
 
     const sessionToken = generateToken();
     const expiresAt = new Date(Date.now() + SESSION_EXPIRY_HOURS * 3600 * 1000).toISOString();
@@ -340,7 +350,7 @@ export async function registerRoutes(server: Server, app: Express) {
       }));
       res.json(freelancers);
     } catch (e: any) {
-      res.status(500).json({ error: "Freelancer verisi alınamadı: " + e.message });
+      res.status(500).json({ error: "Failed to fetch freelancer data: " + e.message });
     }
   });
 
@@ -362,7 +372,7 @@ export async function registerRoutes(server: Server, app: Express) {
 
       res.json(allTasks);
     } catch (e: any) {
-      res.status(500).json({ error: "Görev verisi alınamadı: " + e.message });
+      res.status(500).json({ error: "Failed to fetch task data: " + e.message });
     }
   });
 
@@ -402,7 +412,7 @@ export async function registerRoutes(server: Server, app: Express) {
     } = req.body;
 
     if (!source || !projectId || !assignmentType || !role || !freelancers?.length) {
-      return res.status(400).json({ error: "Eksik alanlar" });
+      return res.status(400).json({ error: "Missing fields" });
     }
 
     const now = new Date().toISOString();
@@ -450,7 +460,7 @@ export async function registerRoutes(server: Server, app: Express) {
         try {
           sendEmail(
             [f.email],
-            `${role === "translator" ? "Çeviri" : "Revizyon"} Görevi — ${account} — ${projectId}`,
+            `${role === "translator" ? "Translation" : "Review"} Task — ${account} — ${projectId}`,
             buildOfferEmailHtml(task, offer, assignment, baseUrl)
           );
         } catch (e) {
@@ -476,7 +486,7 @@ export async function registerRoutes(server: Server, app: Express) {
         try {
           sendEmail(
             [first.email],
-            `${role === "translator" ? "Çeviri" : "Revizyon"} Görevi — ${account} — ${projectId}`,
+            `${role === "translator" ? "Translation" : "Review"} Task — ${account} — ${projectId}`,
             buildOfferEmailHtml(task, offer, assignment, baseUrl)
           );
         } catch (e) {
@@ -498,10 +508,10 @@ export async function registerRoutes(server: Server, app: Express) {
   // Get offer details for freelancer view
   app.get("/api/offers/:token", async (req: Request, res: Response) => {
     const offer = storage.getOfferByToken(req.params.token);
-    if (!offer) return res.status(404).json({ error: "Teklif bulunamadı." });
+    if (!offer) return res.status(404).json({ error: "Offer not found." });
 
     const assignment = storage.getAssignment(offer.assignmentId);
-    if (!assignment) return res.status(404).json({ error: "Görev bulunamadı." });
+    if (!assignment) return res.status(404).json({ error: "Task not found." });
 
     const taskDetails = JSON.parse(assignment.taskDetails || "{}");
 
@@ -530,17 +540,17 @@ export async function registerRoutes(server: Server, app: Express) {
   // Accept offer
   app.post("/api/offers/:token/accept", async (req: Request, res: Response) => {
     const offer = storage.getOfferByToken(req.params.token);
-    if (!offer) return res.status(404).json({ error: "Teklif bulunamadı." });
+    if (!offer) return res.status(404).json({ error: "Offer not found." });
     if (offer.status !== "pending") {
-      return res.status(400).json({ error: "Bu teklif artık geçerli değil.", currentStatus: offer.status });
+      return res.status(400).json({ error: "This offer is no longer valid.", currentStatus: offer.status });
     }
 
     const assignment = storage.getAssignment(offer.assignmentId);
-    if (!assignment) return res.status(404).json({ error: "Görev bulunamadı." });
+    if (!assignment) return res.status(404).json({ error: "Task not found." });
     if (assignment.status === "accepted" || assignment.status === "completed") {
       // Already taken by someone else
       storage.updateOffer(offer.id, { status: "withdrawn", respondedAt: new Date().toISOString() });
-      return res.status(400).json({ error: "Bu görev başka bir çevirmen tarafından zaten kabul edildi." });
+      return res.status(400).json({ error: "This task has already been accepted by another translator." });
     }
 
     const now = new Date().toISOString();
@@ -572,15 +582,15 @@ export async function registerRoutes(server: Server, app: Express) {
       console.error("Sheet update error:", e);
     }
 
-    res.json({ success: true, message: "Görev kabul edildi. Teşekkürler!" });
+    res.json({ success: true, message: "Task accepted. Thank you!" });
   });
 
   // Reject offer
   app.post("/api/offers/:token/reject", async (req: Request, res: Response) => {
     const offer = storage.getOfferByToken(req.params.token);
-    if (!offer) return res.status(404).json({ error: "Teklif bulunamadı." });
+    if (!offer) return res.status(404).json({ error: "Offer not found." });
     if (offer.status !== "pending") {
-      return res.status(400).json({ error: "Bu teklif artık geçerli değil.", currentStatus: offer.status });
+      return res.status(400).json({ error: "This offer is no longer valid.", currentStatus: offer.status });
     }
 
     const now = new Date().toISOString();
@@ -624,7 +634,7 @@ export async function registerRoutes(server: Server, app: Express) {
 
             sendEmail(
               [nextFreelancer.email],
-              `${assignment.role === "translator" ? "Çeviri" : "Revizyon"} Görevi — ${assignment.account} — ${assignment.projectId}`,
+              `${assignment.role === "translator" ? "Translation" : "Review"} Task — ${assignment.account} — ${assignment.projectId}`,
               buildOfferEmailHtml(taskDetails, newOffer, assignment, baseUrl)
             );
           }
@@ -637,19 +647,19 @@ export async function registerRoutes(server: Server, app: Express) {
       }
     }
 
-    res.json({ success: true, message: "Teklif reddedildi." });
+    res.json({ success: true, message: "Offer declined." });
   });
 
   // Mark task as completed by freelancer
   app.post("/api/offers/:token/complete", async (req: Request, res: Response) => {
     const offer = storage.getOfferByToken(req.params.token);
-    if (!offer) return res.status(404).json({ error: "Teklif bulunamadı." });
+    if (!offer) return res.status(404).json({ error: "Offer not found." });
     if (offer.status !== "accepted") {
-      return res.status(400).json({ error: "Sadece kabul edilmiş görevler tamamlanabilir." });
+      return res.status(400).json({ error: "Only accepted tasks can be completed." });
     }
 
     const assignment = storage.getAssignment(offer.assignmentId);
-    if (!assignment) return res.status(404).json({ error: "Görev bulunamadı." });
+    if (!assignment) return res.status(404).json({ error: "Task not found." });
 
     const now = new Date().toISOString();
     storage.updateAssignment(assignment.id, { status: "completed", completedAt: now });
@@ -661,7 +671,7 @@ export async function registerRoutes(server: Server, app: Express) {
       console.error("Sheet update error on complete:", e);
     }
 
-    res.json({ success: true, message: "Görev tamamlandı olarak işaretlendi!" });
+    res.json({ success: true, message: "Task marked as completed!" });
   });
 
   // ---- GOOGLE SHEETS UPDATE HELPERS ----
@@ -757,7 +767,7 @@ export async function registerRoutes(server: Server, app: Express) {
     const { email, name, role } = req.body;
     if (!email || !name) return res.status(400).json({ error: "Email and name required" });
     const existing = storage.getPmUserByEmail(email.toLowerCase().trim());
-    if (existing) return res.status(400).json({ error: "Bu e-posta zaten kayıtlı." });
+    if (existing) return res.status(400).json({ error: "This email is already registered." });
     const user = storage.createPmUser({ email: email.toLowerCase().trim(), name, role: role || "pm" });
     res.json(user);
   });

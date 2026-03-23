@@ -144,7 +144,7 @@ export default function DashboardPage() {
             <span className="text-sm text-muted-foreground hidden sm:inline" data-testid="text-user-email">{user?.email}</span>
             <Button variant="ghost" size="sm" onClick={() => setLocation("/assignments")} data-testid="button-nav-assignments">
               <FileText className="w-4 h-4 mr-1.5" />
-              Atamalar
+              Assignments
             </Button>
             <Button variant="ghost" size="sm" onClick={logout} data-testid="button-logout">
               <LogOut className="w-4 h-4" />
@@ -156,10 +156,10 @@ export default function DashboardPage() {
       <main className="max-w-[1400px] mx-auto px-4 py-6">
         {/* Stats Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-          <StatCard icon={<LayoutDashboard className="w-4 h-4" />} label="Toplam Görev" value={stats.total} loading={tasksLoading} />
-          <StatCard icon={<AlertCircle className="w-4 h-4" />} label="Atanmamış" value={stats.unassigned} loading={tasksLoading} accent="orange" />
-          <StatCard icon={<Send className="w-4 h-4" />} label="Atanmış" value={stats.assigned} loading={tasksLoading} accent="blue" />
-          <StatCard icon={<CheckCircle2 className="w-4 h-4" />} label="Tamamlanan" value={stats.completed} loading={assignmentsLoading} accent="green" />
+          <StatCard icon={<LayoutDashboard className="w-4 h-4" />} label="Total Tasks" value={stats.total} loading={tasksLoading} />
+          <StatCard icon={<AlertCircle className="w-4 h-4" />} label="Unassigned" value={stats.unassigned} loading={tasksLoading} accent="orange" />
+          <StatCard icon={<Send className="w-4 h-4" />} label="Assigned" value={stats.assigned} loading={tasksLoading} accent="blue" />
+          <StatCard icon={<CheckCircle2 className="w-4 h-4" />} label="Completed" value={stats.completed} loading={assignmentsLoading} accent="green" />
         </div>
 
         {/* Filters */}
@@ -167,7 +167,7 @@ export default function DashboardPage() {
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
-              placeholder="Proje ID, hesap veya çevirmen ara..."
+              placeholder="Search by project ID, account, or translator..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               className="pl-10"
@@ -179,7 +179,7 @@ export default function DashboardPage() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Tüm Kaynaklar</SelectItem>
+              <SelectItem value="all">All Sources</SelectItem>
               <SelectItem value="Amazon">Amazon</SelectItem>
               <SelectItem value="AppleCare">AppleCare</SelectItem>
             </SelectContent>
@@ -189,10 +189,10 @@ export default function DashboardPage() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="unassigned">Atanmamış</SelectItem>
-              <SelectItem value="assigned">Atanmış</SelectItem>
-              <SelectItem value="all">Tümü</SelectItem>
-              <SelectItem value="delivered">Teslim Edilmiş</SelectItem>
+              <SelectItem value="unassigned">Unassigned</SelectItem>
+              <SelectItem value="assigned">Assigned</SelectItem>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="delivered">Delivered</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -207,7 +207,7 @@ export default function DashboardPage() {
         ) : filteredTasks.length === 0 ? (
           <div className="text-center py-16" data-testid="text-no-tasks">
             <FileText className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-            <p className="text-muted-foreground">Görev bulunamadı</p>
+            <p className="text-muted-foreground">No tasks found</p>
           </div>
         ) : (
           <div className="border border-border rounded-lg overflow-hidden">
@@ -215,13 +215,13 @@ export default function DashboardPage() {
               <table className="w-full text-sm" data-testid="table-tasks">
                 <thead>
                   <tr className="bg-muted/50 border-b border-border">
-                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Proje ID</th>
-                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Kaynak</th>
-                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Hesap</th>
-                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Çevirmen</th>
-                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Editör</th>
+                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Project ID</th>
+                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Source</th>
+                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Account</th>
+                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Translator</th>
+                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Reviewer</th>
                     <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Deadline</th>
-                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Toplam</th>
+                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Total</th>
                     <th className="text-left font-medium text-muted-foreground px-3 py-2.5 w-10"></th>
                   </tr>
                 </thead>
@@ -247,14 +247,14 @@ export default function DashboardPage() {
                           {task.translator ? (
                             <span className="text-foreground">{task.translator}</span>
                           ) : (
-                            <span className="text-orange-500 text-xs">Atanmamış</span>
+                            <span className="text-orange-500 text-xs">Unassigned</span>
                           )}
                         </td>
                         <td className="px-3 py-2.5">
                           {task.reviewer ? (
                             <span className="text-foreground">{task.reviewer}</span>
                           ) : task.translator ? (
-                            <span className="text-orange-500 text-xs">Atanmamış</span>
+                            <span className="text-orange-500 text-xs">Unassigned</span>
                           ) : (
                             <span className="text-muted-foreground text-xs">—</span>
                           )}
@@ -272,7 +272,7 @@ export default function DashboardPage() {
             </div>
             {filteredTasks.length > 100 && (
               <div className="bg-muted/30 px-3 py-2 text-xs text-muted-foreground text-center border-t border-border">
-                {filteredTasks.length} sonuçtan ilk 100 tanesi gösteriliyor
+                Showing first 100 of {filteredTasks.length} results
               </div>
             )}
           </div>

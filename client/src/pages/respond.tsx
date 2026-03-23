@@ -45,7 +45,7 @@ export default function RespondPage() {
         return res.json();
       })
       .then(d => { setData(d); setLoading(false); })
-      .catch(() => { setError("Teklif bulunamadı veya süresi dolmuş."); setLoading(false); });
+      .catch(() => { setError("Offer not found or expired."); setLoading(false); });
   }, [token]);
 
   async function handleAction(action: "accept" | "reject" | "complete") {
@@ -54,7 +54,7 @@ export default function RespondPage() {
       const res = await fetch(`${API_BASE}/api/offers/${token}/${action}`, { method: "POST" });
       const json = await res.json();
       if (!res.ok) {
-        setActionResult({ success: false, message: json.error || "Bir hata oluştu." });
+        setActionResult({ success: false, message: json.error || "An error occurred." });
       } else {
         setActionResult({ success: true, message: json.message });
         // Refresh data
@@ -62,7 +62,7 @@ export default function RespondPage() {
         if (refreshRes.ok) setData(await refreshRes.json());
       }
     } catch {
-      setActionResult({ success: false, message: "Bağlantı hatası. Tekrar deneyin." });
+      setActionResult({ success: false, message: "Connection error. Please try again." });
     } finally {
       setActionLoading(null);
     }
@@ -82,7 +82,7 @@ export default function RespondPage() {
         <Card className="max-w-sm w-full border border-border">
           <CardContent className="pt-6 text-center">
             <AlertTriangle className="w-10 h-10 text-orange-500 mx-auto mb-3" />
-            <p className="font-medium text-foreground">{error || "Teklif bulunamadı."}</p>
+            <p className="font-medium text-foreground">{error || "Offer not found."}</p>
           </CardContent>
         </Card>
       </div>
@@ -90,7 +90,7 @@ export default function RespondPage() {
   }
 
   const { offer, assignment, task } = data;
-  const role = assignment.role === "translator" ? "Çeviri" : "Revizyon";
+  const role = assignment.role === "translator" ? "Translation" : "Review";
   const isPending = offer.status === "pending";
   const isAccepted = offer.status === "accepted";
   const isCompleted = assignment.status === "completed";
@@ -119,27 +119,27 @@ export default function RespondPage() {
             )}
 
             {/* Greeting */}
-            <p className="text-sm text-muted-foreground mb-1">Merhaba</p>
+            <p className="text-sm text-muted-foreground mb-1">Hello</p>
             <p className="text-lg font-semibold text-foreground mb-4" data-testid="text-freelancer-name">{offer.freelancerName}</p>
 
             {/* Status badge */}
             <div className="mb-4">
-              {offer.status === "pending" && <Badge variant="secondary" className="text-xs">Yanıt Bekleniyor</Badge>}
-              {offer.status === "accepted" && !isCompleted && <Badge className="text-xs bg-green-500/10 text-green-600 border-green-500/20">Kabul Edildi</Badge>}
-              {isCompleted && <Badge className="text-xs bg-blue-500/10 text-blue-600 border-blue-500/20">Tamamlandı</Badge>}
-              {offer.status === "rejected" && <Badge variant="destructive" className="text-xs">Reddedildi</Badge>}
-              {offer.status === "withdrawn" && <Badge variant="secondary" className="text-xs">Geri Çekildi</Badge>}
-              {offer.status === "expired" && <Badge variant="destructive" className="text-xs">Süresi Doldu</Badge>}
+              {offer.status === "pending" && <Badge variant="secondary" className="text-xs">Pending Response</Badge>}
+              {offer.status === "accepted" && !isCompleted && <Badge className="text-xs bg-green-500/10 text-green-600 border-green-500/20">Accepted</Badge>}
+              {isCompleted && <Badge className="text-xs bg-blue-500/10 text-blue-600 border-blue-500/20">Completed</Badge>}
+              {offer.status === "rejected" && <Badge variant="destructive" className="text-xs">Declined</Badge>}
+              {offer.status === "withdrawn" && <Badge variant="secondary" className="text-xs">Withdrawn</Badge>}
+              {offer.status === "expired" && <Badge variant="destructive" className="text-xs">Expired</Badge>}
             </div>
 
             {/* Task details */}
             <div className="space-y-2 text-sm mb-6">
-              <DetailRow label="Görev Tipi" value={role} />
-              <DetailRow label="Hesap" value={task.account || assignment.account} />
-              <DetailRow label="Kaynak" value={`${assignment.source} / ${assignment.sheet}`} />
-              <DetailRow label="Proje ID" value={assignment.projectId} />
+              <DetailRow label="Task Type" value={role} />
+              <DetailRow label="Account" value={task.account || assignment.account} />
+              <DetailRow label="Source" value={`${assignment.source} / ${assignment.sheet}`} />
+              <DetailRow label="Project ID" value={assignment.projectId} />
               <DetailRow label="Deadline" value={task.deadline || "—"} />
-              <DetailRow label="Toplam / WWC" value={`${task.total || "—"} / ${task.wwc || "—"}`} />
+              <DetailRow label="Total / WWC" value={`${task.total || "—"} / ${task.wwc || "—"}`} />
             </div>
 
             {/* Action buttons */}
@@ -153,7 +153,7 @@ export default function RespondPage() {
                   data-testid="button-accept"
                 >
                   {actionLoading === "accept" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
-                  Görevi Kabul Et
+                  Accept Task
                 </Button>
                 <Button
                   variant="outline"
@@ -164,7 +164,7 @@ export default function RespondPage() {
                   data-testid="button-reject"
                 >
                   {actionLoading === "reject" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <XCircle className="w-4 h-4 mr-2" />}
-                  Reddet
+                  Decline
                 </Button>
               </div>
             )}
@@ -178,7 +178,7 @@ export default function RespondPage() {
                 data-testid="button-complete"
               >
                 {actionLoading === "complete" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileCheck className="w-4 h-4 mr-2" />}
-                Görevi Tamamladım
+                Mark as Completed
               </Button>
             )}
           </CardContent>

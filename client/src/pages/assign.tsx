@@ -176,11 +176,11 @@ export default function AssignPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/assignments"] });
-      toast({ title: "Görev atandı", description: "E-postalar gönderildi." });
+      toast({ title: "Task assigned", description: "Emails sent." });
       setLocation("/");
     },
     onError: (err: any) => {
-      toast({ title: "Hata", description: err.message, variant: "destructive" });
+      toast({ title: "Error", description: err.message, variant: "destructive" });
     },
   });
 
@@ -188,8 +188,8 @@ export default function AssignPage() {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
-          <p className="text-muted-foreground mb-4">Görev bulunamadı</p>
-          <Button variant="outline" onClick={() => setLocation("/")}>Geri dön</Button>
+          <p className="text-muted-foreground mb-4">Task not found</p>
+          <Button variant="outline" onClick={() => setLocation("/")}>Go back</Button>
         </div>
       </div>
     );
@@ -204,7 +204,7 @@ export default function AssignPage() {
             <ArrowLeft className="w-4 h-4" />
           </Button>
           <div>
-            <span className="font-semibold text-sm text-foreground" data-testid="text-assign-title">Görev Ata</span>
+            <span className="font-semibold text-sm text-foreground" data-testid="text-assign-title">Assign Task</span>
             {task && (
               <span className="text-xs text-muted-foreground ml-2">
                 {task.projectId} — {task.source} / {task.sheet}
@@ -221,18 +221,18 @@ export default function AssignPage() {
             {/* Task Info */}
             <Card className="border border-border">
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">Görev Bilgileri</CardTitle>
+                <CardTitle className="text-sm font-semibold">Task Details</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
                 {task ? (
                   <>
-                    <Row label="Proje ID" value={task.projectId} testId="text-task-project-id" />
-                    <Row label="Kaynak" value={`${task.source} / ${task.sheet}`} />
-                    <Row label="Hesap" value={task.account} />
+                    <Row label="Project ID" value={task.projectId} testId="text-task-project-id" />
+                    <Row label="Source" value={`${task.source} / ${task.sheet}`} />
+                    <Row label="Account" value={task.account} />
                     <Row label="Deadline" value={task.deadline || "—"} />
-                    <Row label="Toplam / WWC" value={`${task.total} / ${task.wwc}`} />
-                    <Row label="Çevirmen" value={task.translator || "Atanmamış"} />
-                    <Row label="Editör" value={task.reviewer || "Atanmamış"} />
+                    <Row label="Total / WWC" value={`${task.total} / ${task.wwc}`} />
+                    <Row label="Translator" value={task.translator || "Unassigned"} />
+                    <Row label="Reviewer" value={task.reviewer || "Unassigned"} />
                   </>
                 ) : (
                   <Skeleton className="h-32 w-full" />
@@ -243,46 +243,46 @@ export default function AssignPage() {
             {/* Assignment Config */}
             <Card className="border border-border">
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">Atama Ayarları</CardTitle>
+                <CardTitle className="text-sm font-semibold">Assignment Settings</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Rol</label>
+                  <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Role</label>
                   <Select value={role} onValueChange={(v: any) => setRole(v)}>
                     <SelectTrigger data-testid="select-role">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="translator">Çevirmen (Translator)</SelectItem>
-                      <SelectItem value="reviewer">Editör (Reviewer)</SelectItem>
+                      <SelectItem value="translator">Translator</SelectItem>
+                      <SelectItem value="reviewer">Reviewer</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Atama Tipi</label>
+                  <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Assignment Type</label>
                   <Select value={assignmentType} onValueChange={(v: any) => { setAssignmentType(v); if (v === "direct") setSelectedFreelancers(prev => prev.slice(0, 1)); }}>
                     <SelectTrigger data-testid="select-assignment-type">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="direct">Direkt Atama</SelectItem>
-                      <SelectItem value="sequence">Sıralı (Sequence)</SelectItem>
-                      <SelectItem value="broadcast">Toplu (Broadcast)</SelectItem>
+                      <SelectItem value="direct">Direct Assignment</SelectItem>
+                      <SelectItem value="sequence">Sequential</SelectItem>
+                      <SelectItem value="broadcast">Broadcast</SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {assignmentType === "direct" && "Tek kişiye doğrudan atanır."}
-                    {assignmentType === "sequence" && "Sırayla sorulur, biri kabul edene kadar."}
-                    {assignmentType === "broadcast" && "Herkese aynı anda gönderilir, ilk kabul eden alır."}
+                    {assignmentType === "direct" && "Directly assigned to one person."}
+                    {assignmentType === "sequence" && "Asked sequentially until someone accepts."}
+                    {assignmentType === "broadcast" && "Sent to everyone at once, first to accept gets it."}
                   </p>
                 </div>
 
                 {role === "translator" && (
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium text-foreground">Otomatik Editör Ata</p>
-                      <p className="text-xs text-muted-foreground">Çevirmen tamamladığında editöre de sor</p>
+                      <p className="text-sm font-medium text-foreground">Auto-assign Reviewer</p>
+                      <p className="text-xs text-muted-foreground">Ask reviewer when translator completes</p>
                     </div>
                     <Switch checked={autoReviewer} onCheckedChange={setAutoReviewer} data-testid="switch-auto-reviewer" />
                   </div>
@@ -294,16 +294,16 @@ export default function AssignPage() {
             <Card className="border border-border">
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm font-semibold flex items-center justify-between">
-                  <span>Seçili Freelancer'lar ({selectedFreelancers.length})</span>
+                  <span>Selected Freelancers ({selectedFreelancers.length})</span>
                   {assignmentType === "sequence" && selectedFreelancers.length > 1 && (
-                    <span className="text-xs font-normal text-muted-foreground">Sırayı değiştirmek için okları kullanın</span>
+                    <span className="text-xs font-normal text-muted-foreground">Use arrows to reorder</span>
                   )}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 {selectedFreelancers.length === 0 ? (
                   <p className="text-xs text-muted-foreground text-center py-4" data-testid="text-no-selected">
-                    Sağdaki listeden freelancer seçin
+                    Select freelancers from the list
                   </p>
                 ) : (
                   <div className="space-y-1.5">
@@ -347,12 +347,12 @@ export default function AssignPage() {
               {createMutation.isPending ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Gönderiliyor...
+                  Sending...
                 </>
               ) : (
                 <>
                   <Send className="w-4 h-4 mr-2" />
-                  Görevi Ata ({selectedFreelancers.length} kişi)
+                  Assign Task ({selectedFreelancers.length})
                 </>
               )}
             </Button>
@@ -364,20 +364,20 @@ export default function AssignPage() {
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm font-semibold">
-                    Uygun Freelancer'lar
+                    Available Freelancers
                     {!freelancersLoading && filteredFreelancers && (
                       <span className="font-normal text-muted-foreground ml-1">({filteredFreelancers.length})</span>
                     )}
                   </CardTitle>
                   <div className="flex items-center gap-2">
-                    <label className="text-xs text-muted-foreground">Tüm durumlar</label>
+                    <label className="text-xs text-muted-foreground">All statuses</label>
                     <Switch checked={showAllStatuses} onCheckedChange={setShowAllStatuses} data-testid="switch-all-statuses" />
                   </div>
                 </div>
                 <div className="relative mt-2">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input
-                    placeholder="İsim, kod veya e-posta ara..."
+                    placeholder="Search by name, code, or email..."
                     value={freelancerSearch}
                     onChange={e => setFreelancerSearch(e.target.value)}
                     className="pl-10"
@@ -392,7 +392,7 @@ export default function AssignPage() {
                   </div>
                 ) : filteredFreelancers.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-8">
-                    Bu kaynakla eşleşen freelancer bulunamadı.
+                    No matching freelancers found for this source.
                   </p>
                 ) : (
                   <div className="space-y-1 max-h-[600px] overflow-y-auto pr-1">
@@ -413,7 +413,7 @@ export default function AssignPage() {
                               variant={f.status === "Approved" ? "secondary" : "destructive"}
                               className="text-[10px] px-1.5 py-0"
                             >
-                              {f.status === "Approved" ? "Onaylı" : f.status}
+                              {f.status === "Approved" ? "Approved" : f.status}
                             </Badge>
                           </div>
                           <p className="text-xs text-muted-foreground truncate">
@@ -428,13 +428,13 @@ export default function AssignPage() {
                           onClick={(e) => { e.stopPropagation(); addFreelancer(f); }}
                           data-testid={`button-add-${f.resourceCode}`}
                         >
-                          Seç
+                          Select
                         </Button>
                       </div>
                     ))}
                     {filteredFreelancers.length > 50 && (
                       <p className="text-xs text-muted-foreground text-center py-2">
-                        {filteredFreelancers.length} sonuçtan ilk 50 gösteriliyor
+                        Showing first 50 of {filteredFreelancers.length} results
                       </p>
                     )}
                   </div>

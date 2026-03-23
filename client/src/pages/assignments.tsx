@@ -25,18 +25,18 @@ interface Assignment {
 }
 
 const STATUS_MAP: Record<string, { label: string; variant: "secondary" | "default" | "destructive" | "outline"; icon: any }> = {
-  pending: { label: "Bekliyor", variant: "secondary", icon: Clock },
-  offered: { label: "Teklif Edildi", variant: "default", icon: Send },
-  accepted: { label: "Kabul Edildi", variant: "default", icon: CheckCircle2 },
-  completed: { label: "Tamamlandı", variant: "secondary", icon: CheckCircle2 },
-  expired: { label: "Süresi Doldu", variant: "destructive", icon: XCircle },
-  cancelled: { label: "İptal", variant: "destructive", icon: XCircle },
+  pending: { label: "Pending", variant: "secondary", icon: Clock },
+  offered: { label: "Offered", variant: "default", icon: Send },
+  accepted: { label: "Accepted", variant: "default", icon: CheckCircle2 },
+  completed: { label: "Completed", variant: "secondary", icon: CheckCircle2 },
+  expired: { label: "Expired", variant: "destructive", icon: XCircle },
+  cancelled: { label: "Cancelled", variant: "destructive", icon: XCircle },
 };
 
 const TYPE_MAP: Record<string, string> = {
-  direct: "Direkt",
-  sequence: "Sıralı",
-  broadcast: "Toplu",
+  direct: "Direct",
+  sequence: "Sequential",
+  broadcast: "Broadcast",
 };
 
 export default function AssignmentsPage() {
@@ -59,7 +59,7 @@ export default function AssignmentsPage() {
             <Button variant="ghost" size="sm" onClick={() => setLocation("/")} data-testid="button-back-dashboard">
               <ArrowLeft className="w-4 h-4" />
             </Button>
-            <span className="font-semibold text-sm text-foreground">Atama Geçmişi</span>
+            <span className="font-semibold text-sm text-foreground">Assignment History</span>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-sm text-muted-foreground hidden sm:inline">{user?.email}</span>
@@ -78,7 +78,7 @@ export default function AssignmentsPage() {
         ) : !assignments || assignments.length === 0 ? (
           <div className="text-center py-16">
             <Send className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-            <p className="text-muted-foreground">Henüz atama yapılmamış</p>
+            <p className="text-muted-foreground">No assignments yet</p>
           </div>
         ) : (
           <div className="border border-border rounded-lg overflow-hidden">
@@ -86,14 +86,14 @@ export default function AssignmentsPage() {
               <table className="w-full text-sm" data-testid="table-assignments">
                 <thead>
                   <tr className="bg-muted/50 border-b border-border">
-                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Proje ID</th>
-                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Kaynak</th>
-                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Rol</th>
-                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Tip</th>
-                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Durum</th>
-                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Kabul Eden</th>
-                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Teklifler</th>
-                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Tarih</th>
+                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Project ID</th>
+                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Source</th>
+                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Role</th>
+                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Type</th>
+                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Status</th>
+                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Accepted By</th>
+                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Offers</th>
+                    <th className="text-left font-medium text-muted-foreground px-3 py-2.5">Date</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -107,7 +107,7 @@ export default function AssignmentsPage() {
                           <Badge variant="secondary" className="text-xs font-normal">{a.source} / {a.sheet}</Badge>
                         </td>
                         <td className="px-3 py-2.5 text-muted-foreground">
-                          {a.role === "translator" ? "Çevirmen" : "Editör"}
+                          {a.role === "translator" ? "Translator" : "Reviewer"}
                         </td>
                         <td className="px-3 py-2.5 text-muted-foreground">{TYPE_MAP[a.assignmentType] || a.assignmentType}</td>
                         <td className="px-3 py-2.5">
@@ -121,7 +121,7 @@ export default function AssignmentsPage() {
                           <OfferSummary offers={a.offers} />
                         </td>
                         <td className="px-3 py-2.5 text-xs text-muted-foreground">
-                          {new Date(a.createdAt).toLocaleDateString("tr-TR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                          {new Date(a.createdAt).toLocaleDateString("en-US", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
                         </td>
                       </tr>
                     );
@@ -144,10 +144,10 @@ function OfferSummary({ offers }: { offers: any[] }) {
 
   return (
     <div className="flex items-center gap-1.5 text-xs">
-      <span className="text-muted-foreground">{offers.length} teklif</span>
-      {accepted > 0 && <Badge variant="secondary" className="text-[10px] px-1 py-0 bg-green-500/10 text-green-600">{accepted} kabul</Badge>}
-      {pending > 0 && <Badge variant="secondary" className="text-[10px] px-1 py-0">{pending} bekliyor</Badge>}
-      {rejected > 0 && <Badge variant="secondary" className="text-[10px] px-1 py-0 bg-red-500/10 text-red-600">{rejected} ret</Badge>}
+      <span className="text-muted-foreground">{offers.length} offers</span>
+      {accepted > 0 && <Badge variant="secondary" className="text-[10px] px-1 py-0 bg-green-500/10 text-green-600">{accepted} accepted</Badge>}
+      {pending > 0 && <Badge variant="secondary" className="text-[10px] px-1 py-0">{pending} pending</Badge>}
+      {rejected > 0 && <Badge variant="secondary" className="text-[10px] px-1 py-0 bg-red-500/10 text-red-600">{rejected} declined</Badge>}
     </div>
   );
 }
