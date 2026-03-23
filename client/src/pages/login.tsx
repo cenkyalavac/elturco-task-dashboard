@@ -18,7 +18,7 @@ export default function LoginPage() {
     if (!email.trim()) return;
     setSending(true);
     try {
-      await apiRequest("POST", "/api/auth/magic-link", { email: email.trim() });
+      await apiRequest("POST", "/api/auth/magic-link", { email: email.trim(), clientBaseUrl: window.location.origin });
       setSent(true);
     } catch (err: any) {
       toast({

@@ -51,7 +51,11 @@ export default function RespondPage() {
   async function handleAction(action: "accept" | "reject" | "complete") {
     setActionLoading(action);
     try {
-      const res = await fetch(`${API_BASE}/api/offers/${token}/${action}`, { method: "POST" });
+      const res = await fetch(`${API_BASE}/api/offers/${token}/${action}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientBaseUrl: window.location.origin }),
+      });
       const json = await res.json();
       if (!res.ok) {
         setActionResult({ success: false, message: json.error || "An error occurred." });

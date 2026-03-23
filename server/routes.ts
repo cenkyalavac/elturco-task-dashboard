@@ -62,27 +62,37 @@ function generateToken(): string {
 // requests through a proxy.  The Referer / Origin header carries the
 // real public URL the user sees (e.g. https://sites.pplx.app/...).
 // We strip the path so we keep only the scheme+host+port portion.
+// Resolve the public-facing base URL for links in emails.
+// The most reliable approach: the frontend sends its own window.location.origin
+// as `clientBaseUrl` in the request body.  All header-based detection is a
+// fallback for the rare cases where the body field is missing.
 function resolveBaseUrl(req: Request): string {
-  // 1. Try Referer (most reliable — sent on every fetch from the page)
+  // 1. Explicitly provided by the frontend (most reliable)
+  const clientBase = req.body?.clientBaseUrl;
+  if (clientBase && typeof clientBase === "string" && clientBase.startsWith("http")) {
+    // Strip any trailing slash
+    return clientBase.replace(/\/+$/, "");
+  }
+  // 2. Try Referer
   const referer = req.headers.referer || req.headers.referrer;
   if (referer) {
     try {
       const u = new URL(referer as string);
-      return u.origin; // e.g. https://sites.pplx.app
+      return u.origin;
     } catch {}
   }
-  // 2. Try Origin (sent on POST requests)
+  // 3. Try Origin header
   const origin = req.headers.origin;
   if (origin && !origin.includes("localhost") && !origin.includes("127.0.0.1")) {
     return origin as string;
   }
-  // 3. Forwarded headers (reverse-proxy setups)
+  // 4. Forwarded headers
   const fwdProto = req.headers["x-forwarded-proto"];
   const fwdHost  = req.headers["x-forwarded-host"];
   if (fwdProto && fwdHost) {
     return `${fwdProto}://${fwdHost}`;
   }
-  // 4. Fallback to Host header (local dev)
+  // 5. Fallback
   const proto = req.protocol || "http";
   const host  = req.headers.host || "localhost:5000";
   return `${proto}://${host}`;
