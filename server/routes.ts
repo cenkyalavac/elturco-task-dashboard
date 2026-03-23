@@ -57,6 +57,37 @@ function generateToken(): string {
   return randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "");
 }
 
+// Resolve the public-facing base URL for links in emails.
+// In production (deployed via Perplexity Computer), the frontend sends
+// requests through a proxy.  The Referer / Origin header carries the
+// real public URL the user sees (e.g. https://sites.pplx.app/...).
+// We strip the path so we keep only the scheme+host+port portion.
+function resolveBaseUrl(req: Request): string {
+  // 1. Try Referer (most reliable — sent on every fetch from the page)
+  const referer = req.headers.referer || req.headers.referrer;
+  if (referer) {
+    try {
+      const u = new URL(referer as string);
+      return u.origin; // e.g. https://sites.pplx.app
+    } catch {}
+  }
+  // 2. Try Origin (sent on POST requests)
+  const origin = req.headers.origin;
+  if (origin && !origin.includes("localhost") && !origin.includes("127.0.0.1")) {
+    return origin as string;
+  }
+  // 3. Forwarded headers (reverse-proxy setups)
+  const fwdProto = req.headers["x-forwarded-proto"];
+  const fwdHost  = req.headers["x-forwarded-host"];
+  if (fwdProto && fwdHost) {
+    return `${fwdProto}://${fwdHost}`;
+  }
+  // 4. Fallback to Host header (local dev)
+  const proto = req.protocol || "http";
+  const host  = req.headers.host || "localhost:5000";
+  return `${proto}://${host}`;
+}
+
 // Auth middleware
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   const token = req.headers.authorization?.replace("Bearer ", "");
@@ -232,10 +263,7 @@ export async function registerRoutes(server: Server, app: Express) {
     const expiresAt = new Date(Date.now() + MAGIC_LINK_EXPIRY_MINUTES * 60 * 1000).toISOString();
     storage.createAuthToken(token, email.toLowerCase().trim(), expiresAt);
 
-    // Determine base URL from request
-    const proto = req.headers["x-forwarded-proto"] || req.protocol || "http";
-    const host = req.headers["x-forwarded-host"] || req.headers.host || "localhost:5000";
-    const baseUrl = `${proto}://${host}`;
+    const baseUrl = resolveBaseUrl(req);
     const magicUrl = `${baseUrl}/#/auth/verify/${token}`;
 
     try {
@@ -400,10 +428,7 @@ export async function registerRoutes(server: Server, app: Express) {
       offeredAt: now,
     });
 
-    // Determine base URL
-    const proto = req.headers["x-forwarded-proto"] || req.protocol || "http";
-    const host = req.headers["x-forwarded-host"] || req.headers.host || "localhost:5000";
-    const baseUrl = `${proto}://${host}`;
+    const baseUrl = resolveBaseUrl(req);
 
     const task = taskDetails || {};
 
@@ -583,9 +608,7 @@ export async function registerRoutes(server: Server, app: Express) {
 
           if (nextFreelancer) {
             const offerToken = generateToken();
-            const proto = req.headers["x-forwarded-proto"] || req.protocol || "http";
-            const host = req.headers["x-forwarded-host"] || req.headers.host || "localhost:5000";
-            const baseUrl = `${proto}://${host}`;
+            const baseUrl = resolveBaseUrl(req);
             const taskDetails = JSON.parse(assignment.taskDetails || "{}");
 
             const newOffer = storage.createOffer({
