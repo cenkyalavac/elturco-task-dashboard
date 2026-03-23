@@ -543,6 +543,66 @@ const freelancers = (Array.isArray(data) ? data : [])
     res.json({ success: true, message: "Offer withdrawn." });
   });
 
+  // ---- ASSIGN TO ME ----
+  app.post("/api/assignments/self-assign", requireAuth, (req: Request, res: Response) => {
+    const { source, sheet, projectId, account, taskDetails, role } = req.body;
+    if (!source || !projectId || !role) return res.status(400).json({ error: "Missing fields" });
+
+    const session = storage.getSession(req.headers.authorization!.replace("Bearer ", ""));
+    if (!session) return res.status(401).json({ error: "Unauthorized" });
+    const user = storage.getAllPmUsers().find(u => u.id === session.pmUserId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const now = new Date().toISOString();
+    const assignment = storage.createAssignment({
+      source, sheet: sheet || "", projectId, account: account || "",
+      taskDetails: JSON.stringify(taskDetails || {}),
+      assignmentType: "direct", role, status: "accepted",
+      assignedBy: session.pmUserId,
+      acceptedBy: user.name, acceptedByName: user.name, acceptedByEmail: user.email,
+      sequenceList: null, currentSequenceIndex: 0, sequenceTimeoutMinutes: 60,
+      broadcastList: null, autoAssignReviewer: 0,
+      reviewerAssignmentType: null, reviewerSequenceList: null,
+      createdAt: now, offeredAt: now, acceptedAt: now,
+    });
+
+    res.json({ success: true, assignment });
+  });
+
+  // ---- DIRECT ASSIGN (CONFIRMED, no email) ----
+  app.post("/api/assignments/confirmed", requireAuth, async (req: Request, res: Response) => {
+    const { source, sheet, projectId, account, taskDetails, role, freelancer } = req.body;
+    if (!source || !projectId || !role || !freelancer) return res.status(400).json({ error: "Missing fields" });
+
+    const now = new Date().toISOString();
+    const assignment = storage.createAssignment({
+      source, sheet: sheet || "", projectId, account: account || "",
+      taskDetails: JSON.stringify(taskDetails || {}),
+      assignmentType: "direct", role, status: "accepted",
+      assignedBy: (req as any).pmUserId,
+      acceptedBy: freelancer.resourceCode,
+      acceptedByName: freelancer.fullName,
+      acceptedByEmail: freelancer.email,
+      sequenceList: null, currentSequenceIndex: 0, sequenceTimeoutMinutes: 60,
+      broadcastList: null, autoAssignReviewer: 0,
+      reviewerAssignmentType: null, reviewerSequenceList: null,
+      createdAt: now, offeredAt: now, acceptedAt: now,
+    });
+
+    // Create a pre-accepted offer
+    const token = randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "");
+    storage.createOffer({
+      assignmentId: assignment.id,
+      freelancerCode: freelancer.resourceCode,
+      freelancerName: freelancer.fullName,
+      freelancerEmail: freelancer.email,
+      token, status: "accepted", sentAt: now,
+      respondedAt: now, sequenceOrder: null, clientBaseUrl: null,
+    });
+
+    res.json({ success: true, assignment });
+  });
+
   // Create assignment and send offers
   app.post("/api/assignments", requireAuth, async (req: Request, res: Response) => {
     const {
@@ -961,5 +1021,136 @@ const freelancers = (Array.isArray(data) ? data : [])
     if (existing) return res.status(400).json({ error: "This email is already registered." });
     const user = storage.createPmUser({ email: email.toLowerCase().trim(), name, password, role: role || "pm" });
     res.json(user);
+  });
+
+  // ---- BULK COMPLETE ----
+  app.post("/api/tasks/bulk-complete", requireAuth, (req: Request, res: Response) => {
+    const { tasks: taskList, revCompleteValue, distributeTime } = req.body;
+    if (!taskList || !Array.isArray(taskList) || taskList.length === 0) {
+      return res.status(400).json({ error: "No tasks provided" });
+    }
+
+    let perTaskValue = revCompleteValue || "Yes";
+    if (distributeTime && typeof revCompleteValue === "number" && taskList.length > 0) {
+      perTaskValue = Math.round(revCompleteValue / taskList.length).toString();
+    }
+
+    const now = new Date().toISOString();
+    const allAssignments = storage.getAllAssignments();
+
+    for (const t of taskList) {
+      const assignment = allAssignments.find((a: any) =>
+        a.source === t.source && a.projectId === t.projectId &&
+        a.status !== "cancelled" && a.status !== "expired"
+      );
+      if (assignment) {
+        storage.updateAssignment(assignment.id, { status: "completed", completedAt: now });
+      }
+    }
+
+    res.json({ success: true, count: taskList.length, valuePerTask: perTaskValue });
+  });
+
+  // ---- AUTO-ASSIGN RULES ----
+  app.get("/api/auto-assign-rules", requireAuth, (_req: Request, res: Response) => {
+    res.json(storage.getAllAutoAssignRules());
+  });
+
+  app.post("/api/auto-assign-rules", requireAuth, (req: Request, res: Response) => {
+    const { name, source, account, languagePair, role, freelancerCodes, assignmentType } = req.body;
+    if (!name || !role || !freelancerCodes) return res.status(400).json({ error: "Missing fields" });
+    const session = storage.getSession(req.headers.authorization!.replace("Bearer ", ""));
+    if (!session) return res.status(401).json({ error: "Unauthorized" });
+    const user = storage.getAllPmUsers().find(u => u.id === session.pmUserId);
+    const rule = storage.createAutoAssignRule({
+      name, source: source || null, account: account || null,
+      languagePair: languagePair || null, role,
+      freelancerCodes: typeof freelancerCodes === "string" ? freelancerCodes : JSON.stringify(freelancerCodes),
+      assignmentType: assignmentType || "sequence",
+      enabled: 1, createdBy: user?.email || "",
+    });
+    res.json(rule);
+  });
+
+  app.delete("/api/auto-assign-rules/:id", requireAuth, (req: Request, res: Response) => {
+    storage.deleteAutoAssignRule(+req.params.id);
+    res.json({ success: true });
+  });
+
+  // ---- ANALYTICS ----
+  app.get("/api/analytics", requireAuth, async (_req: Request, res: Response) => {
+    try {
+      const allAssignments = storage.getAllAssignments();
+
+      // Assignments by day
+      const byDay: Record<string, { created: number; accepted: number; completed: number }> = {};
+      for (const a of allAssignments) {
+        const day = a.createdAt?.slice(0, 10) || "unknown";
+        if (!byDay[day]) byDay[day] = { created: 0, accepted: 0, completed: 0 };
+        byDay[day].created++;
+        if (a.status === "accepted" || a.status === "completed") byDay[day].accepted++;
+        if (a.status === "completed") byDay[day].completed++;
+      }
+
+      // By role
+      const byRole = { translator: 0, reviewer: 0 };
+      for (const a of allAssignments) {
+        if (a.role === "translator") byRole.translator++;
+        else byRole.reviewer++;
+      }
+
+      // By type
+      const byType: Record<string, number> = {};
+      for (const a of allAssignments) {
+        byType[a.assignmentType] = (byType[a.assignmentType] || 0) + 1;
+      }
+
+      // By status
+      const byStatus: Record<string, number> = {};
+      for (const a of allAssignments) {
+        byStatus[a.status] = (byStatus[a.status] || 0) + 1;
+      }
+
+      // Top freelancers by accepted tasks
+      const topFreelancers: Record<string, { name: string; accepted: number; completed: number }> = {};
+      for (const a of allAssignments) {
+        if (a.acceptedBy && a.acceptedByName) {
+          if (!topFreelancers[a.acceptedBy]) topFreelancers[a.acceptedBy] = { name: a.acceptedByName, accepted: 0, completed: 0 };
+          topFreelancers[a.acceptedBy].accepted++;
+          if (a.status === "completed") topFreelancers[a.acceptedBy].completed++;
+        }
+      }
+
+      // Average response time (from offer sent to accept/reject)
+      const allOffers: any[] = [];
+      for (const a of allAssignments) {
+        const assignmentOffers = storage.getOffersByAssignment(a.id);
+        allOffers.push(...assignmentOffers);
+      }
+
+      const responseTimes: number[] = [];
+      for (const o of allOffers) {
+        if (o.respondedAt && o.sentAt) {
+          const diff = new Date(o.respondedAt).getTime() - new Date(o.sentAt).getTime();
+          if (diff > 0) responseTimes.push(diff / 60000); // in minutes
+        }
+      }
+      const avgResponseTime = responseTimes.length > 0
+        ? Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length)
+        : null;
+
+      res.json({
+        byDay: Object.entries(byDay).sort(([a], [b]) => a.localeCompare(b)),
+        byRole, byType, byStatus,
+        topFreelancers: Object.entries(topFreelancers)
+          .sort(([, a], [, b]) => b.accepted - a.accepted)
+          .slice(0, 10),
+        totalAssignments: allAssignments.length,
+        totalOffers: allOffers.length,
+        avgResponseTimeMinutes: avgResponseTime,
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
   });
 }

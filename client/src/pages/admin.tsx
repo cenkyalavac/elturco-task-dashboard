@@ -9,7 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Trash2, Loader2, FileSpreadsheet, Users, Mail, Save, Info, Pencil, X, Check, ExternalLink, Eye, Code } from "lucide-react";
+import { Plus, Trash2, Loader2, FileSpreadsheet, Users, Mail, Save, Info, Pencil, X, Check, ExternalLink, Eye, Code, Zap } from "lucide-react";
+import { useAuth } from "@/lib/auth";
 
 // ── Types ──
 
@@ -37,6 +38,19 @@ interface EmailTemplate {
   body: string;
 }
 
+interface AutoAssignRule {
+  id: number;
+  name: string;
+  source: string | null;
+  account: string | null;
+  languagePair: string | null;
+  role: string;
+  freelancerCodes: string;
+  assignmentType: string;
+  enabled: number;
+  createdBy: string;
+}
+
 const LANGUAGE_PAIRS = [
   "EN>TR", "EN>AR", "EN>RU", "EN>DE", "EN>FR", "EN>ES",
   "EN>PT", "EN>IT", "EN>NL", "EN>PL", "EN>JA", "EN>KO", "EN>ZH", "Multi",
@@ -52,6 +66,7 @@ export default function AdminPage() {
         <SheetConfigsSection />
         <PmUsersSection />
         <EmailTemplatesSection />
+        <AutoAssignRulesSection />
       </div>
     </div>
   );
@@ -699,5 +714,196 @@ function TemplateEditor({ template }: { template: EmailTemplate }) {
         )}
       </div>
     </div>
+  );
+}
+
+// ── Auto-Assign Rules ──
+
+function AutoAssignRulesSection() {
+  const { toast } = useToast();
+  const { user } = useAuth();
+  const [showAdd, setShowAdd] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newSource, setNewSource] = useState("");
+  const [newAccount, setNewAccount] = useState("");
+  const [newLangPair, setNewLangPair] = useState("");
+  const [newRole, setNewRole] = useState("translator");
+  const [newFreelancerCodes, setNewFreelancerCodes] = useState("");
+  const [newAssignmentType, setNewAssignmentType] = useState("sequence");
+
+  const { data: rules, isLoading } = useQuery<AutoAssignRule[]>({
+    queryKey: ["/api/auto-assign-rules"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/auto-assign-rules");
+      return res.json();
+    },
+  });
+
+  const addMutation = useMutation({
+    mutationFn: async () => {
+      const codes = newFreelancerCodes.split(",").map(c => c.trim()).filter(Boolean);
+      const res = await apiRequest("POST", "/api/auto-assign-rules", {
+        name: newName,
+        source: newSource || null,
+        account: newAccount || null,
+        languagePair: newLangPair || null,
+        role: newRole,
+        freelancerCodes: JSON.stringify(codes),
+        assignmentType: newAssignmentType,
+        createdBy: user?.email || "unknown",
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auto-assign-rules"] });
+      toast({ title: "Rule created" });
+      setNewName(""); setNewSource(""); setNewAccount("");
+      setNewLangPair(""); setNewRole("translator");
+      setNewFreelancerCodes(""); setNewAssignmentType("sequence");
+      setShowAdd(false);
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/auto-assign-rules/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auto-assign-rules"] });
+      toast({ title: "Rule deleted" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  function parseCodes(json: string): string[] {
+    try { return JSON.parse(json); } catch { return []; }
+  }
+
+  return (
+    <Card className="border border-border">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Zap className="w-4 h-4 text-muted-foreground" />
+            Auto-Assign Rules
+          </CardTitle>
+          <Button variant="outline" size="sm" onClick={() => setShowAdd(!showAdd)} data-testid="button-add-rule">
+            <Plus className="w-3.5 h-3.5 mr-1" />
+            Add
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {showAdd && (
+          <div className="mb-4 p-3 bg-muted/30 rounded-lg space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Rule Name</label>
+                <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g. Amazon TR Default" className="h-8 text-sm" data-testid="input-rule-name" />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Source (empty = any)</label>
+                <Input value={newSource} onChange={(e) => setNewSource(e.target.value)} placeholder="e.g. Amazon" className="h-8 text-sm" data-testid="input-rule-source" />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Account (empty = any)</label>
+                <Input value={newAccount} onChange={(e) => setNewAccount(e.target.value)} placeholder="e.g. Amazon SeCM" className="h-8 text-sm" data-testid="input-rule-account" />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Language Pair (empty = any)</label>
+                <Select value={newLangPair || "__any__"} onValueChange={(v) => setNewLangPair(v === "__any__" ? "" : v)}>
+                  <SelectTrigger className="h-8 text-sm" data-testid="select-rule-lang"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__any__">Any</SelectItem>
+                    {LANGUAGE_PAIRS.map((lp) => <SelectItem key={lp} value={lp}>{lp}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Role</label>
+                <Select value={newRole} onValueChange={setNewRole}>
+                  <SelectTrigger className="h-8 text-sm" data-testid="select-rule-role"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="translator">Translator</SelectItem>
+                    <SelectItem value="reviewer">Reviewer</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Assignment Type</label>
+                <Select value={newAssignmentType} onValueChange={setNewAssignmentType}>
+                  <SelectTrigger className="h-8 text-sm" data-testid="select-rule-type"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="direct">Direct</SelectItem>
+                    <SelectItem value="sequence">Sequential</SelectItem>
+                    <SelectItem value="broadcast">Broadcast</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Freelancer Codes (comma-separated)</label>
+              <Input
+                value={newFreelancerCodes}
+                onChange={(e) => setNewFreelancerCodes(e.target.value)}
+                placeholder="e.g. CY1, MP, BS"
+                className="h-8 text-sm font-mono"
+                data-testid="input-rule-codes"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Button size="sm" onClick={() => addMutation.mutate()} disabled={!newName || !newFreelancerCodes || addMutation.isPending} data-testid="button-save-rule" className="h-8">
+                {addMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : null}
+                Save
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setShowAdd(false)} className="h-8">Cancel</Button>
+            </div>
+          </div>
+        )}
+
+        {isLoading ? (
+          <div className="space-y-2">
+            {[...Array(2)].map((_, i) => <Skeleton key={i} className="h-10 w-full rounded" />)}
+          </div>
+        ) : !rules || rules.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-6">No auto-assign rules yet.</p>
+        ) : (
+          <div className="space-y-1" data-testid="table-rules">
+            {rules.map((rule) => {
+              const codes = parseCodes(rule.freelancerCodes);
+              return (
+                <div key={rule.id} className="flex items-center gap-2 px-3 py-2 border border-border rounded-lg" data-testid={`rule-row-${rule.id}`}>
+                  <span className="text-sm font-medium text-foreground w-40 shrink-0 truncate">{rule.name}</span>
+                  {rule.source && <Badge variant="secondary" className="text-[10px] shrink-0">{rule.source}</Badge>}
+                  {rule.account && <Badge variant="outline" className="text-[10px] shrink-0">{rule.account}</Badge>}
+                  {rule.languagePair && <Badge variant="outline" className="text-[10px] shrink-0">{rule.languagePair}</Badge>}
+                  <Badge className={`text-[10px] shrink-0 ${rule.role === "translator" ? "bg-orange-500/10 text-orange-600 border-orange-500/20" : "bg-blue-500/10 text-blue-600 border-blue-500/20"}`}>
+                    {rule.role === "translator" ? "TR" : "REV"}
+                  </Badge>
+                  <span className="text-[10px] text-muted-foreground font-mono truncate">{codes.join(", ")}</span>
+                  <Badge variant={rule.enabled ? "default" : "secondary"} className="text-[10px] shrink-0 ml-auto">
+                    {rule.enabled ? "Active" : "Disabled"}
+                  </Badge>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => deleteMutation.mutate(rule.id)}
+                    className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive shrink-0"
+                    data-testid={`button-delete-rule-${rule.id}`}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

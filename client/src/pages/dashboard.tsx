@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Search, Send, Loader2, X, ChevronUp, ChevronDown, ChevronRight,
   CheckCircle2, Pencil, Save, Eye, Code, ListOrdered, Trash2,
-  Ban, Clock, XCircle,
+  Ban, Clock, XCircle, UserCheck, CheckSquare,
 } from "lucide-react";
 
 // ── Types ──
@@ -221,6 +221,14 @@ export default function DashboardPage() {
   const [showComplete, setShowComplete] = useState(false);
   const [completeMode, setCompleteMode] = useState<"yes" | "minutes">("yes");
   const [completeMinutes, setCompleteMinutes] = useState("");
+
+  // Skip email (confirmed assign)
+  const [skipEmail, setSkipEmail] = useState(false);
+
+  // Bulk complete state
+  const [showBulkComplete, setShowBulkComplete] = useState(false);
+  const [bulkCompleteMode, setBulkCompleteMode] = useState<"yes" | "minutes">("yes");
+  const [bulkCompleteMinutes, setBulkCompleteMinutes] = useState("");
 
   // Queries
   const { data: tasks, isLoading: tasksLoading } = useQuery<Task[]>({
@@ -742,6 +750,105 @@ export default function DashboardPage() {
     },
   });
 
+  // Self-assign mutation (Assign to Me)
+  const selfAssignMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedTask || !user) throw new Error("No task or user");
+      const res = await apiRequest("POST", "/api/assignments/self-assign", {
+        source: selectedTask.source,
+        sheet: selectedTask.sheet,
+        projectId: selectedTask.projectId,
+        account: selectedTask.account,
+        taskDetails: {
+          source: selectedTask.source, sheet: selectedTask.sheet,
+          projectId: selectedTask.projectId, account: selectedTask.account,
+          deadline: selectedTask.deadline, total: selectedTask.total,
+          wwc: selectedTask.wwc, revType: selectedTask.revType,
+          projectTitle: selectedTask.projectTitle,
+        },
+        role,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/assignments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      toast({ title: "Assigned to you" });
+      setSelectedTaskKey(null);
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // Confirmed assign mutation (skip email)
+  const confirmedAssignMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedTask || selectedFreelancers.length === 0) throw new Error("No task or freelancer");
+      const f = selectedFreelancers[0];
+      const res = await apiRequest("POST", "/api/assignments/confirmed", {
+        source: selectedTask.source,
+        sheet: selectedTask.sheet,
+        projectId: selectedTask.projectId,
+        account: selectedTask.account,
+        taskDetails: {
+          source: selectedTask.source, sheet: selectedTask.sheet,
+          projectId: selectedTask.projectId, account: selectedTask.account,
+          deadline: selectedTask.deadline, total: selectedTask.total,
+          wwc: selectedTask.wwc, revType: selectedTask.revType,
+          projectTitle: selectedTask.projectTitle,
+        },
+        role,
+        freelancerCode: f.resourceCode,
+        freelancerName: f.fullName,
+        freelancerEmail: f.email,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/assignments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      toast({ title: "Task assigned (confirmed)", description: "No email sent." });
+      setSelectedTaskKey(null);
+      setSelectedFreelancers([]);
+      setSkipEmail(false);
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // Bulk complete mutation
+  const bulkCompleteMutation = useMutation({
+    mutationFn: async () => {
+      if (!tasks) throw new Error("No tasks");
+      const checkedTasks = tasks.filter(t => checkedKeys.has(taskKey(t)));
+      const taskIds = checkedTasks.map(t => ({
+        source: t.source,
+        sheet: t.sheet,
+        projectId: t.projectId,
+      }));
+      const res = await apiRequest("POST", "/api/tasks/bulk-complete", {
+        tasks: taskIds,
+        mode: bulkCompleteMode,
+        totalMinutes: bulkCompleteMode === "minutes" ? parseInt(bulkCompleteMinutes) || 0 : undefined,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/assignments"] });
+      toast({ title: "Tasks marked complete", description: `${checkedKeys.size} tasks completed.` });
+      setCheckedKeys(new Set());
+      setShowBulkComplete(false);
+      setBulkCompleteMode("yes");
+      setBulkCompleteMinutes("");
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
   // Assignments for the selected task
   const taskAssignments = useMemo(() => {
     if (!selectedTask || !assignments) return [];
@@ -808,7 +915,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Filters + bulk actions */}
-      <div className="border-b border-border bg-card px-4 py-2 flex items-center gap-3">
+      <div className="border-b border-border bg-card px-4 py-2 flex items-center gap-3 relative">
         {hasChecked ? (
           <>
             <Badge variant="secondary" className="text-xs gap-1">
@@ -846,13 +953,63 @@ export default function DashboardPage() {
               <ChevronRight className="w-3 h-3 ml-1" />
             </Button>
             <Button
+              variant="default"
+              size="sm"
+              className="h-7 text-xs bg-green-600 hover:bg-green-700"
+              onClick={() => setShowBulkComplete(true)}
+              data-testid="button-bulk-complete"
+            >
+              <CheckSquare className="w-3 h-3 mr-1" />
+              Bulk Complete
+            </Button>
+            <Button
               variant="outline"
               size="sm"
               className="h-7 text-xs"
-              onClick={() => { setCheckedKeys(new Set()); setBulkMode(null); }}
+              onClick={() => { setCheckedKeys(new Set()); setBulkMode(null); setShowBulkComplete(false); }}
             >
               Clear
             </Button>
+            {showBulkComplete && (
+              <div className="absolute top-full left-0 mt-1 z-20 bg-card border border-border rounded-lg shadow-lg p-3 w-72">
+                <p className="text-xs font-semibold mb-2">Bulk Complete {checkedKeys.size} tasks</p>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                      <input type="radio" name="bulkCompleteMode" checked={bulkCompleteMode === "yes"} onChange={() => setBulkCompleteMode("yes")} />
+                      Mark as Yes
+                    </label>
+                    <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                      <input type="radio" name="bulkCompleteMode" checked={bulkCompleteMode === "minutes"} onChange={() => setBulkCompleteMode("minutes")} />
+                      Distribute minutes
+                    </label>
+                  </div>
+                  {bulkCompleteMode === "minutes" && (
+                    <Input
+                      type="number"
+                      value={bulkCompleteMinutes}
+                      onChange={(e) => setBulkCompleteMinutes(e.target.value)}
+                      placeholder="Total minutes to split evenly..."
+                      className="h-7 text-xs"
+                    />
+                  )}
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      className="h-7 text-xs bg-green-600 hover:bg-green-700"
+                      disabled={bulkCompleteMode === "minutes" && !bulkCompleteMinutes || bulkCompleteMutation.isPending}
+                      onClick={() => bulkCompleteMutation.mutate()}
+                    >
+                      {bulkCompleteMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+                      Confirm
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setShowBulkComplete(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
           </>
         ) : (
           <>
@@ -1282,6 +1439,34 @@ export default function DashboardPage() {
               <div className="p-4 border-b border-border space-y-3 shrink-0">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Assignment</p>
 
+                {/* Assign to Me button (single task only) */}
+                {selectedTask && !bulkMode && (needsTranslator(selectedTask) || needsReviewer(selectedTask)) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs w-full border-primary/30 text-primary hover:bg-primary/10"
+                    disabled={selfAssignMutation.isPending}
+                    onClick={() => selfAssignMutation.mutate()}
+                    data-testid="button-assign-to-me"
+                  >
+                    {selfAssignMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <UserCheck className="w-3 h-3 mr-1" />}
+                    Assign to Me ({role === "translator" ? "TR" : "REV"})
+                  </Button>
+                )}
+
+                {/* Skip email toggle (confirmed assign) */}
+                {selectedTask && !bulkMode && (
+                  <label className="flex items-center gap-2 text-xs cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={skipEmail}
+                      onChange={(e) => setSkipEmail(e.target.checked)}
+                      className="rounded border-border"
+                    />
+                    <span className="text-muted-foreground">Already confirmed (skip email)</span>
+                  </label>
+                )}
+
                 {/* Presets */}
                 {rolePresets.length > 0 && (
                   <div className="flex items-center gap-1.5 flex-wrap">
@@ -1593,6 +1778,26 @@ export default function DashboardPage() {
                       <>
                         <Send className="w-4 h-4 mr-2" />
                         Assign {bulkMode === "translator" ? "TR" : "REV"} to {checkedKeys.size} tasks ({selectedFreelancers.length})
+                      </>
+                    )}
+                  </Button>
+                ) : skipEmail ? (
+                  <Button
+                    className="w-full bg-emerald-600 hover:bg-emerald-700"
+                    size="sm"
+                    disabled={selectedFreelancers.length === 0 || confirmedAssignMutation.isPending}
+                    onClick={() => confirmedAssignMutation.mutate()}
+                    data-testid="button-assign-confirmed"
+                  >
+                    {confirmedAssignMutation.isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Assigning...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 mr-2" />
+                        Assign Confirmed ({selectedFreelancers.length}) — No email
                       </>
                     )}
                   </Button>

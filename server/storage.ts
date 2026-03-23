@@ -2,13 +2,14 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
 import { eq, and, desc, or, sql } from "drizzle-orm";
 import {
-  pmUsers, authTokens, sessions, assignments, offers, sheetConfigs, emailTemplates, sequencePresets,
+  pmUsers, authTokens, sessions, assignments, offers, sheetConfigs, emailTemplates, sequencePresets, autoAssignRules,
   type PmUser, type InsertPmUser,
   type Assignment, type InsertAssignment,
   type Offer, type InsertOffer,
   type SheetConfig, type InsertSheetConfig,
   type EmailTemplate, type InsertEmailTemplate,
   type SequencePreset, type InsertSequencePreset,
+  type AutoAssignRule, type InsertAutoAssignRule,
 } from "@shared/schema";
 
 const sqlite = new Database("data.db");
@@ -57,6 +58,12 @@ export interface IStorage {
   getPresetsByPm(pmEmail: string): SequencePreset[];
   createPreset(data: InsertSequencePreset): SequencePreset;
   deletePreset(id: number): void;
+
+  // Auto-assign Rules
+  getAllAutoAssignRules(): AutoAssignRule[];
+  createAutoAssignRule(data: InsertAutoAssignRule): AutoAssignRule;
+  updateAutoAssignRule(id: number, data: Partial<AutoAssignRule>): void;
+  deleteAutoAssignRule(id: number): void;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -247,6 +254,20 @@ export class DatabaseStorage implements IStorage {
   }
   deletePreset(id: number) {
     db.delete(sequencePresets).where(eq(sequencePresets.id, id)).run();
+  }
+
+  // Auto-assign Rules
+  getAllAutoAssignRules() {
+    return db.select().from(autoAssignRules).all();
+  }
+  createAutoAssignRule(data: InsertAutoAssignRule) {
+    return db.insert(autoAssignRules).values(data).returning().get();
+  }
+  updateAutoAssignRule(id: number, data: Partial<AutoAssignRule>) {
+    db.update(autoAssignRules).set(data).where(eq(autoAssignRules.id, id)).run();
+  }
+  deleteAutoAssignRule(id: number) {
+    db.delete(autoAssignRules).where(eq(autoAssignRules.id, id)).run();
   }
 }
 

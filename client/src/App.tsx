@@ -12,8 +12,9 @@ import DashboardPage from "@/pages/dashboard";
 import AdminPage from "@/pages/admin";
 import AssignmentsPage from "@/pages/assignments";
 import RespondPage from "@/pages/respond";
+import AnalyticsPage from "@/pages/analytics";
 import NotFound from "@/pages/not-found";
-import { LogOut } from "lucide-react";
+import { LogOut, BarChart3 } from "lucide-react";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { isAuthenticated } = useAuth();
@@ -21,19 +22,20 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
   return <Component />;
 }
 
-function NavLink({ href, label }: { href: string; label: string }) {
+function NavLink({ href, label, icon }: { href: string; label: string; icon?: React.ReactNode }) {
   const [location] = useLocation();
   const isActive = href === "/" ? location === "/" : location.startsWith(href);
   return (
     <Link
       href={href}
       data-testid={`nav-${label.toLowerCase()}`}
-      className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+      className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center ${
         isActive
           ? "bg-white/10 text-white"
           : "text-white/60 hover:text-white hover:bg-white/5"
       }`}
     >
+      {icon}
       {label}
     </Link>
   );
@@ -61,6 +63,7 @@ function AppLayout() {
         <nav className="flex items-center gap-1">
           <NavLink href="/" label="Dashboard" />
           <NavLink href="/history" label="History" />
+          <NavLink href="/analytics" label="Analytics" icon={<BarChart3 className="w-3.5 h-3.5 mr-1" />} />
           <NavLink href="/admin" label="Admin" />
         </nav>
 
@@ -83,6 +86,7 @@ function AppLayout() {
         <Switch>
           <Route path="/">{() => <ProtectedRoute component={DashboardPage} />}</Route>
           <Route path="/history">{() => <ProtectedRoute component={AssignmentsPage} />}</Route>
+          <Route path="/analytics">{() => <ProtectedRoute component={AnalyticsPage} />}</Route>
           <Route path="/admin">{() => <ProtectedRoute component={AdminPage} />}</Route>
           <Route component={NotFound} />
         </Switch>

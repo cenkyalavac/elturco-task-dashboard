@@ -102,6 +102,20 @@ export const sequencePresets = sqliteTable("sequence_presets", {
   assignmentType: text("assignment_type").notNull().default("sequence"),
 });
 
+// Auto-assign rules
+export const autoAssignRules = sqliteTable("auto_assign_rules", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  source: text("source"), // null = any source
+  account: text("account"), // null = any account  
+  languagePair: text("language_pair"), // null = any
+  role: text("role").notNull(), // "translator" | "reviewer"
+  freelancerCodes: text("freelancer_codes").notNull(), // JSON array
+  assignmentType: text("assignment_type").notNull().default("sequence"),
+  enabled: integer("enabled").notNull().default(1),
+  createdBy: text("created_by").notNull(),
+});
+
 // Sheet config — language pairs per source/tab
 export const sheetConfigs = sqliteTable("sheet_configs", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -118,6 +132,7 @@ export const insertPmUserSchema = createInsertSchema(pmUsers).omit({ id: true })
 export const insertSheetConfigSchema = createInsertSchema(sheetConfigs).omit({ id: true });
 export const insertEmailTemplateSchema = createInsertSchema(emailTemplates).omit({ id: true });
 export const insertSequencePresetSchema = createInsertSchema(sequencePresets).omit({ id: true });
+export const insertAutoAssignRuleSchema = createInsertSchema(autoAssignRules).omit({ id: true });
 export const insertAssignmentSchema = createInsertSchema(assignments).omit({ id: true });
 export const insertOfferSchema = createInsertSchema(offers).omit({ id: true });
 export const insertAuthTokenSchema = createInsertSchema(authTokens).omit({ id: true });
@@ -138,3 +153,5 @@ export type EmailTemplate = typeof emailTemplates.$inferSelect;
 export type InsertEmailTemplate = z.infer<typeof insertEmailTemplateSchema>;
 export type SequencePreset = typeof sequencePresets.$inferSelect;
 export type InsertSequencePreset = z.infer<typeof insertSequencePresetSchema>;
+export type AutoAssignRule = typeof autoAssignRules.$inferSelect;
+export type InsertAutoAssignRule = z.infer<typeof insertAutoAssignRuleSchema>;
