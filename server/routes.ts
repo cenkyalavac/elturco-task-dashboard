@@ -411,7 +411,11 @@ export async function registerRoutes(server: Server, app: Express) {
       });
       const data = await response.json();
       // Return relevant fields only
-      const freelancers = (Array.isArray(data) ? data : []).filter((f: any) => f.status === "Approved").map((f: any) => ({
+      // Show Approved freelancers + specific test accounts (CY, CY1)
+const TEST_CODES = ["CY", "CY1"];
+const freelancers = (Array.isArray(data) ? data : [])
+  .filter((f: any) => f.status === "Approved" || TEST_CODES.includes(f.resource_code))
+  .map((f: any) => ({
         id: f.id,
         fullName: f.full_name,
         resourceCode: f.resource_code,

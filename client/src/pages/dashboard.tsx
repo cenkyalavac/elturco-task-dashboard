@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient, getPublicApiBase } from "@/lib/queryClient";
+import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -125,6 +126,9 @@ const ACCOUNT_MATCH: Record<string, string[]> = {
   AppleCare: ["Apple"],
 };
 
+// Test freelancer codes that bypass account/language filters
+const BYPASS_FILTER_CODES = ["CY", "CY1"];
+
 // ── Helpers ──
 
 function isXX(v: string): boolean {
@@ -183,6 +187,7 @@ function deadlineClass(d: string): string {
 
 export default function DashboardPage() {
   const { toast } = useToast();
+  const { user } = useAuth();
 
   // State
   const [searchQuery, setSearchQuery] = useState("");
@@ -190,6 +195,7 @@ export default function DashboardPage() {
   const [accountFilter, setAccountFilter] = useState("all");
   const [langFilter, setLangFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("ongoing");
+  const [myProjectsOnly, setMyProjectsOnly] = useState(false);
   const [selectedTaskKey, setSelectedTaskKey] = useState<string | null>(null);
   const [checkedKeys, setCheckedKeys] = useState<Set<string>>(new Set());
 
@@ -308,6 +314,16 @@ export default function DashboardPage() {
     const filtered = tasks.filter((t) => {
       if (sourceFilter !== "all" && t.source !== sourceFilter) return false;
       if (accountFilter !== "all" && t.account !== accountFilter) return false;
+      // My Projects filter: only show tasks from sheets assigned to this PM
+      if (myProjectsOnly && sheetConfigs && user) {
+        const config = (sheetConfigs as SheetConfig[]).find(c => c.source === t.source && c.sheet === t.sheet);
+        if (config?.assignedPms) {
+          try {
+            const pms = JSON.parse(config.assignedPms) as string[];
+            if (!pms.includes(user.email)) return false;
+          } catch {}
+        }
+      }
 
       // Language pair filter - match task's source+sheet against sheetConfigs
       if (langFilter !== "all" && sheetConfigs) {
@@ -345,7 +361,7 @@ export default function DashboardPage() {
       if (!db) return -1;
       return da.getTime() - db.getTime();
     });
-  }, [tasks, sourceFilter, accountFilter, langFilter, statusFilter, searchQuery, sheetConfigs]);
+  }, [tasks, sourceFilter, accountFilter, langFilter, statusFilter, searchQuery, sheetConfigs, myProjectsOnly, user]);
 
   // Stats
   const stats = useMemo(() => {
@@ -484,10 +500,13 @@ export default function DashboardPage() {
     return freelancers
       .filter((f) => {
         if (selectedCodes.has(f.resourceCode)) return false;
-        const matchesAccount = matchAccounts.length === 0 || f.accounts?.some((a) => matchAccounts.includes(a));
-        if (!matchesAccount) return false;
-        if (taskLangPair && taskLangPair !== "Multi" && f.languagePairs?.length > 0) {
-          if (!f.languagePairs.includes(taskLangPair)) return false;
+        // Bypass account/language filters for test freelancers
+        if (!BYPASS_FILTER_CODES.includes(f.resourceCode)) {
+          const matchesAccount = matchAccounts.length === 0 || f.accounts?.some((a) => matchAccounts.includes(a));
+          if (!matchesAccount) return false;
+          if (taskLangPair && taskLangPair !== "Multi" && f.languagePairs?.length > 0) {
+            if (!f.languagePairs.includes(taskLangPair)) return false;
+          }
         }
         if (freelancerSearch) {
           const q = freelancerSearch.toLowerCase();
@@ -893,6 +912,17 @@ export default function DashboardPage() {
                 <SelectItem value="delivered">Delivered</SelectItem>
               </SelectContent>
             </Select>
+            <button
+              onClick={() => setMyProjectsOnly(!myProjectsOnly)}
+              className={`h-8 px-3 text-xs rounded-md border transition-colors ${
+                myProjectsOnly
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-background text-muted-foreground border-border hover:bg-muted/50"
+              }`}
+              data-testid="toggle-my-projects"
+            >
+              My Projects
+            </button>
             <span className="text-xs text-muted-foreground ml-auto tabular-nums">
               {filteredTasks.length} tasks
             </span>
