@@ -2,10 +2,11 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
 import { eq, and, desc, or, sql } from "drizzle-orm";
 import {
-  pmUsers, authTokens, sessions, assignments, offers,
+  pmUsers, authTokens, sessions, assignments, offers, sheetConfigs,
   type PmUser, type InsertPmUser,
   type Assignment, type InsertAssignment,
   type Offer, type InsertOffer,
+  type SheetConfig, type InsertSheetConfig,
 } from "@shared/schema";
 
 const sqlite = new Database("data.db");
@@ -33,6 +34,11 @@ export interface IStorage {
   getAllAssignments(): Assignment[];
   updateAssignment(id: number, data: Partial<Assignment>): Assignment | undefined;
 
+  // SheetConfigs
+  getAllSheetConfigs(): SheetConfig[];
+  upsertSheetConfig(source: string, sheet: string, languagePair: string): SheetConfig;
+  deleteSheetConfig(id: number): void;
+
   // Offers
   createOffer(data: InsertOffer): Offer;
   getOffer(id: number): Offer | undefined;
@@ -55,6 +61,24 @@ export class DatabaseStorage implements IStorage {
         db.insert(pmUsers).values(s).run();
       } else if (!existing.password) {
         db.update(pmUsers).set({ password: s.password }).where(eq(pmUsers.email, s.email)).run();
+      }
+    }
+
+    // Seed default sheet configs with language pairs
+    const defaultConfigs = [
+      { source: "Amazon", sheet: "non-AFT", languagePair: "EN>TR" },
+      { source: "Amazon", sheet: "TPT", languagePair: "EN>TR" },
+      { source: "Amazon", sheet: "AFT", languagePair: "EN>TR" },
+      { source: "Amazon", sheet: "Non-EN", languagePair: "Multi" },
+      { source: "Amazon", sheet: "DPX", languagePair: "EN>TR" },
+      { source: "AppleCare", sheet: "Assignments", languagePair: "EN>TR" },
+      { source: "AppleCare", sheet: "RU Assignments", languagePair: "EN>RU" },
+      { source: "AppleCare", sheet: "AR Assignments", languagePair: "EN>AR" },
+    ];
+    const existingConfigs = db.select().from(sheetConfigs).all();
+    if (existingConfigs.length === 0) {
+      for (const c of defaultConfigs) {
+        db.insert(sheetConfigs).values(c).run();
       }
     }
   }
@@ -106,6 +130,23 @@ export class DatabaseStorage implements IStorage {
   updateAssignment(id: number, data: Partial<Assignment>) {
     db.update(assignments).set(data).where(eq(assignments.id, id)).run();
     return db.select().from(assignments).where(eq(assignments.id, id)).get();
+  }
+
+  // SheetConfigs
+  getAllSheetConfigs() {
+    return db.select().from(sheetConfigs).all();
+  }
+  upsertSheetConfig(source: string, sheet: string, languagePair: string) {
+    const existing = db.select().from(sheetConfigs)
+      .where(and(eq(sheetConfigs.source, source), eq(sheetConfigs.sheet, sheet))).get();
+    if (existing) {
+      db.update(sheetConfigs).set({ languagePair }).where(eq(sheetConfigs.id, existing.id)).run();
+      return db.select().from(sheetConfigs).where(eq(sheetConfigs.id, existing.id)).get()!;
+    }
+    return db.insert(sheetConfigs).values({ source, sheet, languagePair }).returning().get();
+  }
+  deleteSheetConfig(id: number) {
+    db.delete(sheetConfigs).where(eq(sheetConfigs.id, id)).run();
   }
 
   // Offers

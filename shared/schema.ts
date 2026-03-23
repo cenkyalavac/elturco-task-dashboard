@@ -84,8 +84,17 @@ export const offers = sqliteTable("offers", {
   clientBaseUrl: text("client_base_url"), // The frontend URL for the respond page
 });
 
+// Sheet config — language pairs per source/tab
+export const sheetConfigs = sqliteTable("sheet_configs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  source: text("source").notNull(), // "Amazon" | "AppleCare"
+  sheet: text("sheet").notNull(),   // "non-AFT", "TPT", etc.
+  languagePair: text("language_pair").notNull().default("EN>TR"), // e.g. "EN>TR", "EN>AR"
+});
+
 // Schemas
 export const insertPmUserSchema = createInsertSchema(pmUsers).omit({ id: true });
+export const insertSheetConfigSchema = createInsertSchema(sheetConfigs).omit({ id: true });
 export const insertAssignmentSchema = createInsertSchema(assignments).omit({ id: true });
 export const insertOfferSchema = createInsertSchema(offers).omit({ id: true });
 export const insertAuthTokenSchema = createInsertSchema(authTokens).omit({ id: true });
@@ -100,3 +109,5 @@ export type Offer = typeof offers.$inferSelect;
 export type InsertOffer = z.infer<typeof insertOfferSchema>;
 export type AuthToken = typeof authTokens.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
+export type SheetConfig = typeof sheetConfigs.$inferSelect;
+export type InsertSheetConfig = z.infer<typeof insertSheetConfigSchema>;

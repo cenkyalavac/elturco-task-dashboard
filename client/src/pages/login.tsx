@@ -24,7 +24,9 @@ export default function LoginPage() {
       const res = await apiRequest("POST", "/api/auth/login", { email: email.trim(), password });
       const data = await res.json();
       login(data.token, data.user);
-      setLocation("/");
+      // Force navigation — use window.location.hash directly to ensure
+      // the router picks up the change after auth state updates.
+      window.location.hash = "/";
     } catch (err: any) {
       toast({
         title: "Error",

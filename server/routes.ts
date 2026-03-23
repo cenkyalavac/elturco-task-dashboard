@@ -370,7 +370,7 @@ export async function registerRoutes(server: Server, app: Express) {
         email: f.email,
         status: f.status,
         accounts: f.accounts || [],
-        languagePairs: f.language_pairs || [],
+        languagePairs: (f.language_pairs || []).map((lp: any) => `${lp.source_language}>${lp.target_language}`),
         serviceTypes: f.service_types || [],
         availability: f.availability,
         rates: f.rates || [],
@@ -609,13 +609,6 @@ export async function registerRoutes(server: Server, app: Express) {
       }
     }
 
-    // Update Google Sheet - write initial to TR or Rev column
-    try {
-      updateSheetCell(assignment, offer.freelancerCode);
-    } catch (e) {
-      console.error("Sheet update error:", e);
-    }
-
     res.json({ success: true, message: "Task accepted. Thank you!" });
   });
 
@@ -700,98 +693,29 @@ export async function registerRoutes(server: Server, app: Express) {
     const now = new Date().toISOString();
     storage.updateAssignment(assignment.id, { status: "completed", completedAt: now });
 
-    // Update Google Sheet - write "Yes" to TR Done or Rev Done column
-    try {
-      updateSheetDone(assignment, offer.freelancerCode);
-    } catch (e) {
-      console.error("Sheet update error on complete:", e);
-    }
-
     res.json({ success: true, message: "Task marked as completed!" });
   });
 
-  // ---- GOOGLE SHEETS UPDATE HELPERS ----
+  // NOTE: Sheet write-back (PATCH) has been intentionally removed.
+  // We never modify sheet data — existing initials represent payment assignments.
 
-  function updateSheetCell(assignment: any, freelancerCode: string) {
-    // We use SheetDB PATCH to update the row
-    const apiId = assignment.source === "Amazon" ? SHEETDB_AMAZON : SHEETDB_APPLECARE;
-    const taskDetails = JSON.parse(assignment.taskDetails || "{}");
-    const projectId = assignment.projectId;
-    const sheet = assignment.sheet;
+  // ---- ADMIN: SHEET CONFIG ----
 
-    // Determine which column to update based on role
-    const column = assignment.role === "translator" ? getTranslatorColumn(sheet) : getReviewerColumn(sheet);
-    if (!column) return;
+  app.get("/api/sheet-configs", requireAuth, (_req: Request, res: Response) => {
+    res.json(storage.getAllSheetConfigs());
+  });
 
-    // Find the sheet tab name
-    const tabName = getTabName(assignment.source, sheet);
-    if (!tabName) return;
+  app.post("/api/sheet-configs", requireAuth, (req: Request, res: Response) => {
+    const { source, sheet, languagePair } = req.body;
+    if (!source || !sheet || !languagePair) return res.status(400).json({ error: "Missing fields" });
+    const config = storage.upsertSheetConfig(source, sheet, languagePair);
+    res.json(config);
+  });
 
-    // SheetDB PATCH by searching for project ID
-    const idColumn = getIdColumn(sheet);
-    const url = `https://sheetdb.io/api/v1/${apiId}/${idColumn}/${encodeURIComponent(projectId)}?sheet=${encodeURIComponent(tabName)}`;
-
-    fetch(url, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ data: { [column]: freelancerCode } }),
-    }).catch(e => console.error("SheetDB PATCH error:", e));
-  }
-
-  function updateSheetDone(assignment: any, freelancerCode: string) {
-    const apiId = assignment.source === "Amazon" ? SHEETDB_AMAZON : SHEETDB_APPLECARE;
-    const sheet = assignment.sheet;
-    const projectId = assignment.projectId;
-
-    const column = assignment.role === "translator" ? getTrDoneColumn(sheet) : getRevDoneColumn(sheet);
-    if (!column) return;
-
-    const tabName = getTabName(assignment.source, sheet);
-    if (!tabName) return;
-
-    const idColumn = getIdColumn(sheet);
-    const url = `https://sheetdb.io/api/v1/${apiId}/${idColumn}/${encodeURIComponent(projectId)}?sheet=${encodeURIComponent(tabName)}`;
-
-    const value = assignment.role === "reviewer" ? new Date().toISOString().slice(11, 16) : "Yes";
-
-    fetch(url, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ data: { [column]: value } }),
-    }).catch(e => console.error("SheetDB PATCH done error:", e));
-  }
-
-  function getTranslatorColumn(sheet: string): string | null {
-    if (sheet === "TPT") return "TR";
-    if (sheet === "DPX") return null; // DPX has no translator
-    return "TR "; // non-AFT, AFT have "TR " with trailing space, but let's check
-  }
-  function getReviewerColumn(sheet: string): string {
-    if (sheet === "TPT") return "REV";
-    return "Rev";
-  }
-  function getTrDoneColumn(sheet: string): string | null {
-    if (sheet === "TPT") return "TR\nDone?";
-    if (sheet === "DPX") return null;
-    return "TR Dlvr";
-  }
-  function getRevDoneColumn(sheet: string): string | null {
-    if (sheet === "TPT") return "Rev\nDone?";
-    return "Rev Complete?";
-  }
-  function getIdColumn(sheet: string): string {
-    if (sheet === "TPT") return "ATMS ID";
-    if (sheet === "Assignments" || sheet === "RU Assignments" || sheet === "AR Assignments") return "ID";
-    return "Project ID";
-  }
-  function getTabName(source: string, sheet: string): string | null {
-    if (source === "Amazon") {
-      const found = AMAZON_TABS.find(t => t.sheet === sheet);
-      return found ? found.tab : null;
-    }
-    const found = APPLECARE_TABS.find(t => t.sheet === sheet);
-    return found ? found.tab : null;
-  }
+  app.delete("/api/sheet-configs/:id", requireAuth, (req: Request, res: Response) => {
+    storage.deleteSheetConfig(+req.params.id);
+    res.json({ success: true });
+  });
 
   // ---- PM MANAGEMENT ----
 
@@ -800,11 +724,11 @@ export async function registerRoutes(server: Server, app: Express) {
   });
 
   app.post("/api/pm-users", requireAuth, (req: Request, res: Response) => {
-    const { email, name, role } = req.body;
-    if (!email || !name) return res.status(400).json({ error: "Email and name required" });
+    const { email, name, password, role } = req.body;
+    if (!email || !name || !password) return res.status(400).json({ error: "Email, name, and password required" });
     const existing = storage.getPmUserByEmail(email.toLowerCase().trim());
     if (existing) return res.status(400).json({ error: "This email is already registered." });
-    const user = storage.createPmUser({ email: email.toLowerCase().trim(), name, role: role || "pm" });
+    const user = storage.createPmUser({ email: email.toLowerCase().trim(), name, password, role: role || "pm" });
     res.json(user);
   });
 }
