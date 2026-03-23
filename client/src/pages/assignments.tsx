@@ -6,7 +6,6 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Card, CardContent } from "@/components/ui/card";
 import {
   Search, CheckCircle2, Clock, XCircle, Send, X,
 } from "lucide-react";
@@ -90,7 +89,7 @@ export default function AssignmentsPage() {
   return (
     <div className="h-full flex flex-col">
       {/* Header + Filters */}
-      <div className="border-b border-border bg-card px-6 py-3">
+      <div className="border-b border-border bg-card px-4 py-2.5">
         <div className="flex items-center gap-3">
           <h1 className="text-sm font-semibold text-foreground mr-4" data-testid="text-assignments-title">Assignment History</h1>
           <div className="relative flex-1 max-w-sm">
@@ -125,14 +124,14 @@ export default function AssignmentsPage() {
               <SelectItem value="expired">Expired</SelectItem>
             </SelectContent>
           </Select>
-          <span className="text-xs text-muted-foreground ml-auto">{filtered.length} assignments</span>
+          <span className="text-xs text-muted-foreground ml-auto tabular-nums">{filtered.length} assignments</span>
         </div>
       </div>
 
       {/* Content */}
       <div className="flex-1 flex overflow-hidden">
         {/* Table */}
-        <div className="flex-1 overflow-auto" style={{ flex: selected ? "0 0 60%" : "1" }}>
+        <div className="flex-1 overflow-auto">
           {isLoading ? (
             <div className="p-4 space-y-2">
               {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-12 w-full rounded" />)}
@@ -143,7 +142,7 @@ export default function AssignmentsPage() {
             </div>
           ) : (
             <table className="w-full text-sm" data-testid="table-assignments">
-              <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm z-10">
+              <thead className="sticky top-0 bg-muted/90 backdrop-blur-sm z-10">
                 <tr className="border-b border-border">
                   <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Project ID</th>
                   <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Source</th>
@@ -202,7 +201,7 @@ export default function AssignmentsPage() {
 
         {/* Detail panel */}
         {selected && (
-          <div className="w-[40%] border-l border-border bg-card overflow-auto">
+          <div className="w-[400px] shrink-0 border-l border-border bg-card overflow-auto">
             <div className="p-4 border-b border-border">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-semibold text-sm text-foreground">Assignment #{selected.id}</h3>
@@ -231,6 +230,7 @@ export default function AssignmentsPage() {
                   {selected.taskDetails.deadline && <Row label="Deadline" value={selected.taskDetails.deadline} />}
                   {selected.taskDetails.total && <Row label="Total" value={selected.taskDetails.total} />}
                   {selected.taskDetails.wwc && <Row label="WWC" value={selected.taskDetails.wwc} />}
+                  {selected.taskDetails.projectTitle && <Row label="Title" value={selected.taskDetails.projectTitle} />}
                 </div>
               </div>
             )}

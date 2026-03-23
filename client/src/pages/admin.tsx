@@ -4,11 +4,12 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Trash2, Loader2, FileSpreadsheet, Users } from "lucide-react";
+import { Plus, Trash2, Loader2, FileSpreadsheet, Users, Mail, Save, Info } from "lucide-react";
 
 // ── Types ──
 
@@ -26,6 +27,13 @@ interface PmUser {
   role: string;
 }
 
+interface EmailTemplate {
+  id: number;
+  key: string;
+  subject: string;
+  body: string;
+}
+
 const LANGUAGE_PAIRS = [
   "EN>TR", "EN>AR", "EN>RU", "EN>DE", "EN>FR", "EN>ES",
   "EN>PT", "EN>IT", "EN>NL", "EN>PL", "EN>JA", "EN>KO", "EN>ZH", "Multi",
@@ -40,6 +48,7 @@ export default function AdminPage() {
         <h1 className="text-lg font-semibold text-foreground" data-testid="text-admin-title">Admin Panel</h1>
         <SheetConfigsSection />
         <PmUsersSection />
+        <EmailTemplatesSection />
       </div>
     </div>
   );
@@ -379,5 +388,120 @@ function PmUsersSection() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// ── Email Templates ──
+
+function EmailTemplatesSection() {
+  const { toast } = useToast();
+
+  const { data: templates, isLoading } = useQuery<EmailTemplate[]>({
+    queryKey: ["/api/email-templates"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/email-templates");
+      return res.json();
+    },
+  });
+
+  return (
+    <Card className="border border-border">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <Mail className="w-4 h-4 text-muted-foreground" />
+          Email Templates
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="mb-3 p-2 rounded bg-muted/30 flex items-start gap-2">
+          <Info className="w-3.5 h-3.5 text-muted-foreground shrink-0 mt-0.5" />
+          <p className="text-[11px] text-muted-foreground">
+            Available placeholders: <code className="text-foreground">{"{{freelancerName}}"}</code>, <code className="text-foreground">{"{{account}}"}</code>, <code className="text-foreground">{"{{source}}"}</code>, <code className="text-foreground">{"{{sheet}}"}</code>, <code className="text-foreground">{"{{projectId}}"}</code>, <code className="text-foreground">{"{{deadline}}"}</code>, <code className="text-foreground">{"{{total}}"}</code>, <code className="text-foreground">{"{{wwc}}"}</code>, <code className="text-foreground">{"{{role}}"}</code>, <code className="text-foreground">{"{{acceptUrl}}"}</code>
+          </p>
+        </div>
+
+        {isLoading ? (
+          <div className="space-y-2">
+            {[...Array(2)].map((_, i) => <Skeleton key={i} className="h-32 w-full rounded" />)}
+          </div>
+        ) : !templates || templates.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-6">No email templates yet.</p>
+        ) : (
+          <div className="space-y-4">
+            {templates.map((tpl) => (
+              <TemplateEditor key={tpl.id} template={tpl} />
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function TemplateEditor({ template }: { template: EmailTemplate }) {
+  const { toast } = useToast();
+  const [subject, setSubject] = useState(template.subject);
+  const [body, setBody] = useState(template.body);
+  const hasChanges = subject !== template.subject || body !== template.body;
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/email-templates", {
+        key: template.key,
+        subject,
+        body,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/email-templates"] });
+      toast({ title: "Template saved" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <div className="p-3 border border-border rounded-lg" data-testid={`template-${template.key}`}>
+      <div className="flex items-center justify-between mb-2">
+        <Badge variant="secondary" className="text-xs">{template.key}</Badge>
+        <Button
+          size="sm"
+          variant={hasChanges ? "default" : "outline"}
+          onClick={() => saveMutation.mutate()}
+          disabled={!hasChanges || saveMutation.isPending}
+          className="h-7 text-xs"
+          data-testid={`button-save-template-${template.key}`}
+        >
+          {saveMutation.isPending ? (
+            <Loader2 className="w-3 h-3 animate-spin mr-1" />
+          ) : (
+            <Save className="w-3 h-3 mr-1" />
+          )}
+          Save
+        </Button>
+      </div>
+      <div className="space-y-2">
+        <div>
+          <label className="text-xs text-muted-foreground mb-1 block">Subject</label>
+          <Input
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            className="h-8 text-sm"
+            data-testid={`input-subject-${template.key}`}
+          />
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground mb-1 block">Body (HTML)</label>
+          <Textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            className="text-xs font-mono min-h-[120px]"
+            data-testid={`input-body-${template.key}`}
+          />
+        </div>
+      </div>
+    </div>
   );
 }

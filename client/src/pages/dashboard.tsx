@@ -1,19 +1,31 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient, getPublicApiBase } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import {
-  Search, Send, Loader2, X, ChevronUp, ChevronDown,
-  LayoutDashboard, AlertCircle, CheckCircle2, Users,
+  Search, Send, Loader2, X, ChevronUp, ChevronDown, ChevronRight,
+  CheckCircle2, Pencil,
 } from "lucide-react";
 
 // ── Types ──
+
+interface CatCounts {
+  ice: string;
+  rep: string;
+  match100: string;
+  fuzzy95: string;
+  fuzzy85: string;
+  fuzzy75: string;
+  noMatch: string;
+  mt: string;
+}
 
 interface Task {
   source: string;
@@ -28,7 +40,13 @@ interface Task {
   total: string;
   wwc: string;
   revType: string;
-  raw: any;
+  catCounts: CatCounts;
+  hoNote: string;
+  trHbNote: string;
+  revHbNote: string;
+  instructions: string;
+  lqi: string;
+  projectTitle: string;
 }
 
 interface Freelancer {
@@ -55,6 +73,20 @@ interface Assignment {
   status: string;
 }
 
+interface SheetConfig {
+  id: number;
+  source: string;
+  sheet: string;
+  languagePair: string;
+}
+
+interface EmailTemplate {
+  id: number;
+  key: string;
+  subject: string;
+  body: string;
+}
+
 // ── Constants ──
 
 const ACCOUNT_MATCH: Record<string, string[]> = {
@@ -77,6 +109,27 @@ function needsReviewer(t: Task): boolean {
   return !t.reviewer || t.reviewer.trim() === "" || isXX(t.reviewer);
 }
 
+function taskKey(t: Task): string {
+  return `${t.source}|${t.sheet}|${t.projectId}`;
+}
+
+function parseDeadline(d: string): Date | null {
+  if (!d) return null;
+  const parsed = new Date(d);
+  return isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function deadlineClass(d: string): string {
+  const date = parseDeadline(d);
+  if (!date) return "text-muted-foreground";
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const deadlineDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  if (deadlineDay < today) return "text-red-600 font-semibold";
+  if (deadlineDay.getTime() === today.getTime()) return "text-orange-600 font-semibold";
+  return "text-muted-foreground";
+}
+
 // ── Component ──
 
 export default function DashboardPage() {
@@ -87,12 +140,17 @@ export default function DashboardPage() {
   const [sourceFilter, setSourceFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("unassigned");
   const [selectedTaskKey, setSelectedTaskKey] = useState<string | null>(null);
+  const [checkedKeys, setCheckedKeys] = useState<Set<string>>(new Set());
 
   // Assignment form state
   const [role, setRole] = useState<"translator" | "reviewer">("translator");
   const [assignmentType, setAssignmentType] = useState<"direct" | "sequence" | "broadcast">("sequence");
   const [selectedFreelancers, setSelectedFreelancers] = useState<Freelancer[]>([]);
   const [freelancerSearch, setFreelancerSearch] = useState("");
+  const [editingEmail, setEditingEmail] = useState(false);
+  const [customSubject, setCustomSubject] = useState("");
+  const [customBody, setCustomBody] = useState("");
+  const [showInstructions, setShowInstructions] = useState(false);
 
   // Queries
   const { data: tasks, isLoading: tasksLoading } = useQuery<Task[]>({
@@ -122,6 +180,24 @@ export default function DashboardPage() {
     staleTime: 300000,
   });
 
+  const { data: sheetConfigs } = useQuery<SheetConfig[]>({
+    queryKey: ["/api/sheet-configs"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/sheet-configs");
+      return res.json();
+    },
+    staleTime: 300000,
+  });
+
+  const { data: emailTemplates } = useQuery<EmailTemplate[]>({
+    queryKey: ["/api/email-templates"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/email-templates");
+      return res.json();
+    },
+    staleTime: 300000,
+  });
+
   // Assigned project IDs set
   const assignedProjectIds = useMemo(() => {
     if (!assignments) return new Set<string>();
@@ -132,17 +208,15 @@ export default function DashboardPage() {
     );
   }, [assignments]);
 
-  // Filter tasks
+  // Filter + sort tasks
   const filteredTasks = useMemo(() => {
     if (!tasks) return [];
-    return tasks.filter((t) => {
+    const filtered = tasks.filter((t) => {
       if (sourceFilter !== "all" && t.source !== sourceFilter) return false;
 
-      const key = `${t.source}|${t.sheet}|${t.projectId}`;
-      const isAssigned = assignedProjectIds.has(key);
-      const needsTR = needsTranslator(t);
-      const needsREV = needsReviewer(t);
-      const isUnassigned = needsTR || needsREV;
+      const nTR = needsTranslator(t);
+      const nREV = needsReviewer(t);
+      const isUnassigned = nTR || nREV;
 
       if (statusFilter === "unassigned" && !isUnassigned) return false;
       if (statusFilter === "assigned" && (isUnassigned || t.delivered === "Delivered")) return false;
@@ -151,12 +225,22 @@ export default function DashboardPage() {
 
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
-        return [t.projectId, t.account, t.translator, t.reviewer, t.sheet, t.source]
+        return [t.projectId, t.account, t.translator, t.reviewer, t.sheet, t.source, t.projectTitle]
           .some((v) => v?.toLowerCase().includes(q));
       }
       return true;
     });
-  }, [tasks, sourceFilter, statusFilter, searchQuery, assignedProjectIds]);
+
+    // Sort by deadline ascending (soonest first)
+    return filtered.sort((a, b) => {
+      const da = parseDeadline(a.deadline);
+      const db = parseDeadline(b.deadline);
+      if (!da && !db) return 0;
+      if (!da) return 1;
+      if (!db) return -1;
+      return da.getTime() - db.getTime();
+    });
+  }, [tasks, sourceFilter, statusFilter, searchQuery]);
 
   // Stats
   const stats = useMemo(() => {
@@ -177,19 +261,28 @@ export default function DashboardPage() {
   // Selected task
   const selectedTask = useMemo(() => {
     if (!selectedTaskKey || !tasks) return null;
-    return tasks.find((t) => `${t.source}|${t.sheet}|${t.projectId}` === selectedTaskKey) || null;
+    return tasks.find((t) => taskKey(t) === selectedTaskKey) || null;
   }, [selectedTaskKey, tasks]);
 
-  // Auto-detect role when task changes
-  const autoRole = useMemo(() => {
-    if (!selectedTask) return "translator";
-    if (needsTranslator(selectedTask)) return "translator";
-    if (needsReviewer(selectedTask)) return "reviewer";
-    return "translator";
-  }, [selectedTask]);
+  // Get language pair for the selected task from sheet configs
+  const taskLangPair = useMemo(() => {
+    if (!selectedTask || !sheetConfigs) return null;
+    const config = sheetConfigs.find(
+      (c) => c.source === selectedTask.source && c.sheet === selectedTask.sheet
+    );
+    return config?.languagePair || null;
+  }, [selectedTask, sheetConfigs]);
 
+  // Get email template for current role
+  const currentTemplate = useMemo(() => {
+    if (!emailTemplates) return null;
+    const key = role === "translator" ? "offer_translator" : "offer_reviewer";
+    return emailTemplates.find((t) => t.key === key) || null;
+  }, [emailTemplates, role]);
+
+  // Task select handler
   function selectTask(t: Task) {
-    const key = `${t.source}|${t.sheet}|${t.projectId}`;
+    const key = taskKey(t);
     if (selectedTaskKey === key) {
       setSelectedTaskKey(null);
       return;
@@ -197,10 +290,49 @@ export default function DashboardPage() {
     setSelectedTaskKey(key);
     setSelectedFreelancers([]);
     setFreelancerSearch("");
+    setEditingEmail(false);
+    setCustomSubject("");
+    setCustomBody("");
+    setShowInstructions(false);
     const newRole = needsTranslator(t) ? "translator" : "reviewer";
-    setRole(newRole as "translator" | "reviewer");
+    setRole(newRole);
     setAssignmentType("sequence");
   }
+
+  // Checkbox handling
+  function toggleCheck(key: string) {
+    setCheckedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleAllVisible() {
+    if (checkedKeys.size === filteredTasks.length) {
+      setCheckedKeys(new Set());
+    } else {
+      setCheckedKeys(new Set(filteredTasks.map(taskKey)));
+    }
+  }
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setSelectedTaskKey(null);
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === "a" && !e.shiftKey) {
+        const active = document.activeElement;
+        if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) return;
+        e.preventDefault();
+        setCheckedKeys(new Set(filteredTasks.map(taskKey)));
+      }
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [filteredTasks]);
 
   // Freelancer filtering
   const filteredFreelancers = useMemo(() => {
@@ -216,8 +348,13 @@ export default function DashboardPage() {
           return [f.fullName, f.resourceCode, f.email, ...(f.accounts || []), ...(f.languagePairs || [])]
             .some((v) => v?.toLowerCase().includes(q));
         }
+        // Account match
         const matchesAccount = matchAccounts.length === 0 || f.accounts?.some((a) => matchAccounts.includes(a));
         if (!matchesAccount) return false;
+        // Language pair match
+        if (taskLangPair && taskLangPair !== "Multi" && f.languagePairs?.length > 0) {
+          if (!f.languagePairs.includes(taskLangPair)) return false;
+        }
         return true;
       })
       .sort((a, b) => {
@@ -225,7 +362,7 @@ export default function DashboardPage() {
         if (b.status === "Approved" && a.status !== "Approved") return 1;
         return a.fullName.localeCompare(b.fullName);
       });
-  }, [freelancers, selectedTask, freelancerSearch, selectedFreelancers]);
+  }, [freelancers, selectedTask, freelancerSearch, selectedFreelancers, taskLangPair]);
 
   function addFreelancer(f: Freelancer) {
     if (assignmentType === "direct") {
@@ -253,7 +390,7 @@ export default function DashboardPage() {
   const createMutation = useMutation({
     mutationFn: async () => {
       if (!selectedTask) throw new Error("No task selected");
-      const body = {
+      const body: any = {
         source: selectedTask.source,
         sheet: selectedTask.sheet,
         projectId: selectedTask.projectId,
@@ -267,6 +404,7 @@ export default function DashboardPage() {
           total: selectedTask.total,
           wwc: selectedTask.wwc,
           revType: selectedTask.revType,
+          projectTitle: selectedTask.projectTitle,
         },
         assignmentType,
         role,
@@ -279,6 +417,8 @@ export default function DashboardPage() {
         clientBaseUrl: window.location.href.split("#")[0].replace(/\/$/, ""),
         apiBaseUrl: getPublicApiBase(),
       };
+      if (customSubject) body.emailSubject = customSubject;
+      if (customBody) body.emailBody = customBody;
       const res = await apiRequest("POST", "/api/assignments", body);
       return res.json();
     },
@@ -287,70 +427,100 @@ export default function DashboardPage() {
       toast({ title: "Task assigned", description: "Emails sent successfully." });
       setSelectedTaskKey(null);
       setSelectedFreelancers([]);
+      setEditingEmail(false);
+      setCustomSubject("");
+      setCustomBody("");
     },
     onError: (err: any) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     },
   });
 
+  // CAT counts sum
+  const catSum = useCallback((cc: CatCounts) => {
+    return [cc.ice, cc.rep, cc.match100, cc.fuzzy95, cc.fuzzy85, cc.fuzzy75, cc.noMatch, cc.mt]
+      .reduce((s, v) => s + (parseInt(v) || 0), 0);
+  }, []);
+
+  const hasChecked = checkedKeys.size > 0;
+
   return (
     <div className="h-full flex flex-col">
       {/* Stats bar */}
-      <div className="border-b border-border bg-card px-6 py-3">
-        <div className="flex items-center gap-6">
-          <StatPill icon={<LayoutDashboard className="w-3.5 h-3.5" />} label="Total" value={stats.total} loading={tasksLoading} />
-          <StatPill icon={<AlertCircle className="w-3.5 h-3.5" />} label="Needs TR" value={stats.needsTR} loading={tasksLoading} color="text-orange-500" />
-          <StatPill icon={<Users className="w-3.5 h-3.5" />} label="Needs REV" value={stats.needsREV} loading={tasksLoading} color="text-blue-500" />
-          <StatPill icon={<Send className="w-3.5 h-3.5" />} label="Assigned" value={stats.assigned} loading={tasksLoading} color="text-emerald-500" />
-          <StatPill icon={<CheckCircle2 className="w-3.5 h-3.5" />} label="Completed" value={stats.completed} loading={tasksLoading} color="text-green-600" />
+      <div className="border-b border-border bg-card px-4 py-2">
+        <div className="flex items-center gap-6 text-xs">
+          <StatPill label="Total" value={stats.total} loading={tasksLoading} />
+          <StatPill label="Needs TR" value={stats.needsTR} loading={tasksLoading} color="text-orange-500" />
+          <StatPill label="Needs REV" value={stats.needsREV} loading={tasksLoading} color="text-blue-500" />
+          <StatPill label="Assigned" value={stats.assigned} loading={tasksLoading} color="text-emerald-500" />
+          <StatPill label="Completed" value={stats.completed} loading={tasksLoading} color="text-green-600" />
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="border-b border-border bg-card px-6 py-2.5 flex items-center gap-3">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Search by project ID, account, translator..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 h-8 text-sm"
-            data-testid="input-search"
-          />
-        </div>
-        <Select value={sourceFilter} onValueChange={setSourceFilter}>
-          <SelectTrigger className="w-36 h-8 text-sm" data-testid="select-source">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Sources</SelectItem>
-            <SelectItem value="Amazon">Amazon</SelectItem>
-            <SelectItem value="AppleCare">AppleCare</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-36 h-8 text-sm" data-testid="select-status">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="unassigned">Unassigned</SelectItem>
-            <SelectItem value="assigned">Assigned</SelectItem>
-            <SelectItem value="all">All</SelectItem>
-            <SelectItem value="delivered">Delivered</SelectItem>
-          </SelectContent>
-        </Select>
-        <span className="text-xs text-muted-foreground ml-auto">
-          {filteredTasks.length} tasks
-        </span>
+      {/* Filters + bulk actions */}
+      <div className="border-b border-border bg-card px-4 py-2 flex items-center gap-3">
+        {hasChecked ? (
+          <>
+            <Badge variant="secondary" className="text-xs gap-1">
+              <CheckCircle2 className="w-3 h-3" />
+              {checkedKeys.size} selected
+            </Badge>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => setCheckedKeys(new Set())}
+            >
+              Clear
+            </Button>
+          </>
+        ) : (
+          <>
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by project ID, account, translator..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10 h-8 text-sm"
+                data-testid="input-search"
+              />
+            </div>
+            <Select value={sourceFilter} onValueChange={setSourceFilter}>
+              <SelectTrigger className="w-36 h-8 text-sm" data-testid="select-source">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Sources</SelectItem>
+                <SelectItem value="Amazon">Amazon</SelectItem>
+                <SelectItem value="AppleCare">AppleCare</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-36 h-8 text-sm" data-testid="select-status">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="unassigned">Unassigned</SelectItem>
+                <SelectItem value="assigned">Assigned</SelectItem>
+                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="delivered">Delivered</SelectItem>
+              </SelectContent>
+            </Select>
+            <span className="text-xs text-muted-foreground ml-auto tabular-nums">
+              {filteredTasks.length} tasks
+            </span>
+          </>
+        )}
       </div>
 
       {/* Split panel */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left: Task list */}
-        <div className="flex-1 min-w-0 overflow-auto" style={{ flex: selectedTask ? "0 0 60%" : "1" }}>
+        {/* Left: Task table */}
+        <div className="flex-1 min-w-0 overflow-auto">
           {tasksLoading ? (
             <div className="p-4 space-y-2">
-              {[...Array(10)].map((_, i) => <Skeleton key={i} className="h-10 w-full rounded" />)}
+              {[...Array(12)].map((_, i) => <Skeleton key={i} className="h-9 w-full rounded" />)}
             </div>
           ) : filteredTasks.length === 0 ? (
             <div className="flex items-center justify-center h-full text-muted-foreground text-sm" data-testid="text-no-tasks">
@@ -358,51 +528,69 @@ export default function DashboardPage() {
             </div>
           ) : (
             <table className="w-full text-sm" data-testid="table-tasks">
-              <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm z-10">
+              <thead className="sticky top-0 bg-muted/90 backdrop-blur-sm z-10">
                 <tr className="border-b border-border">
-                  <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Project ID</th>
-                  <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Source</th>
-                  <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Account</th>
-                  <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">TR</th>
-                  <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">REV</th>
-                  <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Deadline</th>
-                  <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Total</th>
-                  <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Status</th>
+                  <th className="w-10 px-2 py-2">
+                    <Checkbox
+                      checked={filteredTasks.length > 0 && checkedKeys.size === filteredTasks.length}
+                      onCheckedChange={toggleAllVisible}
+                      data-testid="checkbox-all"
+                    />
+                  </th>
+                  <th className="text-left font-medium text-muted-foreground px-2 py-2 text-xs">Project ID</th>
+                  <th className="text-left font-medium text-muted-foreground px-2 py-2 text-xs">Source</th>
+                  <th className="text-left font-medium text-muted-foreground px-2 py-2 text-xs">Account</th>
+                  <th className="text-left font-medium text-muted-foreground px-2 py-2 text-xs">TR</th>
+                  <th className="text-left font-medium text-muted-foreground px-2 py-2 text-xs">REV</th>
+                  <th className="text-left font-medium text-muted-foreground px-2 py-2 text-xs">Deadline</th>
+                  <th className="text-right font-medium text-muted-foreground px-2 py-2 text-xs">Total</th>
+                  <th className="text-right font-medium text-muted-foreground px-2 py-2 text-xs">WWC</th>
+                  <th className="text-left font-medium text-muted-foreground px-2 py-2 text-xs">Status</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredTasks.slice(0, 200).map((task, idx) => {
-                  const key = `${task.source}|${task.sheet}|${task.projectId}`;
+                {filteredTasks.slice(0, 300).map((task, idx) => {
+                  const key = taskKey(task);
                   const isSelected = key === selectedTaskKey;
+                  const isChecked = checkedKeys.has(key);
                   const nTR = needsTranslator(task);
                   const nREV = needsReviewer(task);
                   return (
                     <tr
                       key={`${key}-${idx}`}
                       className={`border-b border-border cursor-pointer transition-colors ${
-                        isSelected ? "bg-primary/5 border-l-2 border-l-primary" : "hover:bg-muted/30"
+                        isSelected ? "bg-primary/5 border-l-2 border-l-primary" : isChecked ? "bg-blue-500/5" : "hover:bg-muted/30"
                       }`}
                       onClick={() => selectTask(task)}
                       data-testid={`row-task-${idx}`}
                     >
-                      <td className="px-3 py-2 font-medium text-foreground whitespace-nowrap">{task.projectId}</td>
-                      <td className="px-3 py-2">
+                      <td className="w-10 px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          checked={isChecked}
+                          onCheckedChange={() => toggleCheck(key)}
+                        />
+                      </td>
+                      <td className="px-2 py-1.5 font-medium text-foreground whitespace-nowrap text-xs">{task.projectId}</td>
+                      <td className="px-2 py-1.5">
                         <Badge variant="secondary" className="text-[10px] font-normal px-1.5 py-0">
                           {task.source}/{task.sheet}
                         </Badge>
                       </td>
-                      <td className="px-3 py-2 text-muted-foreground text-xs">{task.account}</td>
-                      <td className="px-3 py-2 text-xs">
-                        {nTR ? <span className="text-muted-foreground">—</span> : <span className="text-foreground">{task.translator}</span>}
+                      <td className="px-2 py-1.5 text-muted-foreground text-xs truncate max-w-[120px]">{task.account}</td>
+                      <td className="px-2 py-1.5 text-xs">
+                        {nTR ? <span className="text-muted-foreground/40">—</span> : <span className="text-foreground">{task.translator}</span>}
                       </td>
-                      <td className="px-3 py-2 text-xs">
+                      <td className="px-2 py-1.5 text-xs">
                         {task.translator && !isXX(task.translator)
-                          ? (nREV ? <span className="text-muted-foreground">—</span> : <span className="text-foreground">{task.reviewer}</span>)
-                          : <span className="text-muted-foreground">—</span>}
+                          ? (nREV ? <span className="text-muted-foreground/40">—</span> : <span className="text-foreground">{task.reviewer}</span>)
+                          : <span className="text-muted-foreground/40">—</span>}
                       </td>
-                      <td className="px-3 py-2 text-muted-foreground text-xs whitespace-nowrap">{task.deadline || "—"}</td>
-                      <td className="px-3 py-2 text-muted-foreground text-xs tabular-nums">{task.total}</td>
-                      <td className="px-3 py-2">
+                      <td className={`px-2 py-1.5 text-xs whitespace-nowrap ${deadlineClass(task.deadline)}`}>
+                        {task.deadline || "—"}
+                      </td>
+                      <td className="px-2 py-1.5 text-xs tabular-nums text-right text-muted-foreground">{task.total}</td>
+                      <td className="px-2 py-1.5 text-xs tabular-nums text-right text-muted-foreground">{task.wwc}</td>
+                      <td className="px-2 py-1.5">
                         {nTR && <Badge className="text-[10px] px-1.5 py-0 bg-orange-500/10 text-orange-600 border-orange-500/20">Needs TR</Badge>}
                         {nREV && <Badge className="text-[10px] px-1.5 py-0 bg-blue-500/10 text-blue-600 border-blue-500/20">Needs REV</Badge>}
                         {!nTR && !nREV && task.delivered === "Delivered" && (
@@ -418,38 +606,110 @@ export default function DashboardPage() {
               </tbody>
             </table>
           )}
-          {filteredTasks.length > 200 && (
+          {filteredTasks.length > 300 && (
             <div className="text-center py-2 text-xs text-muted-foreground border-t border-border">
-              Showing first 200 of {filteredTasks.length} results
+              Showing first 300 of {filteredTasks.length} results
             </div>
           )}
         </div>
 
-        {/* Right: Assignment panel */}
+        {/* Right: Slide-over detail + assign panel */}
         {selectedTask && (
-          <div className="w-[40%] border-l border-border bg-card overflow-auto flex flex-col">
-            {/* Task details */}
+          <div className="w-[480px] shrink-0 border-l border-border bg-card overflow-auto flex flex-col">
+            {/* Header */}
             <div className="p-4 border-b border-border">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-semibold text-sm text-foreground">Assign Task</h3>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <h3 className="font-semibold text-sm text-foreground">{selectedTask.projectId}</h3>
+                  <Badge variant="secondary" className="text-[10px]">{selectedTask.source}/{selectedTask.sheet}</Badge>
+                </div>
                 <Button variant="ghost" size="sm" onClick={() => setSelectedTaskKey(null)} data-testid="button-close-panel" className="h-6 w-6 p-0">
                   <X className="w-4 h-4" />
                 </Button>
               </div>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
-                <DetailItem label="Project ID" value={selectedTask.projectId} />
-                <DetailItem label="Source" value={`${selectedTask.source}/${selectedTask.sheet}`} />
+              {selectedTask.projectTitle && (
+                <p className="text-xs text-muted-foreground mb-2">{selectedTask.projectTitle}</p>
+              )}
+
+              {/* Task details grid */}
+              <div className="grid grid-cols-3 gap-x-3 gap-y-1.5 text-xs mt-2">
                 <DetailItem label="Account" value={selectedTask.account} />
                 <DetailItem label="Deadline" value={selectedTask.deadline || "—"} />
-                <DetailItem label="Total/WWC" value={`${selectedTask.total}/${selectedTask.wwc}`} />
+                <DetailItem label="Rev Type" value={selectedTask.revType || "—"} />
                 <DetailItem label="TR" value={selectedTask.translator || "—"} />
+                <DetailItem label="REV" value={selectedTask.reviewer || "—"} />
+                <DetailItem label="TR Done" value={selectedTask.trDone || "—"} />
               </div>
+
+              {/* HO Note - yellow highlight */}
+              {selectedTask.hoNote && (
+                <div className="mt-2 p-2 rounded bg-yellow-500/10 border border-yellow-500/20 text-xs text-yellow-800 dark:text-yellow-300">
+                  <span className="font-semibold">HO Note: </span>{selectedTask.hoNote}
+                </div>
+              )}
+
+              {/* Instructions (collapsible) */}
+              {selectedTask.instructions && (
+                <div className="mt-2">
+                  <button
+                    onClick={() => setShowInstructions(!showInstructions)}
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    <ChevronRight className={`w-3 h-3 transition-transform ${showInstructions ? "rotate-90" : ""}`} />
+                    Instructions
+                  </button>
+                  {showInstructions && (
+                    <p className="mt-1 text-xs text-muted-foreground pl-4">{selectedTask.instructions}</p>
+                  )}
+                </div>
+              )}
             </div>
 
-            {/* Assignment config */}
+            {/* CAT Analysis */}
+            {selectedTask.catCounts && catSum(selectedTask.catCounts) > 0 && (
+              <div className="px-4 py-2 border-b border-border">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">CAT Analysis</p>
+                <div className="flex flex-wrap gap-1">
+                  {([
+                    ["ICE", selectedTask.catCounts.ice],
+                    ["Rep", selectedTask.catCounts.rep],
+                    ["100%", selectedTask.catCounts.match100],
+                    ["95-99", selectedTask.catCounts.fuzzy95],
+                    ["85-94", selectedTask.catCounts.fuzzy85],
+                    ["75-84", selectedTask.catCounts.fuzzy75],
+                    ["NM", selectedTask.catCounts.noMatch],
+                    ["MT", selectedTask.catCounts.mt],
+                  ] as [string, string][]).filter(([, v]) => parseInt(v) > 0).map(([label, value]) => (
+                    <span key={label} className="inline-flex items-center gap-1 bg-muted rounded px-1.5 py-0.5 text-[10px]">
+                      <span className="text-muted-foreground">{label}:</span>
+                      <span className="font-medium text-foreground tabular-nums">{value}</span>
+                    </span>
+                  ))}
+                </div>
+                <div className="flex gap-3 mt-1 text-[10px]">
+                  <span className="text-muted-foreground">Total: <span className="font-semibold text-foreground">{selectedTask.total}</span></span>
+                  <span className="text-muted-foreground">WWC: <span className="font-semibold text-foreground">{selectedTask.wwc}</span></span>
+                </div>
+              </div>
+            )}
+
+            {/* Assignment section */}
             <div className="p-4 border-b border-border space-y-3">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Assignment</p>
+
+              {/* Current TR/REV */}
+              <div className="flex gap-4 text-xs">
+                <span className="text-muted-foreground">
+                  Current TR: <span className="font-medium text-foreground">{selectedTask.translator || "—"}</span>
+                </span>
+                <span className="text-muted-foreground">
+                  Current REV: <span className="font-medium text-foreground">{selectedTask.reviewer || "—"}</span>
+                </span>
+              </div>
+
+              {/* Role toggle */}
               <div className="flex items-center gap-3">
-                <label className="text-xs font-medium text-muted-foreground w-12">Role</label>
+                <label className="text-xs font-medium text-muted-foreground w-10">Role</label>
                 <div className="flex gap-1">
                   <button
                     onClick={() => setRole("translator")}
@@ -471,8 +731,10 @@ export default function DashboardPage() {
                   </button>
                 </div>
               </div>
+
+              {/* Type toggle */}
               <div className="flex items-center gap-3">
-                <label className="text-xs font-medium text-muted-foreground w-12">Type</label>
+                <label className="text-xs font-medium text-muted-foreground w-10">Type</label>
                 <div className="flex gap-1">
                   {(["direct", "sequence", "broadcast"] as const).map((t) => (
                     <button
@@ -496,7 +758,7 @@ export default function DashboardPage() {
             {/* Selected freelancers chips */}
             {selectedFreelancers.length > 0 && (
               <div className="px-4 py-2 border-b border-border">
-                <div className="text-xs font-medium text-muted-foreground mb-1.5">
+                <div className="text-[10px] font-medium text-muted-foreground mb-1.5">
                   Selected ({selectedFreelancers.length})
                 </div>
                 <div className="flex flex-wrap gap-1">
@@ -526,6 +788,58 @@ export default function DashboardPage() {
               </div>
             )}
 
+            {/* Email preview/edit */}
+            <div className="px-4 py-2 border-b border-border">
+              <div className="flex items-center justify-between mb-1.5">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Email Template</p>
+                <button
+                  onClick={() => {
+                    if (!editingEmail && currentTemplate) {
+                      setCustomSubject(currentTemplate.subject);
+                      setCustomBody(currentTemplate.body);
+                    }
+                    setEditingEmail(!editingEmail);
+                  }}
+                  className="flex items-center gap-1 text-[10px] text-primary hover:underline"
+                >
+                  <Pencil className="w-3 h-3" />
+                  {editingEmail ? "Cancel" : "Edit email"}
+                </button>
+              </div>
+              {editingEmail ? (
+                <div className="space-y-2">
+                  <Input
+                    value={customSubject}
+                    onChange={(e) => setCustomSubject(e.target.value)}
+                    placeholder="Subject..."
+                    className="h-7 text-xs"
+                    data-testid="input-email-subject"
+                  />
+                  <Textarea
+                    value={customBody}
+                    onChange={(e) => setCustomBody(e.target.value)}
+                    placeholder="Body HTML..."
+                    className="text-xs font-mono min-h-[100px]"
+                    data-testid="input-email-body"
+                  />
+                  <p className="text-[10px] text-muted-foreground">
+                    Placeholders: {"{{freelancerName}}"}, {"{{account}}"}, {"{{projectId}}"}, {"{{deadline}}"}, {"{{total}}"}, {"{{wwc}}"}, {"{{source}}"}, {"{{sheet}}"}
+                  </p>
+                </div>
+              ) : (
+                <div className="text-xs text-muted-foreground">
+                  {currentTemplate ? (
+                    <>
+                      <p className="font-medium text-foreground text-[11px]">{currentTemplate.subject}</p>
+                      <p className="mt-0.5 truncate">{currentTemplate.body.replace(/<[^>]*>/g, "").slice(0, 80)}...</p>
+                    </>
+                  ) : (
+                    <p>Default template will be used.</p>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* Freelancer search + list */}
             <div className="flex-1 overflow-auto">
               <div className="p-3 sticky top-0 bg-card z-10 border-b border-border">
@@ -539,6 +853,11 @@ export default function DashboardPage() {
                     data-testid="input-freelancer-search"
                   />
                 </div>
+                {taskLangPair && (
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    Filtering: {taskLangPair} {matchAccounts(selectedTask) && `· ${ACCOUNT_MATCH[selectedTask.source]?.join(", ")}`}
+                  </p>
+                )}
               </div>
 
               {freelancersLoading ? (
@@ -564,13 +883,13 @@ export default function DashboardPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">
                           <span className="text-xs font-medium text-foreground truncate">{f.fullName}</span>
+                          <span className="text-[10px] text-muted-foreground">{f.resourceCode}</span>
                           {f.status === "Approved" && (
                             <Badge variant="secondary" className="text-[9px] px-1 py-0 bg-green-500/10 text-green-600">Approved</Badge>
                           )}
                         </div>
                         <p className="text-[10px] text-muted-foreground truncate">
-                          {f.resourceCode} · {f.email}
-                          {f.languagePairs?.length > 0 && ` · ${f.languagePairs.slice(0, 2).map((lp: any) => typeof lp === "string" ? lp : `${lp.source_language}>${lp.target_language}`).join(", ")}`}
+                          {f.languagePairs?.slice(0, 3).map((lp: any) => typeof lp === "string" ? lp : `${lp.source_language}>${lp.target_language}`).join(", ")}
                         </p>
                       </div>
                     </div>
@@ -583,6 +902,22 @@ export default function DashboardPage() {
                 </div>
               )}
             </div>
+
+            {/* Notes at bottom */}
+            {(selectedTask.trHbNote || selectedTask.revHbNote || selectedTask.lqi) && (
+              <div className="px-4 py-2 border-t border-border">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Notes</p>
+                {selectedTask.trHbNote && (
+                  <p className="text-[10px] text-muted-foreground"><span className="font-medium">TR HB:</span> {selectedTask.trHbNote}</p>
+                )}
+                {selectedTask.revHbNote && (
+                  <p className="text-[10px] text-muted-foreground"><span className="font-medium">Rev HB:</span> {selectedTask.revHbNote}</p>
+                )}
+                {selectedTask.lqi && (
+                  <p className="text-[10px] text-muted-foreground"><span className="font-medium">LQI:</span> {selectedTask.lqi}</p>
+                )}
+              </div>
+            )}
 
             {/* Assign button */}
             <div className="p-3 border-t border-border bg-card">
@@ -601,7 +936,7 @@ export default function DashboardPage() {
                 ) : (
                   <>
                     <Send className="w-4 h-4 mr-2" />
-                    Assign ({selectedFreelancers.length})
+                    Assign {role === "translator" ? "TR" : "REV"} ({selectedFreelancers.length})
                   </>
                 )}
               </Button>
@@ -615,21 +950,25 @@ export default function DashboardPage() {
 
 // ── Sub-components ──
 
-function StatPill({ icon, label, value, loading, color }: { icon: React.ReactNode; label: string; value: number; loading: boolean; color?: string }) {
+function StatPill({ label, value, loading, color }: { label: string; value: number; loading: boolean; color?: string }) {
   return (
-    <div className="flex items-center gap-2">
-      <span className={color || "text-muted-foreground"}>{icon}</span>
-      <span className="text-xs text-muted-foreground">{label}</span>
-      {loading ? <Skeleton className="h-4 w-8" /> : <span className="text-sm font-semibold text-foreground tabular-nums">{value}</span>}
+    <div className="flex items-center gap-1.5">
+      <span className={`text-xs ${color || "text-muted-foreground"}`}>{label}:</span>
+      {loading ? <Skeleton className="h-4 w-6" /> : <span className={`text-sm font-bold tabular-nums ${color || "text-foreground"}`}>{value}</span>}
     </div>
   );
 }
 
 function DetailItem({ label, value }: { label: string; value: string }) {
   return (
-    <div>
-      <span className="text-muted-foreground">{label}: </span>
-      <span className="font-medium text-foreground">{value}</span>
+    <div className="min-w-0">
+      <span className="text-muted-foreground">{label}</span>
+      <p className="font-medium text-foreground truncate">{value}</p>
     </div>
   );
+}
+
+function matchAccounts(task: Task | null): boolean {
+  if (!task) return false;
+  return !!ACCOUNT_MATCH[task.source];
 }

@@ -84,6 +84,14 @@ export const offers = sqliteTable("offers", {
   clientBaseUrl: text("client_base_url"), // The frontend URL for the respond page
 });
 
+// Email templates — editable by admin
+export const emailTemplates = sqliteTable("email_templates", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  key: text("key").notNull().unique(), // "offer_translator", "offer_reviewer"
+  subject: text("subject").notNull(),
+  body: text("body").notNull(), // HTML with {{placeholders}}
+});
+
 // Sheet config — language pairs per source/tab
 export const sheetConfigs = sqliteTable("sheet_configs", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -95,6 +103,7 @@ export const sheetConfigs = sqliteTable("sheet_configs", {
 // Schemas
 export const insertPmUserSchema = createInsertSchema(pmUsers).omit({ id: true });
 export const insertSheetConfigSchema = createInsertSchema(sheetConfigs).omit({ id: true });
+export const insertEmailTemplateSchema = createInsertSchema(emailTemplates).omit({ id: true });
 export const insertAssignmentSchema = createInsertSchema(assignments).omit({ id: true });
 export const insertOfferSchema = createInsertSchema(offers).omit({ id: true });
 export const insertAuthTokenSchema = createInsertSchema(authTokens).omit({ id: true });
@@ -111,3 +120,5 @@ export type AuthToken = typeof authTokens.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
 export type SheetConfig = typeof sheetConfigs.$inferSelect;
 export type InsertSheetConfig = z.infer<typeof insertSheetConfigSchema>;
+export type EmailTemplate = typeof emailTemplates.$inferSelect;
+export type InsertEmailTemplate = z.infer<typeof insertEmailTemplateSchema>;

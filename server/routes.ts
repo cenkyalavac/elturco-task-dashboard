@@ -142,7 +142,6 @@ async function fetchSheetTasks(apiId: string, tabName: string, sheetLabel: strin
     return data.map((row: any) => ({
       source,
       sheet: sheetLabel,
-      raw: row,
       projectId: extractProjectId(row, sheetLabel),
       account: extractAccount(row, sheetLabel),
       translator: extractTranslator(row, sheetLabel),
@@ -153,6 +152,24 @@ async function fetchSheetTasks(apiId: string, tabName: string, sheetLabel: strin
       total: extractTotal(row, sheetLabel),
       wwc: extractWWC(row, sheetLabel),
       revType: extractRevType(row),
+      // CAT analysis breakdown
+      catCounts: {
+        ice: (row["ICE"] || row["Ice"] || "0").toString().trim(),
+        rep: (row["Rep"] || row["REP"] || "0").toString().trim(),
+        match100: (row["100%"] || row["100"] || "0").toString().trim(),
+        fuzzy95: (row["95-99%"] || row["95-99"] || "0").toString().trim(),
+        fuzzy85: (row["85-94%"] || row["85-94"] || "0").toString().trim(),
+        fuzzy75: (row["75-84%"] || row["75-84"] || "0").toString().trim(),
+        noMatch: (row["No Match"] || row["NM"] || "0").toString().trim(),
+        mt: (row["MT"] || "0").toString().trim(),
+      },
+      // Notes & metadata
+      hoNote: (row["HO Note"] || row["HO Notes"] || "").trim(),
+      trHbNote: (row["TR HB Note"] || row["TR HB Notes"] || "").trim(),
+      revHbNote: (row["Rev HB Note"] || row["Rev HB Notes"] || "").trim(),
+      instructions: (row["Instructions"] || row["Instruction"] || "").trim(),
+      lqi: (row["LQI"] || "").trim(),
+      projectTitle: (row["Project Title"] || row["Title"] || "").trim(),
     })).filter((t: any) => t.projectId);
   } catch (e) {
     return [];
@@ -223,15 +240,64 @@ p{color:#666;font-size:14px;margin:0}a{color:#3b82f6;font-size:13px;margin-top:1
 // ============================================
 // EMAIL TEMPLATES
 // ============================================
-function buildOfferEmailHtml(task: any, offer: any, assignment: any): string {
-  // Use the permanent public URL — it always loads the latest deployment
+// Replace {{placeholders}} in a template string with values from a vars map
+function replaceVars(template: string, vars: Record<string, string>): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? "");
+}
+
+// Build the default email body when no custom body is provided
+function buildDefaultOfferBody(vars: Record<string, string>): string {
+  const role = vars.role || "Translation";
+  return `<p>Hello <strong>${vars.freelancerName}</strong>,</p>
+<p>We'd like to know if you're available for the following ${role.toLowerCase()} task.</p>
+<table style="width:100%;border-collapse:collapse;margin:16px 0">
+<tr><td style="padding:10px 12px;background:#f8f9fa;font-weight:600;color:#666;border-bottom:1px solid #eee;width:140px">Account</td><td style="padding:10px 12px;background:#f8f9fa;border-bottom:1px solid #eee">${vars.account}</td></tr>
+<tr><td style="padding:10px 12px;font-weight:600;color:#666;border-bottom:1px solid #eee">Source / Tab</td><td style="padding:10px 12px;border-bottom:1px solid #eee">${vars.source} / ${vars.sheet}</td></tr>
+<tr><td style="padding:10px 12px;background:#f8f9fa;font-weight:600;color:#666;border-bottom:1px solid #eee">Project ID</td><td style="padding:10px 12px;background:#f8f9fa;border-bottom:1px solid #eee">${vars.projectId}</td></tr>
+<tr><td style="padding:10px 12px;font-weight:600;color:#666;border-bottom:1px solid #eee">Deadline</td><td style="padding:10px 12px;color:#e74c3c;font-weight:600;border-bottom:1px solid #eee">${vars.deadline}</td></tr>
+<tr><td style="padding:10px 12px;background:#f8f9fa;font-weight:600;color:#666;border-bottom:1px solid #eee">Total / WWC</td><td style="padding:10px 12px;background:#f8f9fa;border-bottom:1px solid #eee">${vars.total} / ${vars.wwc}</td></tr>
+<tr><td style="padding:10px 12px;font-weight:600;color:#666;border-bottom:1px solid #eee">Task Type</td><td style="padding:10px 12px;border-bottom:1px solid #eee">${role}</td></tr>
+</table>`;
+}
+
+function buildOfferEmailHtml(task: any, offer: any, assignment: any, customSubject?: string, customBody?: string): { subject: string; html: string } {
   const acceptUrl = `${SITE_PUBLIC_URL}#/respond/${offer.token}`;
-  const deadline = task.deadline || "TBD";
-  const total = task.total || "N/A";
-  const wwc = task.wwc || "N/A";
   const role = assignment.role === "translator" ? "Translation" : "Review";
 
-  return `
+  const vars: Record<string, string> = {
+    freelancerName: offer.freelancerName || "",
+    account: task.account || "",
+    source: task.source || "",
+    sheet: task.sheet || "",
+    projectId: task.projectId || "",
+    deadline: task.deadline || "TBD",
+    total: task.total || "N/A",
+    wwc: task.wwc || "N/A",
+    role,
+    acceptUrl,
+  };
+
+  // Resolve subject
+  let subject: string;
+  if (customSubject) {
+    subject = replaceVars(customSubject, vars);
+  } else {
+    const templateKey = assignment.role === "translator" ? "offer_translator" : "offer_reviewer";
+    const tpl = storage.getEmailTemplate(templateKey);
+    subject = tpl ? replaceVars(tpl.subject, vars) : `${role} Task — ${task.account} — ${task.projectId}`;
+  }
+
+  // Resolve body content
+  let bodyContent: string;
+  if (customBody) {
+    bodyContent = replaceVars(customBody, vars);
+  } else {
+    const templateKey = assignment.role === "translator" ? "offer_translator" : "offer_reviewer";
+    const tpl = storage.getEmailTemplate(templateKey);
+    bodyContent = tpl ? replaceVars(tpl.body, vars) : buildDefaultOfferBody(vars);
+  }
+
+  const html = `
 <!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
@@ -243,18 +309,7 @@ function buildOfferEmailHtml(task: any, offer: any, assignment: any): string {
     <p style="margin:8px 0 0;opacity:0.7;font-size:14px">ElTurco Projects</p>
   </div>
   <div style="padding:28px 32px">
-    <p style="margin:0 0 16px;font-size:15px;color:#333">Hello <strong>${offer.freelancerName}</strong>,</p>
-    <p style="margin:0 0 20px;font-size:14px;color:#555;line-height:1.6">
-      We'd like to know if you're available for the following ${role.toLowerCase()} task.
-    </p>
-    <table style="width:100%;border-collapse:collapse;margin:0 0 24px">
-      <tr><td style="padding:10px 12px;background:#f8f9fa;font-size:13px;font-weight:600;color:#666;border-bottom:1px solid #eee;width:140px">Account</td><td style="padding:10px 12px;background:#f8f9fa;font-size:14px;color:#333;border-bottom:1px solid #eee">${task.account}</td></tr>
-      <tr><td style="padding:10px 12px;font-size:13px;font-weight:600;color:#666;border-bottom:1px solid #eee">Source / Tab</td><td style="padding:10px 12px;font-size:14px;color:#333;border-bottom:1px solid #eee">${task.source} / ${task.sheet}</td></tr>
-      <tr><td style="padding:10px 12px;background:#f8f9fa;font-size:13px;font-weight:600;color:#666;border-bottom:1px solid #eee">Project ID</td><td style="padding:10px 12px;background:#f8f9fa;font-size:14px;color:#333;border-bottom:1px solid #eee">${task.projectId}</td></tr>
-      <tr><td style="padding:10px 12px;font-size:13px;font-weight:600;color:#666;border-bottom:1px solid #eee">Deadline</td><td style="padding:10px 12px;font-size:14px;color:#e74c3c;font-weight:600;border-bottom:1px solid #eee">${deadline}</td></tr>
-      <tr><td style="padding:10px 12px;background:#f8f9fa;font-size:13px;font-weight:600;color:#666;border-bottom:1px solid #eee">Total / WWC</td><td style="padding:10px 12px;background:#f8f9fa;font-size:14px;color:#333;border-bottom:1px solid #eee">${total} / ${wwc}</td></tr>
-      <tr><td style="padding:10px 12px;font-size:13px;font-weight:600;color:#666;border-bottom:1px solid #eee">Task Type</td><td style="padding:10px 12px;font-size:14px;color:#333;border-bottom:1px solid #eee">${role}</td></tr>
-    </table>
+    ${bodyContent}
     <div style="text-align:center;margin:28px 0">
       <a href="${acceptUrl}" style="display:inline-block;padding:14px 48px;background:#16a34a;color:#fff;text-decoration:none;border-radius:8px;font-size:16px;font-weight:600;letter-spacing:0.02em">Accept Task</a>
     </div>
@@ -267,6 +322,8 @@ function buildOfferEmailHtml(task: any, offer: any, assignment: any): string {
 </div>
 </body>
 </html>`;
+
+  return { subject, html };
 }
 
 function buildMagicLinkEmailHtml(name: string, magicUrl: string): string {
@@ -440,6 +497,7 @@ export async function registerRoutes(server: Server, app: Express) {
       assignmentType, role, freelancers,
       sequenceTimeoutMinutes, autoAssignReviewer,
       reviewerAssignmentType, reviewerSequenceList,
+      emailSubject, emailBody,
     } = req.body;
 
     if (!source || !projectId || !assignmentType || !role || !freelancers?.length) {
@@ -491,11 +549,8 @@ export async function registerRoutes(server: Server, app: Express) {
         });
 
         try {
-          sendEmail(
-            [f.email],
-            `${role === "translator" ? "Translation" : "Review"} Task — ${account} — ${projectId}`,
-            buildOfferEmailHtml(task, offer, assignment)
-          );
+          const email = buildOfferEmailHtml(task, offer, assignment, emailSubject, emailBody);
+          sendEmail([f.email], email.subject, email.html);
         } catch (e) {
           console.error(`Failed to send email to ${f.email}:`, e);
         }
@@ -518,11 +573,8 @@ export async function registerRoutes(server: Server, app: Express) {
         });
 
         try {
-          sendEmail(
-            [first.email],
-            `${role === "translator" ? "Translation" : "Review"} Task — ${account} — ${projectId}`,
-            buildOfferEmailHtml(task, offer, assignment)
-          );
+          const email = buildOfferEmailHtml(task, offer, assignment, emailSubject, emailBody);
+          sendEmail([first.email], email.subject, email.html);
         } catch (e) {
           console.error(`Failed to send email to ${first.email}:`, e);
         }
@@ -661,11 +713,8 @@ export async function registerRoutes(server: Server, app: Express) {
               clientBaseUrl: clientBase,
             });
 
-            sendEmail(
-              [nextFreelancer.email],
-              `${assignment.role === "translator" ? "Translation" : "Review"} Task — ${assignment.account} — ${assignment.projectId}`,
-              buildOfferEmailHtml(taskDetails, newOffer, assignment)
-            );
+            const email = buildOfferEmailHtml(taskDetails, newOffer, assignment);
+            sendEmail([nextFreelancer.email], email.subject, email.html);
           }
         } catch (e) {
           console.error("Sequence advance error:", e);
@@ -715,6 +764,19 @@ export async function registerRoutes(server: Server, app: Express) {
   app.delete("/api/sheet-configs/:id", requireAuth, (req: Request, res: Response) => {
     storage.deleteSheetConfig(+req.params.id);
     res.json({ success: true });
+  });
+
+  // ---- ADMIN: EMAIL TEMPLATES ----
+
+  app.get("/api/email-templates", requireAuth, (_req: Request, res: Response) => {
+    res.json(storage.getAllEmailTemplates());
+  });
+
+  app.post("/api/email-templates", requireAuth, (req: Request, res: Response) => {
+    const { key, subject, body } = req.body;
+    if (!key || !subject || !body) return res.status(400).json({ error: "Missing fields" });
+    const template = storage.upsertEmailTemplate(key, subject, body);
+    res.json(template);
   });
 
   // ---- PM MANAGEMENT ----
