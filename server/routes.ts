@@ -15,6 +15,10 @@ const FROM_EMAIL = "ElTurco Projects <projects@eltur.co>";
 const MAGIC_LINK_EXPIRY_MINUTES = 30;
 const SESSION_EXPIRY_HOURS = 72;
 
+// The permanent public URL for this deployed site.
+// This URL never expires (unlike the proxy JWT URLs).
+const SITE_PUBLIC_URL = "https://www.perplexity.ai/computer/a/elturco-dispatch-xq.ImUQkRZ2T_RNbjgAXhg";
+
 // Account matching map: which freelancer accounts match which sheet sources
 const ACCOUNT_MATCH: Record<string, string[]> = {
   "Amazon": ["Amazon", "Amazon SeCM", "Amazon PWS"],
@@ -199,11 +203,29 @@ function extractRevType(row: any): string {
 }
 
 // ============================================
+// REDIRECT PAGE (served by redirect endpoints)
+// ============================================
+function buildRedirectPage(targetUrl: string, message: string): string {
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ElTurco Dispatch</title>
+<style>body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f8f9fa;font-family:-apple-system,BlinkMacSystemFont,sans-serif}
+.card{text-align:center;padding:40px;background:#fff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.spinner{width:32px;height:32px;border:3px solid #e5e7eb;border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 16px}
+@keyframes spin{to{transform:rotate(360deg)}}
+p{color:#666;font-size:14px;margin:0}a{color:#3b82f6;font-size:13px;margin-top:12px;display:inline-block}</style>
+</head><body>
+<div class="card"><div class="spinner"></div><p>${message}</p><a href="${targetUrl}">Click here if not redirected</a></div>
+<script>window.location.href=${JSON.stringify(targetUrl)};</script>
+</body></html>`;
+}
+
+// ============================================
 // EMAIL TEMPLATES
 // ============================================
-function buildOfferEmailHtml(task: any, offer: any, assignment: any, apiBase: string): string {
-  // Use server-side redirect (no '#' in URL) so email clients don't break the link
-  const acceptUrl = `${apiBase}/api/offers/redirect/${offer.token}`;
+function buildOfferEmailHtml(task: any, offer: any, assignment: any): string {
+  // Use the permanent public URL — it always loads the latest deployment
+  const acceptUrl = `${SITE_PUBLIC_URL}#/respond/${offer.token}`;
   const deadline = task.deadline || "TBD";
   const total = task.total || "N/A";
   const wwc = task.wwc || "N/A";
@@ -298,10 +320,9 @@ export async function registerRoutes(server: Server, app: Express) {
     const clientBase = resolveBaseUrl(req);
     storage.createAuthToken(token, emailNorm, expiresAt, clientBase);
 
-    // Use a server-side redirect URL so the email link has no '#' fragment
-    // (email clients often break or strip hash fragments).
-    const apiBase = buildApiBase(req);
-    const magicUrl = `${apiBase}/api/auth/redirect/${token}`;
+    // Use the permanent public URL with hash fragment.
+    // This URL never expires and always loads the latest deployed site.
+    const magicUrl = `${SITE_PUBLIC_URL}#/auth/verify/${token}`;
 
     try {
       sendEmail([email], "ElTurco Dispatch - Login Link", buildMagicLinkEmailHtml(pmUser.name, magicUrl));
@@ -336,15 +357,16 @@ export async function registerRoutes(server: Server, app: Express) {
 
   // ---- REDIRECT ENDPOINTS (no '#' in URL — safe for email clients) ----
 
-  // Magic-link redirect: email links point here, then we 302 to the frontend
+  // Magic-link redirect: email links point here.
+  // We serve an HTML page that does a client-side redirect so the hash
+  // fragment is preserved (302 redirects drop the hash in most browsers).
   app.get("/api/auth/redirect/:token", (req: Request, res: Response) => {
     const authToken = storage.getAuthToken(req.params.token);
     if (!authToken || !authToken.clientBaseUrl) {
       return res.status(404).send("Invalid or expired link.");
     }
-    // Redirect to the frontend verify page
     const frontendUrl = `${authToken.clientBaseUrl}#/auth/verify/${req.params.token}`;
-    res.redirect(302, frontendUrl);
+    res.type("html").send(buildRedirectPage(frontendUrl, "Signing you in..."));
   });
 
   // Offer redirect: freelancer email links point here
@@ -354,7 +376,7 @@ export async function registerRoutes(server: Server, app: Express) {
       return res.status(404).send("Offer not found or expired.");
     }
     const frontendUrl = `${offer.clientBaseUrl}#/respond/${req.params.token}`;
-    res.redirect(302, frontendUrl);
+    res.type("html").send(buildRedirectPage(frontendUrl, "Loading task details..."));
   });
 
   // Get current user
@@ -513,7 +535,7 @@ export async function registerRoutes(server: Server, app: Express) {
           sendEmail(
             [f.email],
             `${role === "translator" ? "Translation" : "Review"} Task — ${account} — ${projectId}`,
-            buildOfferEmailHtml(task, offer, assignment, apiBase)
+            buildOfferEmailHtml(task, offer, assignment)
           );
         } catch (e) {
           console.error(`Failed to send email to ${f.email}:`, e);
@@ -540,7 +562,7 @@ export async function registerRoutes(server: Server, app: Express) {
           sendEmail(
             [first.email],
             `${role === "translator" ? "Translation" : "Review"} Task — ${account} — ${projectId}`,
-            buildOfferEmailHtml(task, offer, assignment, apiBase)
+            buildOfferEmailHtml(task, offer, assignment)
           );
         } catch (e) {
           console.error(`Failed to send email to ${first.email}:`, e);
@@ -690,7 +712,7 @@ export async function registerRoutes(server: Server, app: Express) {
             sendEmail(
               [nextFreelancer.email],
               `${assignment.role === "translator" ? "Translation" : "Review"} Task — ${assignment.account} — ${assignment.projectId}`,
-              buildOfferEmailHtml(taskDetails, newOffer, assignment, apiBase)
+              buildOfferEmailHtml(taskDetails, newOffer, assignment)
             );
           }
         } catch (e) {
