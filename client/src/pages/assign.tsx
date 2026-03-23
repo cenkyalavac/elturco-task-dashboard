@@ -170,7 +170,7 @@ export default function AssignPage() {
           email: f.email,
         })),
         autoAssignReviewer: autoReviewer,
-        clientBaseUrl: window.location.origin,
+        clientBaseUrl: window.location.href.split("#")[0].replace(/\/$/, ""),
       };
       const res = await apiRequest("POST", "/api/assignments", body);
       return res.json();

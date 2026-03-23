@@ -18,7 +18,10 @@ export default function LoginPage() {
     if (!email.trim()) return;
     setSending(true);
     try {
-      await apiRequest("POST", "/api/auth/magic-link", { email: email.trim(), clientBaseUrl: window.location.origin });
+      // Send the full URL up to (but not including) the hash, so the backend
+      // can build correct magic-link URLs that work inside the deployed proxy path.
+      const clientBaseUrl = window.location.href.split("#")[0].replace(/\/$/, "");
+      await apiRequest("POST", "/api/auth/magic-link", { email: email.trim(), clientBaseUrl });
       setSent(true);
     } catch (err: any) {
       toast({
