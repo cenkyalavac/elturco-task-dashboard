@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, getPublicApiBase } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Mail, Loader2, CheckCircle2 } from "lucide-react";
 
@@ -18,10 +18,9 @@ export default function LoginPage() {
     if (!email.trim()) return;
     setSending(true);
     try {
-      // Send the full URL up to (but not including) the hash, so the backend
-      // can build correct magic-link URLs that work inside the deployed proxy path.
       const clientBaseUrl = window.location.href.split("#")[0].replace(/\/$/, "");
-      await apiRequest("POST", "/api/auth/magic-link", { email: email.trim(), clientBaseUrl });
+      const apiBaseUrl = getPublicApiBase();
+      await apiRequest("POST", "/api/auth/magic-link", { email: email.trim(), clientBaseUrl, apiBaseUrl });
       setSent(true);
     } catch (err: any) {
       toast({

@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, getPublicApiBase } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -171,6 +171,7 @@ export default function AssignPage() {
         })),
         autoAssignReviewer: autoReviewer,
         clientBaseUrl: window.location.href.split("#")[0].replace(/\/$/, ""),
+        apiBaseUrl: getPublicApiBase(),
       };
       const res = await apiRequest("POST", "/api/assignments", body);
       return res.json();

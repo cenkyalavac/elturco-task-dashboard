@@ -97,13 +97,14 @@ function resolveBaseUrl(req: Request): string {
 // that the email recipient's browser will hit when they click a link.
 // For deployed sites the proxy rewrites __PORT_5000__ paths, so the
 // API lives at the same origin+path-prefix as the static files.
+// Get the publicly-reachable API base URL.  The frontend sends it as
+// `apiBaseUrl` in the request body (it knows the full proxy path).
+// Falls back to host headers for cases where the body field is absent.
 function buildApiBase(req: Request): string {
-  // The clientBaseUrl sent by the frontend already contains the full proxy
-  // path up to index.html.  The API sits at the same origin but under /port/5000.
-  // However we can also just reuse the same proxy host and let the
-  // __PORT_5000__ rewrite handle it.
-  //
-  // Simplest: use the forwarded / host headers to build a plain server URL.
+  const fromBody = req.body?.apiBaseUrl;
+  if (fromBody && typeof fromBody === "string" && fromBody.startsWith("http")) {
+    return fromBody.replace(/\/+$/, "");
+  }
   const fwdProto = req.headers["x-forwarded-proto"] || req.protocol || "https";
   const fwdHost  = req.headers["x-forwarded-host"] || req.headers.host;
   if (fwdHost) return `${fwdProto}://${fwdHost}`;

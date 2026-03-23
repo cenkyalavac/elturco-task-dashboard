@@ -54,7 +54,15 @@ export default function RespondPage() {
       const res = await fetch(`${API_BASE}/api/offers/${token}/${action}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientBaseUrl: window.location.href.split("#")[0].replace(/\/$/, "") }),
+        body: JSON.stringify({
+          clientBaseUrl: window.location.href.split("#")[0].replace(/\/$/, ""),
+          apiBaseUrl: (() => {
+            const ab = "__PORT_5000__";
+            if (ab.startsWith("__")) return window.location.origin;
+            const m = window.location.href.split("#")[0].match(/^(https?:\/\/[^/]+\/sites\/proxy\/[^/]+\/)/);
+            return m ? m[1] + ab : window.location.origin + "/" + ab;
+          })(),
+        }),
       });
       const json = await res.json();
       if (!res.ok) {
