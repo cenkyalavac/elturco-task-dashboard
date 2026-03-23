@@ -9,13 +9,12 @@ import { execSync } from "child_process";
 // ============================================
 const BASE44_API = "https://elts.base44.app/api/apps/694868412332f081649b2833/entities/Freelancer";
 const BASE44_KEY = "bf9b19a625ae4083ba38b8585fb5a78f";
-const FROM_EMAIL = "ElTurco Projects <projects@eltur.co>";
+const FROM_EMAIL = process.env.FROM_EMAIL || "ElTurco Projects <projects@eltur.co>";
 const MAGIC_LINK_EXPIRY_MINUTES = 30;
 const SESSION_EXPIRY_HOURS = 72;
 
-// The permanent public URL for this deployed site.
-// This URL never expires (unlike the proxy JWT URLs).
-const SITE_PUBLIC_URL = "https://www.perplexity.ai/computer/a/elturco-dispatch-xq.ImUQkRZ2T_RNbjgAXhg";
+// Public URL — set SITE_PUBLIC_URL env var for self-hosting
+const SITE_PUBLIC_URL = process.env.SITE_PUBLIC_URL || "https://www.perplexity.ai/computer/a/elturco-dispatch-xq.ImUQkRZ2T_RNbjgAXhg";
 
 // Account matching map: which freelancer accounts match which sheet sources
 const ACCOUNT_MATCH: Record<string, string[]> = {
