@@ -5,6 +5,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { getAuthToken } from "@/lib/queryClient";
 import { PerplexityAttribution } from "@/components/PerplexityAttribution";
 import LoginPage from "@/pages/login";
 import DashboardPage from "@/pages/dashboard";
@@ -15,7 +16,9 @@ import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { isAuthenticated } = useAuth();
-  if (!isAuthenticated) return <Redirect to="/login" />;
+  // Also check the synchronous token store as a fallback
+  // (React state may not have updated yet after login)
+  if (!isAuthenticated && !getAuthToken()) return <Redirect to="/login" />;
   return <Component />;
 }
 
