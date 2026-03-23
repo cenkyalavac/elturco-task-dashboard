@@ -155,6 +155,7 @@ async function fetchSheetTasks(apiId: string, tabName: string, sheetLabel: strin
       revHbNote: (row["Rev HB Note"] || row["Rev HB Notes"] || "").trim(),
       instructions: (row["Instructions"] || row["Instruction"] || "").trim(),
       lqi: (row["LQI"] || "").trim(),
+      qs: (row["QS"] || "").toString().trim(),
       projectTitle: (row["Project Title"] || row["Title"] || "").trim(),
     })).filter((t: any) => t.projectId);
   } catch (e) {
@@ -410,7 +411,7 @@ export async function registerRoutes(server: Server, app: Express) {
       });
       const data = await response.json();
       // Return relevant fields only
-      const freelancers = (Array.isArray(data) ? data : []).map((f: any) => ({
+      const freelancers = (Array.isArray(data) ? data : []).filter((f: any) => f.status === "Approved").map((f: any) => ({
         id: f.id,
         fullName: f.full_name,
         resourceCode: f.resource_code,
@@ -504,6 +505,38 @@ export async function registerRoutes(server: Server, app: Express) {
       broadcastList: a.broadcastList ? JSON.parse(a.broadcastList) : null,
       offers: storage.getOffersByAssignment(a.id),
     });
+  });
+
+  // Cancel assignment and withdraw all pending offers
+  app.post("/api/assignments/:id/cancel", requireAuth, (req: Request, res: Response) => {
+    const assignment = storage.getAssignment(+req.params.id);
+    if (!assignment) return res.status(404).json({ error: "Assignment not found" });
+    if (assignment.status === "completed") {
+      return res.status(400).json({ error: "Cannot cancel a completed assignment" });
+    }
+
+    const now = new Date().toISOString();
+    storage.updateAssignment(assignment.id, { status: "cancelled" });
+
+    const offers = storage.getOffersByAssignment(assignment.id);
+    for (const offer of offers) {
+      if (offer.status === "pending") {
+        storage.updateOffer(offer.id, { status: "withdrawn", respondedAt: now });
+      }
+    }
+
+    res.json({ success: true, message: "Assignment cancelled and offers withdrawn." });
+  });
+
+  // Withdraw a specific offer
+  app.post("/api/offers/:id/withdraw", requireAuth, (req: Request, res: Response) => {
+    const offer = storage.getOffer(+req.params.id);
+    if (!offer) return res.status(404).json({ error: "Offer not found" });
+    if (offer.status !== "pending") {
+      return res.status(400).json({ error: "Only pending offers can be withdrawn" });
+    }
+    storage.updateOffer(offer.id, { status: "withdrawn", respondedAt: new Date().toISOString() });
+    res.json({ success: true, message: "Offer withdrawn." });
   });
 
   // Create assignment and send offers
@@ -793,6 +826,122 @@ export async function registerRoutes(server: Server, app: Express) {
     if (!key || !subject || !body) return res.status(400).json({ error: "Missing fields" });
     const template = storage.upsertEmailTemplate(key, subject, body);
     res.json(template);
+  });
+
+  // ---- SEQUENCE PRESETS ----
+
+  app.get("/api/presets", requireAuth, (req: Request, res: Response) => {
+    const session = storage.getSession(req.headers.authorization!.replace("Bearer ", ""));
+    if (!session) return res.status(401).json({ error: "Unauthorized" });
+    const allUsers = storage.getAllPmUsers();
+    const user = allUsers.find(u => u.id === session.pmUserId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json(storage.getPresetsByPm(user.email));
+  });
+
+  app.post("/api/presets", requireAuth, (req: Request, res: Response) => {
+    const { name, role, freelancerCodes, assignmentType } = req.body;
+    if (!name || !role || !freelancerCodes) return res.status(400).json({ error: "Missing fields" });
+    const session = storage.getSession(req.headers.authorization!.replace("Bearer ", ""));
+    if (!session) return res.status(401).json({ error: "Unauthorized" });
+    const allUsers = storage.getAllPmUsers();
+    const user = allUsers.find(u => u.id === session.pmUserId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    const preset = storage.createPreset({
+      name,
+      pmEmail: user.email,
+      role,
+      freelancerCodes: typeof freelancerCodes === "string" ? freelancerCodes : JSON.stringify(freelancerCodes),
+      assignmentType: assignmentType || "sequence",
+    });
+    res.json(preset);
+  });
+
+  app.delete("/api/presets/:id", requireAuth, (req: Request, res: Response) => {
+    storage.deletePreset(+req.params.id);
+    res.json({ success: true });
+  });
+
+  // ---- PROJECT COMPLETE (PM action) ----
+
+  app.post("/api/tasks/complete", requireAuth, (req: Request, res: Response) => {
+    const { source, sheet, projectId, revCompleteValue } = req.body;
+    if (!source || !projectId) return res.status(400).json({ error: "Missing fields" });
+    const all = storage.getAllAssignments();
+    const assignment = all.find(a =>
+      a.source === source && a.projectId === projectId &&
+      a.status !== "cancelled" && a.status !== "expired"
+    );
+    if (assignment) {
+      storage.updateAssignment(assignment.id, {
+        status: "completed",
+        completedAt: new Date().toISOString(),
+      });
+    }
+    res.json({ success: true, revCompleteValue: revCompleteValue || "Yes" });
+  });
+
+  // ---- FREELANCER STATS (QS, LQI averages) ----
+
+  app.get("/api/freelancer-stats", requireAuth, async (_req: Request, res: Response) => {
+    try {
+      const configs = storage.getAllSheetConfigs();
+      const allTasks: any[] = [];
+      const promises: Promise<void>[] = [];
+      const byApiId = new Map<string, any[]>();
+      for (const c of configs) {
+        if (!c.sheetDbId) continue;
+        if (!byApiId.has(c.sheetDbId)) byApiId.set(c.sheetDbId, []);
+        byApiId.get(c.sheetDbId)!.push(c);
+      }
+      byApiId.forEach((cfgs, apiId) => {
+        for (const cfg of cfgs) {
+          promises.push(
+            fetchSheetTasks(apiId, cfg.sheet, cfg.sheet, cfg.source)
+              .then(rows => { allTasks.push(...rows); })
+          );
+        }
+      });
+      await Promise.all(promises);
+
+      const trStats: Record<string, { qsScores: number[]; count: number }> = {};
+      const revStats: Record<string, { count: number }> = {};
+
+      for (const t of allTasks) {
+        const tr = (t.translator || "").trim();
+        const rev = (t.reviewer || "").trim();
+        const qs = parseFloat(t.qs || "0");
+
+        if (tr && tr !== "XX") {
+          if (!trStats[tr]) trStats[tr] = { qsScores: [], count: 0 };
+          trStats[tr].count++;
+          if (qs > 0) trStats[tr].qsScores.push(qs);
+        }
+        if (rev && rev !== "XX") {
+          if (!revStats[rev]) revStats[rev] = { count: 0 };
+          revStats[rev].count++;
+        }
+      }
+
+      const result: Record<string, { taskCount: number; avgQs: number | null }> = {};
+      for (const [code, stats] of Object.entries(trStats)) {
+        result[code] = {
+          taskCount: stats.count + (revStats[code]?.count || 0),
+          avgQs: stats.qsScores.length > 0
+            ? Math.round((stats.qsScores.reduce((a, b) => a + b, 0) / stats.qsScores.length) * 10) / 10
+            : null,
+        };
+      }
+      for (const [code, stats] of Object.entries(revStats)) {
+        if (!result[code]) {
+          result[code] = { taskCount: stats.count, avgQs: null };
+        }
+      }
+
+      res.json(result);
+    } catch (e: any) {
+      res.json({});
+    }
   });
 
   // ---- PM MANAGEMENT ----

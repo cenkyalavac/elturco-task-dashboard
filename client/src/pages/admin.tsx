@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Trash2, Loader2, FileSpreadsheet, Users, Mail, Save, Info, Pencil, X, Check, ExternalLink } from "lucide-react";
+import { Plus, Trash2, Loader2, FileSpreadsheet, Users, Mail, Save, Info, Pencil, X, Check, ExternalLink, Eye, Code } from "lucide-react";
 
 // ── Types ──
 
@@ -543,10 +543,38 @@ function EmailTemplatesSection() {
   );
 }
 
+const TEMPLATE_PLACEHOLDERS = [
+  "freelancerName", "account", "source", "sheet",
+  "projectId", "deadline", "total", "wwc", "role", "acceptUrl",
+];
+
+const SAMPLE_DATA: Record<string, string> = {
+  freelancerName: "Jane Doe",
+  account: "Amazon",
+  source: "Amazon",
+  sheet: "non-AFT",
+  projectId: "PRJ-20260323-001",
+  deadline: "2026-03-25 17:00",
+  total: "5,200",
+  wwc: "3,800",
+  role: "Translator",
+  acceptUrl: "https://example.com/respond?token=abc123",
+};
+
+function replaceTemplateVars(html: string): string {
+  let result = html;
+  for (const key of TEMPLATE_PLACEHOLDERS) {
+    result = result.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), SAMPLE_DATA[key] || "");
+  }
+  return result;
+}
+
 function TemplateEditor({ template }: { template: EmailTemplate }) {
   const { toast } = useToast();
   const [subject, setSubject] = useState(template.subject);
   const [body, setBody] = useState(template.body);
+  const [previewMode, setPreviewMode] = useState(false);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
   const hasChanges = subject !== template.subject || body !== template.body;
 
   const saveMutation = useMutation({
@@ -567,45 +595,108 @@ function TemplateEditor({ template }: { template: EmailTemplate }) {
     },
   });
 
+  function insertPlaceholder(name: string) {
+    const ta = bodyRef.current;
+    if (!ta) return;
+    const tag = `{{${name}}}`;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const newBody = body.substring(0, start) + tag + body.substring(end);
+    setBody(newBody);
+    setPreviewMode(false);
+    setTimeout(() => {
+      ta.focus();
+      const pos = start + tag.length;
+      ta.setSelectionRange(pos, pos);
+    }, 0);
+  }
+
   return (
     <div className="p-3 border border-border rounded-lg" data-testid={`template-${template.key}`}>
       <div className="flex items-center justify-between mb-2">
         <Badge variant="secondary" className="text-xs">{template.key}</Badge>
-        <Button
-          size="sm"
-          variant={hasChanges ? "default" : "outline"}
-          onClick={() => saveMutation.mutate()}
-          disabled={!hasChanges || saveMutation.isPending}
-          className="h-7 text-xs"
-          data-testid={`button-save-template-${template.key}`}
-        >
-          {saveMutation.isPending ? (
-            <Loader2 className="w-3 h-3 animate-spin mr-1" />
-          ) : (
-            <Save className="w-3 h-3 mr-1" />
-          )}
-          Save
-        </Button>
+        <div className="flex items-center gap-1.5">
+          <Button
+            size="sm"
+            variant={previewMode ? "default" : "outline"}
+            onClick={() => setPreviewMode(!previewMode)}
+            className="h-7 text-xs"
+            data-testid={`button-preview-${template.key}`}
+          >
+            {previewMode ? <Code className="w-3 h-3 mr-1" /> : <Eye className="w-3 h-3 mr-1" />}
+            {previewMode ? "Source" : "Preview"}
+          </Button>
+          <Button
+            size="sm"
+            variant={hasChanges ? "default" : "outline"}
+            onClick={() => saveMutation.mutate()}
+            disabled={!hasChanges || saveMutation.isPending}
+            className="h-7 text-xs"
+            data-testid={`button-save-template-${template.key}`}
+          >
+            {saveMutation.isPending ? (
+              <Loader2 className="w-3 h-3 animate-spin mr-1" />
+            ) : (
+              <Save className="w-3 h-3 mr-1" />
+            )}
+            Save
+          </Button>
+        </div>
       </div>
       <div className="space-y-2">
         <div>
           <label className="text-xs text-muted-foreground mb-1 block">Subject</label>
-          <Input
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-            className="h-8 text-sm"
-            data-testid={`input-subject-${template.key}`}
-          />
+          {previewMode ? (
+            <div className="h-8 flex items-center px-3 bg-muted/30 rounded-md text-sm text-foreground">
+              {replaceTemplateVars(subject)}
+            </div>
+          ) : (
+            <Input
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              className="h-8 text-sm"
+              data-testid={`input-subject-${template.key}`}
+            />
+          )}
         </div>
         <div>
-          <label className="text-xs text-muted-foreground mb-1 block">Body (HTML)</label>
-          <Textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            className="text-xs font-mono min-h-[120px]"
-            data-testid={`input-body-${template.key}`}
-          />
+          <label className="text-xs text-muted-foreground mb-1 block">
+            {previewMode ? "Body (Preview)" : "Body (HTML)"}
+          </label>
+          {previewMode ? (
+            <div
+              className="min-h-[200px] p-3 bg-white rounded-md border border-border text-sm overflow-auto"
+              dangerouslySetInnerHTML={{ __html: replaceTemplateVars(body) }}
+              data-testid={`preview-body-${template.key}`}
+            />
+          ) : (
+            <Textarea
+              ref={bodyRef}
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              className="text-xs font-mono min-h-[200px]"
+              data-testid={`input-body-${template.key}`}
+            />
+          )}
         </div>
+        {!previewMode && (
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Insert placeholder</label>
+            <div className="flex flex-wrap gap-1">
+              {TEMPLATE_PLACEHOLDERS.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => insertPlaceholder(p)}
+                  className="px-2 py-0.5 text-[11px] rounded-full bg-muted hover:bg-muted-foreground/20 text-foreground font-mono cursor-pointer transition-colors"
+                  data-testid={`chip-${p}`}
+                >
+                  {`{{${p}}}`}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

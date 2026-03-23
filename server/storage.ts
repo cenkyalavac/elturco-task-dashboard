@@ -2,12 +2,13 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
 import { eq, and, desc, or, sql } from "drizzle-orm";
 import {
-  pmUsers, authTokens, sessions, assignments, offers, sheetConfigs, emailTemplates,
+  pmUsers, authTokens, sessions, assignments, offers, sheetConfigs, emailTemplates, sequencePresets,
   type PmUser, type InsertPmUser,
   type Assignment, type InsertAssignment,
   type Offer, type InsertOffer,
   type SheetConfig, type InsertSheetConfig,
   type EmailTemplate, type InsertEmailTemplate,
+  type SequencePreset, type InsertSequencePreset,
 } from "@shared/schema";
 
 const sqlite = new Database("data.db");
@@ -51,6 +52,11 @@ export interface IStorage {
   getAllEmailTemplates(): EmailTemplate[];
   getEmailTemplate(key: string): EmailTemplate | undefined;
   upsertEmailTemplate(key: string, subject: string, body: string): EmailTemplate;
+
+  // Sequence Presets
+  getPresetsByPm(pmEmail: string): SequencePreset[];
+  createPreset(data: InsertSequencePreset): SequencePreset;
+  deletePreset(id: number): void;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -230,6 +236,17 @@ export class DatabaseStorage implements IStorage {
       return db.select().from(emailTemplates).where(eq(emailTemplates.id, existing.id)).get()!;
     }
     return db.insert(emailTemplates).values({ key, subject, body }).returning().get();
+  }
+
+  // Sequence Presets
+  getPresetsByPm(pmEmail: string) {
+    return db.select().from(sequencePresets).where(eq(sequencePresets.pmEmail, pmEmail)).all();
+  }
+  createPreset(data: InsertSequencePreset) {
+    return db.insert(sequencePresets).values(data).returning().get();
+  }
+  deletePreset(id: number) {
+    db.delete(sequencePresets).where(eq(sequencePresets.id, id)).run();
   }
 }
 

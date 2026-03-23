@@ -92,6 +92,16 @@ export const emailTemplates = sqliteTable("email_templates", {
   body: text("body").notNull(), // HTML with {{placeholders}}
 });
 
+// Sequence presets — saved freelancer sequences for quick reuse
+export const sequencePresets = sqliteTable("sequence_presets", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  pmEmail: text("pm_email").notNull(), // owner PM
+  role: text("role").notNull(), // "translator" | "reviewer"
+  freelancerCodes: text("freelancer_codes").notNull(), // JSON array of resource codes
+  assignmentType: text("assignment_type").notNull().default("sequence"),
+});
+
 // Sheet config — language pairs per source/tab
 export const sheetConfigs = sqliteTable("sheet_configs", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -107,6 +117,7 @@ export const sheetConfigs = sqliteTable("sheet_configs", {
 export const insertPmUserSchema = createInsertSchema(pmUsers).omit({ id: true });
 export const insertSheetConfigSchema = createInsertSchema(sheetConfigs).omit({ id: true });
 export const insertEmailTemplateSchema = createInsertSchema(emailTemplates).omit({ id: true });
+export const insertSequencePresetSchema = createInsertSchema(sequencePresets).omit({ id: true });
 export const insertAssignmentSchema = createInsertSchema(assignments).omit({ id: true });
 export const insertOfferSchema = createInsertSchema(offers).omit({ id: true });
 export const insertAuthTokenSchema = createInsertSchema(authTokens).omit({ id: true });
@@ -125,3 +136,5 @@ export type SheetConfig = typeof sheetConfigs.$inferSelect;
 export type InsertSheetConfig = z.infer<typeof insertSheetConfigSchema>;
 export type EmailTemplate = typeof emailTemplates.$inferSelect;
 export type InsertEmailTemplate = z.infer<typeof insertEmailTemplateSchema>;
+export type SequencePreset = typeof sequencePresets.$inferSelect;
+export type InsertSequencePreset = z.infer<typeof insertSequencePresetSchema>;
