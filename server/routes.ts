@@ -147,6 +147,7 @@ async function fetchSheetTasks(apiId: string, tabName: string, sheetLabel: strin
       translator: extractTranslator(row, sheetLabel),
       reviewer: extractReviewer(row, sheetLabel),
       trDone: extractTrDone(row, sheetLabel),
+      revComplete: extractRevComplete(row, sheetLabel),
       delivered: extractDelivered(row),
       deadline: extractDeadline(row, sheetLabel),
       total: extractTotal(row, sheetLabel),
@@ -214,6 +215,10 @@ function extractTotal(row: any, sheet: string): string {
 }
 function extractWWC(row: any, sheet: string): string {
   return (row["TR WWC"] || row["WWC"] || "0").toString().trim();
+}
+function extractRevComplete(row: any, sheet: string): string {
+  if (sheet === "TPT") return (row["Rev\nDone?"] || row["Rev Done?"] || "").trim();
+  return (row["Rev Complete? (in minutes)"] || row["Rev Complete?"] || "").trim();
 }
 function extractRevType(row: any): string {
   return (row["Rev Type"] || row["Rev\nType"] || "").trim();

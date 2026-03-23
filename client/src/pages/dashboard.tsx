@@ -35,6 +35,7 @@ interface Task {
   translator: string;
   reviewer: string;
   trDone: string;
+  revComplete: string;
   delivered: string;
   deadline: string;
   total: string;
@@ -100,11 +101,36 @@ function isXX(v: string): boolean {
   return v.trim().toUpperCase() === "XX";
 }
 
+// A rev complete value means the project is done ("Yes", a number like "10", etc.)
+function isRevCompleted(t: Task): boolean {
+  const v = (t.revComplete || "").trim().toLowerCase();
+  if (!v) return false;
+  if (v === "yes" || v === "y") return true;
+  // Any number (reviewers report time in minutes)
+  if (/^\d+/.test(v)) return true;
+  return false;
+}
+
+// A tr done value means translation is complete
+function isTrDone(t: Task): boolean {
+  const v = (t.trDone || "").trim().toLowerCase();
+  if (!v) return false;
+  if (v === "yes" || v === "y") return true;
+  return false;
+}
+
 function needsTranslator(t: Task): boolean {
+  // If rev is completed, the whole project is done — no assignment needed
+  if (isRevCompleted(t)) return false;
+  // If TR done, translator doesn't need assignment
+  if (isTrDone(t)) return false;
   return !t.translator || t.translator.trim() === "" || isXX(t.translator);
 }
 
 function needsReviewer(t: Task): boolean {
+  // If rev is completed, no reviewer needed
+  if (isRevCompleted(t)) return false;
+  // Reviewer only needed if translator is assigned (not empty/XX)
   if (!t.translator || t.translator.trim() === "" || isXX(t.translator)) return false;
   return !t.reviewer || t.reviewer.trim() === "" || isXX(t.reviewer);
 }
