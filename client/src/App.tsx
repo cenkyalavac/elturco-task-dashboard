@@ -7,7 +7,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { PerplexityAttribution } from "@/components/PerplexityAttribution";
 import LoginPage from "@/pages/login";
-import AuthVerifyPage from "@/pages/auth-verify";
 import DashboardPage from "@/pages/dashboard";
 import AssignPage from "@/pages/assign";
 import AssignmentsPage from "@/pages/assignments";
@@ -24,7 +23,6 @@ function AppRouter() {
   return (
     <Switch>
       <Route path="/login" component={LoginPage} />
-      <Route path="/auth/verify/:token" component={AuthVerifyPage} />
       <Route path="/respond/:token" component={RespondPage} />
       <Route path="/">{() => <ProtectedRoute component={DashboardPage} />}</Route>
       <Route path="/assign">{() => <ProtectedRoute component={AssignPage} />}</Route>

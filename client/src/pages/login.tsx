@@ -3,35 +3,38 @@ import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { apiRequest, getPublicApiBase } from "@/lib/queryClient";
+import { apiRequest } from "@/lib/queryClient";
+import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import { Mail, Loader2, CheckCircle2 } from "lucide-react";
+import { Mail, Lock, Loader2 } from "lucide-react";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
-  const [sending, setSending] = useState(false);
-  const [sent, setSent] = useState(false);
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const { login } = useAuth();
+  const [, setLocation] = useLocation();
   const { toast } = useToast();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!email.trim()) return;
-    setSending(true);
+    if (!email.trim() || !password) return;
+    setLoading(true);
     try {
-      const clientBaseUrl = window.location.href.split("#")[0].replace(/\/$/, "");
-      const apiBaseUrl = getPublicApiBase();
-      await apiRequest("POST", "/api/auth/magic-link", { email: email.trim(), clientBaseUrl, apiBaseUrl });
-      setSent(true);
+      const res = await apiRequest("POST", "/api/auth/login", { email: email.trim(), password });
+      const data = await res.json();
+      login(data.token, data.user);
+      setLocation("/");
     } catch (err: any) {
       toast({
         title: "Error",
-        description: err.message?.includes("404")
-          ? "This email address is not registered."
-          : "Failed to send email. Please try again.",
+        description: err.message?.includes("401")
+          ? "Invalid email or password."
+          : "Login failed. Please try again.",
         variant: "destructive",
       });
     } finally {
-      setSending(false);
+      setLoading(false);
     }
   }
 
@@ -53,61 +56,57 @@ export default function LoginPage() {
 
         <Card className="border border-border">
           <CardContent className="pt-6">
-            {sent ? (
-              <div className="text-center py-4" data-testid="text-email-sent">
-                <CheckCircle2 className="w-10 h-10 text-green-500 mx-auto mb-3" />
-                <p className="font-medium text-foreground mb-1">Login link sent</p>
-                <p className="text-sm text-muted-foreground">
-                  Check your inbox and click the link to sign in.
-                </p>
-                <Button
-                  variant="ghost"
-                  className="mt-4 text-sm"
-                  onClick={() => { setSent(false); setEmail(""); }}
-                  data-testid="button-try-again"
-                >
-                  Try a different email
-                </Button>
-              </div>
-            ) : (
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <label className="text-sm font-medium text-foreground mb-1.5 block">
-                    Email address
-                  </label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input
-                      type="email"
-                      placeholder="ornek@eltur.co"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      className="pl-10"
-                      required
-                      data-testid="input-email"
-                    />
-                  </div>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="text-sm font-medium text-foreground mb-1.5 block">
+                  Email
+                </label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    type="email"
+                    placeholder="you@eltur.co"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="pl-10"
+                    required
+                    data-testid="input-email"
+                  />
                 </div>
-                <Button
-                  type="submit"
-                  className="w-full"
-                  disabled={sending || !email.trim()}
-                  data-testid="button-send-magic-link"
-                >
-                  {sending ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Sending...
-                    </>
-                  ) : (
-                    "Send Login Link"
-                  )}
-                </Button>
-                <p className="text-xs text-muted-foreground text-center">
-                  You'll receive a secure login link via email.
-                </p>
-              </form>
-            )}
+              </div>
+              <div>
+                <label className="text-sm font-medium text-foreground mb-1.5 block">
+                  Password
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    type="password"
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="pl-10"
+                    required
+                    data-testid="input-password"
+                  />
+                </div>
+              </div>
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={loading || !email.trim() || !password}
+                data-testid="button-login"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Signing in...
+                  </>
+                ) : (
+                  "Sign In"
+                )}
+              </Button>
+            </form>
           </CardContent>
         </Card>
       </div>

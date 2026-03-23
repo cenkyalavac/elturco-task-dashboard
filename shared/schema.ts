@@ -7,6 +7,7 @@ export const pmUsers = sqliteTable("pm_users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   email: text("email").notNull().unique(),
   name: text("name").notNull(),
+  password: text("password").notNull().default(""),
   role: text("role").notNull().default("pm"), // "pm" | "admin"
 });
 

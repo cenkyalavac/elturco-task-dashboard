@@ -297,56 +297,15 @@ export async function registerRoutes(server: Server, app: Express) {
 
   // ---- AUTH ROUTES ----
 
-  // Request magic link
-  app.post("/api/auth/magic-link", async (req: Request, res: Response) => {
-    const { email } = req.body;
-    if (!email) return res.status(400).json({ error: "Email required" });
+  // Email + password login
+  app.post("/api/auth/login", async (req: Request, res: Response) => {
+    const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ error: "Email and password are required." });
 
     const emailNorm = email.toLowerCase().trim();
-    let pmUser = storage.getPmUserByEmail(emailNorm);
-    if (!pmUser) {
-      // Auto-provision any @eltur.co address
-      if (emailNorm.endsWith("@eltur.co")) {
-        const namePart = emailNorm.split("@")[0].replace(/[._-]/g, " ");
-        const name = namePart.split(" ").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-        pmUser = storage.createPmUser({ email: emailNorm, name, role: "pm" });
-      } else {
-        return res.status(404).json({ error: "This email address is not registered." });
-      }
-    }
-
-    const token = generateToken();
-    const expiresAt = new Date(Date.now() + MAGIC_LINK_EXPIRY_MINUTES * 60 * 1000).toISOString();
-    const clientBase = resolveBaseUrl(req);
-    storage.createAuthToken(token, emailNorm, expiresAt, clientBase);
-
-    // Use the permanent public URL with hash fragment.
-    // This URL never expires and always loads the latest deployed site.
-    const magicUrl = `${SITE_PUBLIC_URL}#/auth/verify/${token}`;
-
-    try {
-      sendEmail([email], "ElTurco Dispatch - Login Link", buildMagicLinkEmailHtml(pmUser.name, magicUrl));
-      res.json({ success: true, message: "Login link sent to your email." });
-    } catch (e: any) {
-      console.error("Email send error:", e);
-      res.status(500).json({ error: "Failed to send email: " + (e.message || "Unknown error") });
-    }
-  });
-
-  // Verify magic link token
-  app.post("/api/auth/verify", async (req: Request, res: Response) => {
-    const { token } = req.body;
-    if (!token) return res.status(400).json({ error: "Token required" });
-
-    const authToken = storage.getAuthToken(token);
-    if (!authToken) return res.status(404).json({ error: "Invalid or expired link." });
-    if (authToken.used) return res.status(400).json({ error: "This link has already been used." });
-    if (new Date(authToken.expiresAt) < new Date()) return res.status(400).json({ error: "This link has expired." });
-
-    storage.markAuthTokenUsed(token);
-
-    const pmUser = storage.getPmUserByEmail(authToken.email);
-    if (!pmUser) return res.status(404).json({ error: "User not found." });
+    const pmUser = storage.getPmUserByEmail(emailNorm);
+    if (!pmUser) return res.status(401).json({ error: "Invalid email or password." });
+    if (pmUser.password !== password) return res.status(401).json({ error: "Invalid email or password." });
 
     const sessionToken = generateToken();
     const expiresAt = new Date(Date.now() + SESSION_EXPIRY_HOURS * 3600 * 1000).toISOString();
