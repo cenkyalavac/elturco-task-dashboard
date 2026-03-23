@@ -95,9 +95,12 @@ export const emailTemplates = sqliteTable("email_templates", {
 // Sheet config — language pairs per source/tab
 export const sheetConfigs = sqliteTable("sheet_configs", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  source: text("source").notNull(), // "Amazon" | "AppleCare"
-  sheet: text("sheet").notNull(),   // "non-AFT", "TPT", etc.
-  languagePair: text("language_pair").notNull().default("EN>TR"), // e.g. "EN>TR", "EN>AR"
+  source: text("source").notNull(), // "Amazon" | "AppleCare" or custom name
+  sheet: text("sheet").notNull(),   // Tab name in the spreadsheet
+  languagePair: text("language_pair").notNull().default("EN>TR"),
+  sheetDbId: text("sheetdb_id"),    // SheetDB API ID (e.g. "mukq6ww3ssuk0")
+  googleSheetUrl: text("google_sheet_url"), // Original Google Sheet URL for reference
+  assignedPms: text("assigned_pms"), // JSON array of PM emails, e.g. ["cenk@eltur.co"]. null = visible to all.
 });
 
 // Schemas

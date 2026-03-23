@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Trash2, Loader2, FileSpreadsheet, Users, Mail, Save, Info } from "lucide-react";
+import { Plus, Trash2, Loader2, FileSpreadsheet, Users, Mail, Save, Info, Pencil, X, Check, ExternalLink } from "lucide-react";
 
 // ── Types ──
 
@@ -18,6 +18,9 @@ interface SheetConfig {
   source: string;
   sheet: string;
   languagePair: string;
+  sheetDbId: string | null;
+  googleSheetUrl: string | null;
+  assignedPms: string | null;
 }
 
 interface PmUser {
@@ -58,10 +61,24 @@ export default function AdminPage() {
 
 function SheetConfigsSection() {
   const { toast } = useToast();
+  const [showAdd, setShowAdd] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+
+  // Add form state
   const [newSource, setNewSource] = useState("");
   const [newSheet, setNewSheet] = useState("");
   const [newLangPair, setNewLangPair] = useState("EN>TR");
-  const [showAdd, setShowAdd] = useState(false);
+  const [newSheetDbId, setNewSheetDbId] = useState("");
+  const [newGoogleSheetUrl, setNewGoogleSheetUrl] = useState("");
+  const [newAssignedPms, setNewAssignedPms] = useState<string[]>([]);
+
+  // Edit form state
+  const [editSource, setEditSource] = useState("");
+  const [editSheet, setEditSheet] = useState("");
+  const [editLangPair, setEditLangPair] = useState("");
+  const [editSheetDbId, setEditSheetDbId] = useState("");
+  const [editGoogleSheetUrl, setEditGoogleSheetUrl] = useState("");
+  const [editAssignedPms, setEditAssignedPms] = useState<string[]>([]);
 
   const { data: configs, isLoading } = useQuery<SheetConfig[]>({
     queryKey: ["/api/sheet-configs"],
@@ -71,22 +88,22 @@ function SheetConfigsSection() {
     },
   });
 
-  const addMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/sheet-configs", {
-        source: newSource,
-        sheet: newSheet,
-        languagePair: newLangPair,
-      });
+  const { data: pmUsers } = useQuery<PmUser[]>({
+    queryKey: ["/api/pm-users"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/pm-users");
+      return res.json();
+    },
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: async (data: { source: string; sheet: string; languagePair: string; sheetDbId?: string; googleSheetUrl?: string; assignedPms?: string | null }) => {
+      const res = await apiRequest("POST", "/api/sheet-configs", data);
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/sheet-configs"] });
       toast({ title: "Config saved" });
-      setNewSource("");
-      setNewSheet("");
-      setNewLangPair("EN>TR");
-      setShowAdd(false);
     },
     onError: (err: any) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -106,19 +123,75 @@ function SheetConfigsSection() {
     },
   });
 
-  const updateMutation = useMutation({
-    mutationFn: async ({ source, sheet, languagePair }: { source: string; sheet: string; languagePair: string }) => {
-      const res = await apiRequest("POST", "/api/sheet-configs", { source, sheet, languagePair });
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sheet-configs"] });
-      toast({ title: "Config updated" });
-    },
-    onError: (err: any) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    },
-  });
+  function startEdit(c: SheetConfig) {
+    setEditingId(c.id);
+    setEditSource(c.source);
+    setEditSheet(c.sheet);
+    setEditLangPair(c.languagePair);
+    setEditSheetDbId(c.sheetDbId || "");
+    setEditGoogleSheetUrl(c.googleSheetUrl || "");
+    try {
+      setEditAssignedPms(c.assignedPms ? JSON.parse(c.assignedPms) : []);
+    } catch { setEditAssignedPms([]); }
+  }
+
+  function handleAdd() {
+    saveMutation.mutate({
+      source: newSource,
+      sheet: newSheet,
+      languagePair: newLangPair,
+      sheetDbId: newSheetDbId || undefined,
+      googleSheetUrl: newGoogleSheetUrl || undefined,
+      assignedPms: newAssignedPms.length > 0 ? JSON.stringify(newAssignedPms) : null,
+    }, {
+      onSuccess: () => {
+        setNewSource(""); setNewSheet(""); setNewLangPair("EN>TR");
+        setNewSheetDbId(""); setNewGoogleSheetUrl(""); setNewAssignedPms([]);
+        setShowAdd(false);
+      },
+    });
+  }
+
+  function handleEditSave() {
+    saveMutation.mutate({
+      source: editSource,
+      sheet: editSheet,
+      languagePair: editLangPair,
+      sheetDbId: editSheetDbId || undefined,
+      googleSheetUrl: editGoogleSheetUrl || undefined,
+      assignedPms: editAssignedPms.length > 0 ? JSON.stringify(editAssignedPms) : null,
+    }, {
+      onSuccess: () => { setEditingId(null); },
+    });
+  }
+
+  function parsePmCount(assignedPms: string | null): number {
+    if (!assignedPms) return 0;
+    try { return (JSON.parse(assignedPms) as string[]).length; } catch { return 0; }
+  }
+
+  function PmCheckboxes({ selected, onChange }: { selected: string[]; onChange: (v: string[]) => void }) {
+    if (!pmUsers || pmUsers.length === 0) return <p className="text-xs text-muted-foreground">No PM users found.</p>;
+    return (
+      <div className="flex flex-wrap gap-x-4 gap-y-1">
+        {pmUsers.map((u) => (
+          <label key={u.id} className="flex items-center gap-1.5 text-xs cursor-pointer">
+            <input
+              type="checkbox"
+              checked={selected.includes(u.email)}
+              onChange={(e) => {
+                if (e.target.checked) onChange([...selected, u.email]);
+                else onChange(selected.filter((em) => em !== u.email));
+              }}
+              className="rounded border-border"
+            />
+            <span className="text-foreground">{u.name}</span>
+            <span className="text-muted-foreground">({u.email})</span>
+          </label>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <Card className="border border-border">
@@ -128,7 +201,7 @@ function SheetConfigsSection() {
             <FileSpreadsheet className="w-4 h-4 text-muted-foreground" />
             Sheet Configurations
           </CardTitle>
-          <Button variant="outline" size="sm" onClick={() => setShowAdd(!showAdd)} data-testid="button-add-config">
+          <Button variant="outline" size="sm" onClick={() => { setShowAdd(!showAdd); setEditingId(null); }} data-testid="button-add-config">
             <Plus className="w-3.5 h-3.5 mr-1" />
             Add
           </Button>
@@ -136,49 +209,45 @@ function SheetConfigsSection() {
       </CardHeader>
       <CardContent>
         {showAdd && (
-          <div className="flex items-end gap-2 mb-4 p-3 bg-muted/30 rounded-lg">
-            <div className="flex-1">
-              <label className="text-xs text-muted-foreground mb-1 block">Source</label>
-              <Input
-                value={newSource}
-                onChange={(e) => setNewSource(e.target.value)}
-                placeholder="e.g. Amazon"
-                className="h-8 text-sm"
-                data-testid="input-config-source"
-              />
+          <div className="mb-4 p-3 bg-muted/30 rounded-lg space-y-3">
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Source</label>
+                <Input value={newSource} onChange={(e) => setNewSource(e.target.value)} placeholder="e.g. Amazon" className="h-8 text-sm" data-testid="input-config-source" />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Sheet / Tab</label>
+                <Input value={newSheet} onChange={(e) => setNewSheet(e.target.value)} placeholder="e.g. non-AFT" className="h-8 text-sm" data-testid="input-config-sheet" />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Language Pair</label>
+                <Select value={newLangPair} onValueChange={setNewLangPair}>
+                  <SelectTrigger className="h-8 text-sm" data-testid="select-config-lang"><SelectValue /></SelectTrigger>
+                  <SelectContent>{LANGUAGE_PAIRS.map((lp) => <SelectItem key={lp} value={lp}>{lp}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
             </div>
-            <div className="flex-1">
-              <label className="text-xs text-muted-foreground mb-1 block">Sheet</label>
-              <Input
-                value={newSheet}
-                onChange={(e) => setNewSheet(e.target.value)}
-                placeholder="e.g. non-AFT"
-                className="h-8 text-sm"
-                data-testid="input-config-sheet"
-              />
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">SheetDB API ID</label>
+                <Input value={newSheetDbId} onChange={(e) => setNewSheetDbId(e.target.value)} placeholder="e.g. mukq6ww3ssuk0" className="h-8 text-sm font-mono" data-testid="input-config-sheetdbid" />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Google Sheet URL</label>
+                <Input value={newGoogleSheetUrl} onChange={(e) => setNewGoogleSheetUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/..." className="h-8 text-sm" data-testid="input-config-gsheet-url" />
+              </div>
             </div>
-            <div className="w-32">
-              <label className="text-xs text-muted-foreground mb-1 block">Language Pair</label>
-              <Select value={newLangPair} onValueChange={setNewLangPair}>
-                <SelectTrigger className="h-8 text-sm" data-testid="select-config-lang">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {LANGUAGE_PAIRS.map((lp) => (
-                    <SelectItem key={lp} value={lp}>{lp}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Assigned PMs (empty = visible to all)</label>
+              <PmCheckboxes selected={newAssignedPms} onChange={setNewAssignedPms} />
             </div>
-            <Button
-              size="sm"
-              onClick={() => addMutation.mutate()}
-              disabled={!newSource || !newSheet || addMutation.isPending}
-              data-testid="button-save-config"
-              className="h-8"
-            >
-              {addMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Save"}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button size="sm" onClick={handleAdd} disabled={!newSource || !newSheet || saveMutation.isPending} data-testid="button-save-config" className="h-8">
+                {saveMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : null}
+                Save
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setShowAdd(false)} className="h-8">Cancel</Button>
+            </div>
           </div>
         )}
 
@@ -189,50 +258,86 @@ function SheetConfigsSection() {
         ) : !configs || configs.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-6">No sheet configurations yet.</p>
         ) : (
-          <table className="w-full text-sm" data-testid="table-configs">
-            <thead>
-              <tr className="border-b border-border">
-                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Source</th>
-                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Sheet</th>
-                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Language Pair</th>
-                <th className="w-10"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {configs.map((c) => (
-                <tr key={c.id} className="border-b border-border last:border-0" data-testid={`config-row-${c.id}`}>
-                  <td className="px-3 py-2 text-foreground">{c.source}</td>
-                  <td className="px-3 py-2 text-foreground">{c.sheet}</td>
-                  <td className="px-3 py-2">
-                    <Select
-                      value={c.languagePair}
-                      onValueChange={(v) => updateMutation.mutate({ source: c.source, sheet: c.sheet, languagePair: v })}
-                    >
-                      <SelectTrigger className="h-7 text-xs w-28" data-testid={`select-lang-${c.id}`}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {LANGUAGE_PAIRS.map((lp) => (
-                          <SelectItem key={lp} value={lp}>{lp}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </td>
-                  <td className="px-3 py-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => deleteMutation.mutate(c.id)}
-                      className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                      data-testid={`button-delete-config-${c.id}`}
-                    >
+          <div className="space-y-1" data-testid="table-configs">
+            {configs.map((c) => (
+              <div key={c.id} className="border border-border rounded-lg" data-testid={`config-row-${c.id}`}>
+                {editingId === c.id ? (
+                  /* ── Edit mode ── */
+                  <div className="p-3 space-y-3 bg-muted/20">
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <label className="text-xs text-muted-foreground mb-1 block">Source</label>
+                        <Input value={editSource} onChange={(e) => setEditSource(e.target.value)} className="h-8 text-sm" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-muted-foreground mb-1 block">Sheet / Tab</label>
+                        <Input value={editSheet} onChange={(e) => setEditSheet(e.target.value)} className="h-8 text-sm" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-muted-foreground mb-1 block">Language Pair</label>
+                        <Select value={editLangPair} onValueChange={setEditLangPair}>
+                          <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                          <SelectContent>{LANGUAGE_PAIRS.map((lp) => <SelectItem key={lp} value={lp}>{lp}</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-xs text-muted-foreground mb-1 block">SheetDB API ID</label>
+                        <Input value={editSheetDbId} onChange={(e) => setEditSheetDbId(e.target.value)} placeholder="e.g. mukq6ww3ssuk0" className="h-8 text-sm font-mono" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-muted-foreground mb-1 block">Google Sheet URL</label>
+                        <Input value={editGoogleSheetUrl} onChange={(e) => setEditGoogleSheetUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/..." className="h-8 text-sm" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted-foreground mb-1 block">Assigned PMs (empty = visible to all)</label>
+                      <PmCheckboxes selected={editAssignedPms} onChange={setEditAssignedPms} />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" onClick={handleEditSave} disabled={!editSource || !editSheet || saveMutation.isPending} className="h-7 text-xs">
+                        {saveMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Check className="w-3 h-3 mr-1" />}
+                        Save
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setEditingId(null)} className="h-7 text-xs">
+                        <X className="w-3 h-3 mr-1" />
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  /* ── Display mode ── */
+                  <div className="flex items-center gap-2 px-3 py-2">
+                    <span className="text-sm font-medium text-foreground w-24 shrink-0">{c.source}</span>
+                    <span className="text-sm text-foreground w-32 shrink-0">{c.sheet}</span>
+                    <Badge variant="secondary" className="text-xs shrink-0">{c.languagePair}</Badge>
+                    {c.sheetDbId && (
+                      <Badge variant="outline" className="text-[10px] font-mono shrink-0">{c.sheetDbId}</Badge>
+                    )}
+                    {parsePmCount(c.assignedPms) > 0 && (
+                      <Badge variant="outline" className="text-[10px] shrink-0">
+                        <Users className="w-2.5 h-2.5 mr-0.5" />
+                        {parsePmCount(c.assignedPms)} PM{parsePmCount(c.assignedPms) > 1 ? "s" : ""}
+                      </Badge>
+                    )}
+                    {c.googleSheetUrl && (
+                      <a href={c.googleSheetUrl} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground">
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    )}
+                    <div className="flex-1" />
+                    <Button variant="ghost" size="sm" onClick={() => { startEdit(c); setShowAdd(false); }} className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground" data-testid={`button-edit-config-${c.id}`}>
+                      <Pencil className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => deleteMutation.mutate(c.id)} className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive" data-testid={`button-delete-config-${c.id}`}>
                       <Trash2 className="w-3.5 h-3.5" />
                     </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         )}
       </CardContent>
     </Card>

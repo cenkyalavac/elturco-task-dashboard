@@ -9,8 +9,6 @@ import { execSync } from "child_process";
 // ============================================
 const BASE44_API = "https://elts.base44.app/api/apps/694868412332f081649b2833/entities/Freelancer";
 const BASE44_KEY = "bf9b19a625ae4083ba38b8585fb5a78f";
-const SHEETDB_AMAZON = "mukq6ww3ssuk0";
-const SHEETDB_APPLECARE = "v6i82rdrqa34n";
 const FROM_EMAIL = "ElTurco Projects <projects@eltur.co>";
 const MAGIC_LINK_EXPIRY_MINUTES = 30;
 const SESSION_EXPIRY_HOURS = 72;
@@ -24,19 +22,6 @@ const ACCOUNT_MATCH: Record<string, string[]> = {
   "Amazon": ["Amazon", "Amazon SeCM", "Amazon PWS"],
   "AppleCare": ["Apple"],
 };
-
-const AMAZON_TABS = [
-  { tab: "non-AFT", sheet: "non-AFT" },
-  { tab: "TPT", sheet: "TPT" },
-  { tab: "AFT", sheet: "AFT" },
-  { tab: "Non-EN Tasks", sheet: "Non-EN" },
-  { tab: "Amazon DPX", sheet: "DPX" },
-];
-const APPLECARE_TABS = [
-  { tab: "Assignments", sheet: "Assignments" },
-  { tab: "RU Assignments", sheet: "RU Assignments" },
-  { tab: "AR Assignments", sheet: "AR Assignments" },
-];
 
 // ============================================
 // HELPERS
@@ -451,17 +436,43 @@ export async function registerRoutes(server: Server, app: Express) {
 
   app.get("/api/tasks", requireAuth, async (req: Request, res: Response) => {
     try {
-      const allTasks: any[] = [];
+      const configs = storage.getAllSheetConfigs();
+      const pmEmail = (() => {
+        const session = storage.getSession(req.headers.authorization!.replace("Bearer ", ""));
+        if (!session) return null;
+        const allUsers = storage.getAllPmUsers();
+        const user = allUsers.find(u => u.id === session.pmUserId);
+        return user?.email || null;
+      })();
 
-      // Fetch in parallel
-      const amazonPromises = AMAZON_TABS.map(t =>
-        fetchSheetTasks(SHEETDB_AMAZON, t.tab, t.sheet, "Amazon")
-      );
-      const applePromises = APPLECARE_TABS.map(t =>
-        fetchSheetTasks(SHEETDB_APPLECARE, t.tab, t.sheet, "AppleCare")
-      );
-      const results = await Promise.all([...amazonPromises, ...applePromises]);
-      results.forEach(rows => allTasks.push(...rows));
+      // Filter configs by PM assignment (null assignedPms = visible to all)
+      const visibleConfigs = configs.filter(c => {
+        if (!c.assignedPms) return true;
+        try {
+          const pms = JSON.parse(c.assignedPms) as string[];
+          return pms.includes(pmEmail || "");
+        } catch { return true; }
+      });
+
+      const allTasks: any[] = [];
+      // Group configs by sheetDbId to minimize API calls
+      const byApiId = new Map<string, typeof visibleConfigs>();
+      for (const c of visibleConfigs) {
+        if (!c.sheetDbId) continue;
+        if (!byApiId.has(c.sheetDbId)) byApiId.set(c.sheetDbId, []);
+        byApiId.get(c.sheetDbId)!.push(c);
+      }
+
+      const promises: Promise<void>[] = [];
+      byApiId.forEach((cfgs, apiId) => {
+        for (const cfg of cfgs) {
+          promises.push(
+            fetchSheetTasks(apiId, cfg.sheet, cfg.sheet, cfg.source)
+              .then(rows => { allTasks.push(...rows); })
+          );
+        }
+      });
+      await Promise.all(promises);
 
       res.json(allTasks);
     } catch (e: any) {
@@ -760,9 +771,9 @@ export async function registerRoutes(server: Server, app: Express) {
   });
 
   app.post("/api/sheet-configs", requireAuth, (req: Request, res: Response) => {
-    const { source, sheet, languagePair } = req.body;
+    const { source, sheet, languagePair, sheetDbId, googleSheetUrl, assignedPms } = req.body;
     if (!source || !sheet || !languagePair) return res.status(400).json({ error: "Missing fields" });
-    const config = storage.upsertSheetConfig(source, sheet, languagePair);
+    const config = storage.upsertSheetConfig(source, sheet, languagePair, sheetDbId || undefined, googleSheetUrl || undefined, assignedPms || undefined);
     res.json(config);
   });
 

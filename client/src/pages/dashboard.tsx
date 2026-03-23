@@ -165,7 +165,7 @@ export default function DashboardPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [accountFilter, setAccountFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("unassigned");
+  const [statusFilter, setStatusFilter] = useState("ongoing");
   const [selectedTaskKey, setSelectedTaskKey] = useState<string | null>(null);
   const [checkedKeys, setCheckedKeys] = useState<Set<string>>(new Set());
 
@@ -255,12 +255,15 @@ export default function DashboardPage() {
       const nREV = needsReviewer(t);
       const isUnassigned = nTR || nREV;
 
+      const revDone = isRevCompleted(t);
+
+      if (statusFilter === "ongoing" && (revDone || t.delivered === "Delivered")) return false;
       if (statusFilter === "needs_tr" && !nTR) return false;
       if (statusFilter === "needs_rev" && !nREV) return false;
       if (statusFilter === "unassigned" && !isUnassigned) return false;
       if (statusFilter === "assigned" && (isUnassigned || t.delivered === "Delivered")) return false;
       if (statusFilter === "delivered" && t.delivered !== "Delivered") return false;
-      if (statusFilter !== "delivered" && statusFilter !== "all" && statusFilter !== "needs_tr" && statusFilter !== "needs_rev" && statusFilter !== "unassigned" && statusFilter !== "assigned" && t.delivered === "Delivered") return false;
+      if (["delivered", "all", "ongoing", "needs_tr", "needs_rev", "unassigned", "assigned"].indexOf(statusFilter) === -1 && t.delivered === "Delivered") return false;
 
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
@@ -283,16 +286,18 @@ export default function DashboardPage() {
 
   // Stats
   const stats = useMemo(() => {
-    if (!tasks) return { total: 0, needsTR: 0, needsREV: 0, assigned: 0, completed: 0 };
+    if (!tasks) return { total: 0, ongoing: 0, needsTR: 0, needsREV: 0, assigned: 0, completed: 0 };
     const nonDelivered = tasks.filter((t) => t.delivered !== "Delivered");
+    const ongoing = nonDelivered.filter(t => !isRevCompleted(t)).length;
     const nTR = nonDelivered.filter(needsTranslator).length;
     const nREV = nonDelivered.filter(needsReviewer).length;
-    const completedCount = assignments ? (assignments as Assignment[]).filter((a) => a.status === "completed").length : 0;
+    const completedCount = nonDelivered.filter(t => isRevCompleted(t)).length;
     return {
       total: nonDelivered.length,
+      ongoing,
       needsTR: nTR,
       needsREV: nREV,
-      assigned: nonDelivered.length - nTR - nREV,
+      assigned: ongoing - nTR - nREV,
       completed: completedCount,
     };
   }, [tasks, assignments]);
@@ -534,10 +539,11 @@ export default function DashboardPage() {
       <div className="border-b border-border bg-card px-4 py-2">
         <div className="flex items-center gap-6 text-xs">
           <StatPill label="Total" value={stats.total} loading={tasksLoading} />
+          <StatPill label="Ongoing" value={stats.ongoing} loading={tasksLoading} color="text-primary" />
           <StatPill label="Needs TR" value={stats.needsTR} loading={tasksLoading} color="text-orange-500" />
           <StatPill label="Needs REV" value={stats.needsREV} loading={tasksLoading} color="text-blue-500" />
           <StatPill label="Assigned" value={stats.assigned} loading={tasksLoading} color="text-emerald-500" />
-          <StatPill label="Completed" value={stats.completed} loading={tasksLoading} color="text-green-600" />
+          <StatPill label="Rev Done" value={stats.completed} loading={tasksLoading} color="text-green-600" />
         </div>
       </div>
 
@@ -626,6 +632,7 @@ export default function DashboardPage() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="ongoing">Ongoing</SelectItem>
                 <SelectItem value="needs_tr">Needs TR</SelectItem>
                 <SelectItem value="needs_rev">Needs REV</SelectItem>
                 <SelectItem value="unassigned">Unassigned</SelectItem>

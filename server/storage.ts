@@ -37,7 +37,7 @@ export interface IStorage {
 
   // SheetConfigs
   getAllSheetConfigs(): SheetConfig[];
-  upsertSheetConfig(source: string, sheet: string, languagePair: string): SheetConfig;
+  upsertSheetConfig(source: string, sheet: string, languagePair: string, sheetDbId?: string, googleSheetUrl?: string, assignedPms?: string): SheetConfig;
   deleteSheetConfig(id: number): void;
 
   // Offers
@@ -70,21 +70,24 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
-    // Seed default sheet configs with language pairs
+    // Seed default sheet configs with language pairs and SheetDB IDs
     const defaultConfigs = [
-      { source: "Amazon", sheet: "non-AFT", languagePair: "EN>TR" },
-      { source: "Amazon", sheet: "TPT", languagePair: "EN>TR" },
-      { source: "Amazon", sheet: "AFT", languagePair: "EN>TR" },
-      { source: "Amazon", sheet: "Non-EN", languagePair: "Multi" },
-      { source: "Amazon", sheet: "DPX", languagePair: "EN>TR" },
-      { source: "AppleCare", sheet: "Assignments", languagePair: "EN>TR" },
-      { source: "AppleCare", sheet: "RU Assignments", languagePair: "EN>RU" },
-      { source: "AppleCare", sheet: "AR Assignments", languagePair: "EN>AR" },
+      { source: "Amazon", sheet: "non-AFT", languagePair: "EN>TR", sheetDbId: "mukq6ww3ssuk0", assignedPms: null, googleSheetUrl: null },
+      { source: "Amazon", sheet: "TPT", languagePair: "EN>TR", sheetDbId: "mukq6ww3ssuk0", assignedPms: null, googleSheetUrl: null },
+      { source: "Amazon", sheet: "AFT", languagePair: "EN>TR", sheetDbId: "mukq6ww3ssuk0", assignedPms: null, googleSheetUrl: null },
+      { source: "Amazon", sheet: "Non-EN", languagePair: "Multi", sheetDbId: "mukq6ww3ssuk0", assignedPms: null, googleSheetUrl: null },
+      { source: "Amazon", sheet: "DPX", languagePair: "EN>TR", sheetDbId: "mukq6ww3ssuk0", assignedPms: null, googleSheetUrl: null },
+      { source: "AppleCare", sheet: "Assignments", languagePair: "EN>TR", sheetDbId: "v6i82rdrqa34n", assignedPms: null, googleSheetUrl: null },
+      { source: "AppleCare", sheet: "RU Assignments", languagePair: "EN>RU", sheetDbId: "v6i82rdrqa34n", assignedPms: null, googleSheetUrl: null },
+      { source: "AppleCare", sheet: "AR Assignments", languagePair: "EN>AR", sheetDbId: "v6i82rdrqa34n", assignedPms: null, googleSheetUrl: null },
     ];
-    const existingConfigs = db.select().from(sheetConfigs).all();
-    if (existingConfigs.length === 0) {
-      for (const c of defaultConfigs) {
+    for (const c of defaultConfigs) {
+      const existing = db.select().from(sheetConfigs)
+        .where(and(eq(sheetConfigs.source, c.source), eq(sheetConfigs.sheet, c.sheet))).get();
+      if (!existing) {
         db.insert(sheetConfigs).values(c).run();
+      } else if (!existing.sheetDbId) {
+        db.update(sheetConfigs).set({ sheetDbId: c.sheetDbId }).where(eq(sheetConfigs.id, existing.id)).run();
       }
     }
 
@@ -178,14 +181,18 @@ export class DatabaseStorage implements IStorage {
   getAllSheetConfigs() {
     return db.select().from(sheetConfigs).all();
   }
-  upsertSheetConfig(source: string, sheet: string, languagePair: string) {
+  upsertSheetConfig(source: string, sheet: string, languagePair: string, sheetDbId?: string, googleSheetUrl?: string, assignedPms?: string) {
     const existing = db.select().from(sheetConfigs)
       .where(and(eq(sheetConfigs.source, source), eq(sheetConfigs.sheet, sheet))).get();
+    const data: any = { languagePair };
+    if (sheetDbId !== undefined) data.sheetDbId = sheetDbId;
+    if (googleSheetUrl !== undefined) data.googleSheetUrl = googleSheetUrl;
+    if (assignedPms !== undefined) data.assignedPms = assignedPms;
     if (existing) {
-      db.update(sheetConfigs).set({ languagePair }).where(eq(sheetConfigs.id, existing.id)).run();
+      db.update(sheetConfigs).set(data).where(eq(sheetConfigs.id, existing.id)).run();
       return db.select().from(sheetConfigs).where(eq(sheetConfigs.id, existing.id)).get()!;
     }
-    return db.insert(sheetConfigs).values({ source, sheet, languagePair }).returning().get();
+    return db.insert(sheetConfigs).values({ source, sheet, ...data }).returning().get();
   }
   deleteSheetConfig(id: number) {
     db.delete(sheetConfigs).where(eq(sheetConfigs.id, id)).run();
