@@ -679,6 +679,11 @@ const freelancers = (Array.isArray(data) ? data : [])
       safeWriteToSheet(assignment, pmInitial, "translator");
     }
 
+    // Write custom TR deadline to sheet if provided
+    if (req.body.customDeadline && role === "translator") {
+      safeWriteDeadlineToSheet(assignment, req.body.customDeadline);
+    }
+
     res.json({ success: true, assignment });
   });
 
@@ -721,6 +726,11 @@ const freelancers = (Array.isArray(data) ? data : [])
     // Self-Edit: write the same code to both TR and REV
     if (req.body.reviewType === "Self-Edit" && role === "reviewer") {
       safeWriteToSheet(assignment, freelancerCode, "translator");
+    }
+
+    // Write custom TR deadline to sheet if provided
+    if (req.body.customDeadline && role === "translator") {
+      safeWriteDeadlineToSheet(assignment, req.body.customDeadline);
     }
 
     res.json({ success: true, assignment });

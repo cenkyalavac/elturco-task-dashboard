@@ -51,6 +51,10 @@ interface Task {
   lqi: string;
   qs: string;
   projectTitle: string;
+  revDeadline: string;
+  atmsId: string;
+  symfonieLink: string;
+  symfonieId: string;
 }
 
 interface Freelancer {
@@ -185,7 +189,8 @@ function deadlineClass(d: string): string {
 
 // Calculate suggested translator deadline based on WWC and business hours
 // Assumes: 300 words/hour, Mon-Fri 9:00-18:00, small buffer (30 min)
-function suggestDeadline(wwcStr: string): string {
+// If clientDeadline is provided, the suggestion is capped 2h before it (review buffer)
+function suggestDeadline(wwcStr: string, clientDeadline?: string): string {
   const wwc = parseFloat((wwcStr || "0").replace(/[^\d.,]/g, "").replace(",", "."));
   if (!wwc || wwc <= 0) return "";
   const hoursNeeded = wwc / 300;
@@ -236,6 +241,15 @@ function suggestDeadline(wwcStr: string): string {
     }
   }
 
+  // Cap at client/review deadline minus 2 hours (review buffer)
+  if (clientDeadline) {
+    const cd = parseDeadline(clientDeadline);
+    if (cd) {
+      const cap = new Date(cd.getTime() - 2 * 3600 * 1000);
+      if (cursor > cap) cursor = cap;
+    }
+  }
+
   // Format as datetime-local value: YYYY-MM-DDTHH:mm
   const pad = (n: number) => n.toString().padStart(2, "0");
   return `${cursor.getFullYear()}-${pad(cursor.getMonth() + 1)}-${pad(cursor.getDate())}T${pad(cursor.getHours())}:${pad(cursor.getMinutes())}`;
@@ -254,15 +268,15 @@ function formatDeadlineDisplay(dtLocal: string): string {
 function buildTaskDetails(t: Task) {
   return {
     source: t.source, sheet: t.sheet, projectId: t.projectId,
-    account: t.account, deadline: t.deadline, revDeadline: (t as any).revDeadline || "",
+    account: t.account, deadline: t.deadline, revDeadline: t.revDeadline || "",
     total: t.total, wwc: t.wwc, revType: t.revType,
     projectTitle: t.projectTitle,
     catCounts: t.catCounts, hoNote: t.hoNote,
     trHbNote: t.trHbNote, revHbNote: t.revHbNote,
     instructions: t.instructions, lqi: t.lqi, qs: t.qs,
-    atmsId: (t as any).atmsId || "",
-    symfonieLink: (t as any).symfonieLink || "",
-    symfonieId: (t as any).symfonieId || "",
+    atmsId: t.atmsId || "",
+    symfonieLink: t.symfonieLink || "",
+    symfonieId: t.symfonieId || "",
   };
 }
 
@@ -546,7 +560,7 @@ export default function DashboardPage() {
     setCustomBody("");
     setShowInstructions(false);
     // Auto-suggest deadline if TR Deadline is empty
-    setCustomDeadline(t.deadline ? "" : suggestDeadline(t.wwc));
+    setCustomDeadline(t.deadline ? "" : suggestDeadline(t.wwc, t.revDeadline));
     setShowComplete(false);
     setShowSavePreset(false);
     const newRole = needsTranslator(t) ? "translator" : "reviewer";
@@ -860,6 +874,7 @@ export default function DashboardPage() {
         taskDetails: buildTaskDetails(selectedTask),
         role,
         reviewType,
+        ...(customDeadline ? { customDeadline: formatDeadlineDisplay(customDeadline) } : {}),
       });
       return res.json();
     },
@@ -890,6 +905,7 @@ export default function DashboardPage() {
         freelancerName: f.fullName,
         freelancerEmail: f.email,
         reviewType,
+        ...(customDeadline ? { customDeadline: formatDeadlineDisplay(customDeadline) } : {}),
       });
       return res.json();
     },
@@ -1326,7 +1342,8 @@ export default function DashboardPage() {
                     {/* Task details grid — card section */}
                     <div className="grid grid-cols-3 gap-x-3 gap-y-2 text-xs mt-3 p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
                       <DetailItem label="Account" value={selectedTask.account} />
-                      <DetailItem label="Deadline" value={selectedTask.deadline || "—"} />
+                      <DetailItem label="TR Deadline" value={selectedTask.deadline || "—"} />
+                      <DetailItem label="Client DL" value={selectedTask.revDeadline || "—"} />
                       <DetailItem label="Rev Type" value={selectedTask.revType || "—"} />
                       <DetailItem label="TR" value={selectedTask.translator || "—"} />
                       <DetailItem label="REV" value={selectedTask.reviewer || "—"} />
@@ -1675,7 +1692,7 @@ export default function DashboardPage() {
                       <label className="text-xs font-medium text-muted-foreground">TR Deadline</label>
                       {selectedTask.wwc && !customDeadline && (
                         <button
-                          onClick={() => setCustomDeadline(suggestDeadline(selectedTask.wwc))}
+                          onClick={() => setCustomDeadline(suggestDeadline(selectedTask.wwc, selectedTask.revDeadline))}
                           className="text-[10px] text-primary hover:text-primary/80 transition-colors"
                           data-testid="button-suggest-deadline"
                         >
