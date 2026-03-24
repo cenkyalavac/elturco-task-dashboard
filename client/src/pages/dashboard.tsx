@@ -1206,8 +1206,8 @@ export default function DashboardPage() {
         {/* Right: Slide-over detail + assign panel */}
         {(selectedTask || bulkMode) && (
           <div className="w-[480px] shrink-0 border-l border-white/[0.06] bg-card/80 backdrop-blur-sm flex flex-col h-full animate-slide-in-right">
-            {/* Fixed top: header + task details (scrollable if tall) */}
-            <div className="overflow-y-auto max-h-[40%] shrink-0">
+            {/* Top: task details (compact) */}
+            <div className="overflow-y-auto max-h-[30%] shrink-0">
               {bulkMode && !selectedTask ? (
                 /* Bulk mode header */
                 <div className="p-4 border-b border-white/[0.06]">
@@ -1381,7 +1381,7 @@ export default function DashboardPage() {
               ) : null}
             </div>
 
-            {/* Scrollable bottom: status view OR assignment controls */}
+            {/* Bottom: status view OR assignment controls */}
             {isFullyAssigned && selectedTask && !bulkMode ? (
               /* ── Status View for fully assigned tasks ── */
               <div className="flex-1 overflow-y-auto min-h-0">
@@ -1452,8 +1452,8 @@ export default function DashboardPage() {
             ) : (
               /* ── Assignment Form ── */
               <div className="flex-1 flex flex-col min-h-0">
-              {/* Assignment config */}
-              <div className="p-4 border-b border-white/[0.06] space-y-3 shrink-0">
+              {/* Assignment config (compact) */}
+              <div className="p-3 border-b border-white/[0.06] space-y-2 shrink-0">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Assignment</p>
 
                 {/* Assign to Me button (single task only) */}
@@ -1725,7 +1725,7 @@ export default function DashboardPage() {
                 )}
               </div>
 
-              {/* Freelancer search + list (scrollable) */}
+              {/* Freelancer search + list (takes remaining space) */}
               <div className="flex-1 overflow-y-auto min-h-0">
                 <div className="p-3 sticky top-0 bg-card/95 backdrop-blur-md z-10 border-b border-white/[0.06]">
                   <div className="relative">
