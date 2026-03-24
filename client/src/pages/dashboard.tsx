@@ -225,6 +225,9 @@ export default function DashboardPage() {
   // Skip email (confirmed assign)
   const [skipEmail, setSkipEmail] = useState(false);
 
+  // Review type for reviewer assignments
+  const [reviewType, setReviewType] = useState("Full Review");
+
   // Bulk complete state
   const [showBulkComplete, setShowBulkComplete] = useState(false);
   const [bulkCompleteMode, setBulkCompleteMode] = useState<"yes" | "minutes">("yes");
@@ -425,9 +428,9 @@ export default function DashboardPage() {
   // Bulk filtered freelancers: must match ALL sources
   const bulkFilteredFreelancers = useMemo(() => {
     if (!freelancers || !bulkMode) return [];
-    const selectedCodes = new Set(selectedFreelancers.map((f) => f.resourceCode));
+    const selectedIds = new Set(selectedFreelancers.map((f) => f.id));
     return freelancers.filter(f => {
-      if (selectedCodes.has(f.resourceCode)) return false;
+      if (selectedIds.has(f.id)) return false;
       return bulkSources.every(source => {
         const matchAccts = ACCOUNT_MATCH[source] || [];
         if (matchAccts.length === 0) return true;
@@ -503,11 +506,11 @@ export default function DashboardPage() {
   const filteredFreelancers = useMemo(() => {
     if (!freelancers || !selectedTask) return [];
     const matchAccounts = ACCOUNT_MATCH[selectedTask.source] || [];
-    const selectedCodes = new Set(selectedFreelancers.map((f) => f.resourceCode));
+    const selectedIds = new Set(selectedFreelancers.map((f) => f.id));
 
     return freelancers
       .filter((f) => {
-        if (selectedCodes.has(f.resourceCode)) return false;
+        if (selectedIds.has(f.id)) return false;
         // Bypass account/language filters for test freelancers
         if (!BYPASS_FILTER_CODES.includes(f.resourceCode)) {
           const matchesAccount = matchAccounts.length === 0 || f.accounts?.some((a) => matchAccounts.includes(a));
@@ -543,8 +546,8 @@ export default function DashboardPage() {
     }
   }
 
-  function removeFreelancer(code: string) {
-    setSelectedFreelancers((prev) => prev.filter((f) => f.resourceCode !== code));
+  function removeFreelancer(id: string) {
+    setSelectedFreelancers((prev) => prev.filter((f) => f.id !== id));
   }
 
   function moveFreelancer(index: number, dir: "up" | "down") {
@@ -632,6 +635,7 @@ export default function DashboardPage() {
         autoAssignReviewer: false,
         clientBaseUrl: window.location.href.split("#")[0].replace(/\/$/, ""),
         apiBaseUrl: getPublicApiBase(),
+        reviewType: role === "reviewer" ? reviewType : undefined,
       };
       if (customSubject) body.emailSubject = customSubject;
       if (customBody) body.emailBody = customBody;
@@ -676,6 +680,7 @@ export default function DashboardPage() {
           autoAssignReviewer: false,
           clientBaseUrl: window.location.href.split("#")[0].replace(/\/$/, ""),
           apiBaseUrl: getPublicApiBase(),
+          reviewType: bulkMode === "reviewer" ? reviewType : undefined,
           ...(customSubject ? { emailSubject: customSubject } : {}),
           ...(customBody ? { emailBody: customBody } : {}),
         });
@@ -802,6 +807,7 @@ export default function DashboardPage() {
         freelancerCode: f.resourceCode,
         freelancerName: f.fullName,
         freelancerEmail: f.email,
+        reviewType: role === "reviewer" ? reviewType : undefined,
       });
       return res.json();
     },
@@ -1551,6 +1557,27 @@ export default function DashboardPage() {
                     ))}
                   </div>
                 </div>
+
+                {/* Review Type selector (only when role is reviewer) */}
+                {(bulkMode === "reviewer" || (!bulkMode && role === "reviewer")) && (
+                  <div className="flex items-center gap-3">
+                    <label className="text-xs font-medium text-muted-foreground w-10">Rev</label>
+                    <div className="flex gap-1">
+                      {(["Full Review", "Self-Edit", "LQA", "QA"] as const).map((rt) => (
+                        <button
+                          key={rt}
+                          onClick={() => setReviewType(rt)}
+                          data-testid={`button-revtype-${rt.toLowerCase().replace(" ", "-")}`}
+                          className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                            reviewType === rt ? "bg-purple-500/10 text-purple-600 border border-purple-500/30" : "bg-muted text-muted-foreground"
+                          }`}
+                        >
+                          {rt}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Selected freelancers chips */}
@@ -1588,7 +1615,7 @@ export default function DashboardPage() {
                   )}
                   <div className="flex flex-wrap gap-1">
                     {selectedFreelancers.map((f, idx) => (
-                      <div key={f.resourceCode} className="flex items-center gap-1 bg-muted rounded px-2 py-0.5 text-xs" data-testid={`chip-${f.resourceCode}`}>
+                      <div key={f.id} className="flex items-center gap-1 bg-muted rounded px-2 py-0.5 text-xs" data-testid={`chip-${f.resourceCode}`}>
                         {assignmentType === "sequence" && (
                           <span className="text-muted-foreground font-medium">{idx + 1}.</span>
                         )}
@@ -1604,7 +1631,7 @@ export default function DashboardPage() {
                             </button>
                           </>
                         )}
-                        <button onClick={() => removeFreelancer(f.resourceCode)} className="text-muted-foreground hover:text-destructive p-0" data-testid={`remove-${f.resourceCode}`}>
+                        <button onClick={() => removeFreelancer(f.id)} className="text-muted-foreground hover:text-destructive p-0" data-testid={`remove-${f.resourceCode}`}>
                           <X className="w-3 h-3" />
                         </button>
                       </div>
@@ -1718,7 +1745,7 @@ export default function DashboardPage() {
                       const fStats = freelancerStats?.[f.resourceCode];
                       return (
                         <div
-                          key={f.resourceCode}
+                          key={f.id}
                           className="flex items-center gap-2.5 px-3 py-2 hover:bg-muted/30 cursor-pointer transition-colors"
                           onClick={() => addFreelancer(f)}
                           data-testid={`freelancer-${f.resourceCode}`}

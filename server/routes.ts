@@ -251,7 +251,10 @@ function buildDefaultOfferBody(vars: Record<string, string>): string {
 }
 
 function buildOfferEmailHtml(task: any, offer: any, assignment: any, customSubject?: string, customBody?: string): { subject: string; html: string } {
-  const acceptUrl = `${SITE_PUBLIC_URL}#/respond/${offer.token}`;
+  // Use clientBaseUrl (direct proxy URL) for the accept link — avoids hash fragment
+  // loss when Perplexity loads the page in an iframe. Falls back to SITE_PUBLIC_URL.
+  const base = offer.clientBaseUrl || SITE_PUBLIC_URL;
+  const acceptUrl = `${base}#/respond/${offer.token}`;
   const role = assignment.role === "translator" ? "Translation" : "Review";
 
   const vars: Record<string, string> = {
@@ -378,10 +381,11 @@ export async function registerRoutes(server: Server, app: Express) {
   // Offer redirect: freelancer email links point here
   app.get("/api/offers/redirect/:token", (req: Request, res: Response) => {
     const offer = storage.getOfferByToken(req.params.token);
-    if (!offer || !offer.clientBaseUrl) {
+    if (!offer) {
       return res.status(404).send("Offer not found or expired.");
     }
-    const frontendUrl = `${offer.clientBaseUrl}#/respond/${req.params.token}`;
+    const base = offer.clientBaseUrl || SITE_PUBLIC_URL;
+    const frontendUrl = `${base}#/respond/${req.params.token}`;
     res.type("html").send(buildRedirectPage(frontendUrl, "Loading task details..."));
   });
 
@@ -410,10 +414,10 @@ export async function registerRoutes(server: Server, app: Express) {
       });
       const data = await response.json();
       // Return relevant fields only
-      // Show Approved freelancers + specific test accounts (CY, CY1)
-const TEST_CODES = ["CY", "CY1"];
+      // Show Approved freelancers + specific test accounts by email
+const TEST_EMAILS = ["cenkyalavac@gmail.com", "cenk.yalavac@gmail.com"];
 const freelancers = (Array.isArray(data) ? data : [])
-  .filter((f: any) => f.status === "Approved" || TEST_CODES.includes(f.resource_code))
+  .filter((f: any) => f.status === "Approved" || TEST_EMAILS.includes(f.email))
   .map((f: any) => ({
         id: f.id,
         fullName: f.full_name,
@@ -569,13 +573,18 @@ const freelancers = (Array.isArray(data) ? data : [])
     const pmInitial = req.body.resourceCode || user.name;
     safeWriteToSheet(assignment, pmInitial, role as "translator" | "reviewer");
 
+    // Self-Edit: write the same code to both TR and REV
+    if (req.body.reviewType === "Self-Edit" && role === "reviewer") {
+      safeWriteToSheet(assignment, pmInitial, "translator");
+    }
+
     res.json({ success: true, assignment });
   });
 
   // ---- DIRECT ASSIGN (CONFIRMED, no email) ----
   app.post("/api/assignments/confirmed", requireAuth, async (req: Request, res: Response) => {
-    const { source, sheet, projectId, account, taskDetails, role, freelancer } = req.body;
-    if (!source || !projectId || !role || !freelancer) return res.status(400).json({ error: "Missing fields" });
+    const { source, sheet, projectId, account, taskDetails, role, freelancerCode, freelancerName, freelancerEmail } = req.body;
+    if (!source || !projectId || !role || !freelancerCode) return res.status(400).json({ error: "Missing fields" });
 
     const now = new Date().toISOString();
     const assignment = storage.createAssignment({
@@ -583,9 +592,9 @@ const freelancers = (Array.isArray(data) ? data : [])
       taskDetails: JSON.stringify(taskDetails || {}),
       assignmentType: "direct", role, status: "accepted",
       assignedBy: (req as any).pmUserId,
-      acceptedBy: freelancer.resourceCode,
-      acceptedByName: freelancer.fullName,
-      acceptedByEmail: freelancer.email,
+      acceptedBy: freelancerCode,
+      acceptedByName: freelancerName || freelancerCode,
+      acceptedByEmail: freelancerEmail || "",
       sequenceList: null, currentSequenceIndex: 0, sequenceTimeoutMinutes: 60,
       broadcastList: null, autoAssignReviewer: 0,
       reviewerAssignmentType: null, reviewerSequenceList: null,
@@ -594,17 +603,23 @@ const freelancers = (Array.isArray(data) ? data : [])
 
     // Create a pre-accepted offer
     const token = randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "");
+    const clientBase = resolveBaseUrl(req);
     storage.createOffer({
       assignmentId: assignment.id,
-      freelancerCode: freelancer.resourceCode,
-      freelancerName: freelancer.fullName,
-      freelancerEmail: freelancer.email,
+      freelancerCode,
+      freelancerName: freelancerName || freelancerCode,
+      freelancerEmail: freelancerEmail || "",
       token, status: "accepted", sentAt: now,
-      respondedAt: now, sequenceOrder: null, clientBaseUrl: null,
+      respondedAt: now, sequenceOrder: null, clientBaseUrl: clientBase,
     });
 
     // Write freelancer code to Sheet (only if cell is empty or XX)
-    safeWriteToSheet(assignment, freelancer.resourceCode, role as "translator" | "reviewer");
+    safeWriteToSheet(assignment, freelancerCode, role as "translator" | "reviewer");
+
+    // Self-Edit: write the same code to both TR and REV
+    if (req.body.reviewType === "Self-Edit" && role === "reviewer") {
+      safeWriteToSheet(assignment, freelancerCode, "translator");
+    }
 
     res.json({ success: true, assignment });
   });
