@@ -25,18 +25,40 @@ export function getPublicApiBase(): string {
   return window.location.origin + "/" + API_BASE;
 }
 
-// Auth token management (in-memory, not localStorage)
+// Auth token management — persists across page reloads using window.name
+// (localStorage/sessionStorage/cookies are blocked in sandboxed iframes)
 let authToken: string | null = null;
-let currentUser: { id: number; email: string; name: string; role: string } | null = null;
+let currentUser: { id: number; email: string; name: string; role: string; defaultFilter?: string; defaultMyProjects?: boolean } | null = null;
+
+// Restore from window.name on load
+try {
+  const saved = window.name ? JSON.parse(window.name) : null;
+  if (saved?.authToken) {
+    authToken = saved.authToken;
+    currentUser = saved.currentUser || null;
+  }
+} catch {}
+
+function persistAuth() {
+  try {
+    if (authToken) {
+      window.name = JSON.stringify({ authToken, currentUser });
+    } else {
+      window.name = "";
+    }
+  } catch {}
+}
 
 export function setAuthToken(token: string | null) {
   authToken = token;
+  persistAuth();
 }
 export function getAuthToken() {
   return authToken;
 }
 export function setCurrentUser(user: typeof currentUser) {
   currentUser = user;
+  persistAuth();
 }
 export function getCurrentUser() {
   return currentUser;

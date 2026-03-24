@@ -666,6 +666,7 @@ export default function DashboardPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/assignments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       toast({ title: "Task assigned", description: "Emails sent successfully." });
       setSelectedTaskKey(null);
       setSelectedFreelancers([]);
@@ -706,6 +707,7 @@ export default function DashboardPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/assignments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       toast({ title: "Bulk assignment complete", description: `${checkedKeys.size} tasks assigned.` });
       setCheckedKeys(new Set());
       setBulkMode(null);
@@ -1572,10 +1574,15 @@ export default function DashboardPage() {
                       <button
                         key={rt}
                         onClick={() => {
-                          setReviewType(rt);
-                          // Self-Edit: auto-switch to reviewer role (writes same code to TR+REV)
-                          if (rt === "Self-Edit" && !bulkMode) {
-                            setRole("reviewer");
+                          if (reviewType === rt) {
+                            // Clicking active button deselects it
+                            setReviewType("Full Review");
+                          } else {
+                            setReviewType(rt);
+                            // Self-Edit: auto-switch to reviewer role (writes same code to TR+REV)
+                            if (rt === "Self-Edit" && !bulkMode) {
+                              setRole("reviewer");
+                            }
                           }
                         }}
                         data-testid={`button-revtype-${rt.toLowerCase().replace(" ", "-")}`}

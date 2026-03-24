@@ -244,17 +244,49 @@ function replaceVars(template: string, vars: Record<string, string>): string {
 }
 
 // Build the default email body when no custom body is provided
-function buildDefaultOfferBody(vars: Record<string, string>): string {
+function buildDefaultOfferBody(vars: Record<string, string>, task?: any): string {
   const role = vars.role || "Translation";
+  const isReviewer = role === "Review";
+  const deadline = isReviewer ? (task?.revDeadline || vars.deadline) : vars.deadline;
+  const deadlineLabel = isReviewer ? "Review Deadline" : "Translation Deadline";
+
+  // Build CAT breakdown row if available
+  let catRow = "";
+  if (task?.catCounts) {
+    const cc = task.catCounts;
+    const cats = [
+      { label: "ICE", value: cc.ice },
+      { label: "Rep", value: cc.rep },
+      { label: "100%", value: cc.match100 },
+      { label: "95-99%", value: cc.fuzzy95 },
+      { label: "85-94%", value: cc.fuzzy85 },
+      { label: "75-84%", value: cc.fuzzy75 },
+      { label: "No Match", value: cc.noMatch },
+      { label: "MT", value: cc.mt },
+    ].filter(c => c.value && c.value !== "0");
+    if (cats.length > 0) {
+      const catStr = cats.map(c => `${c.label}: ${c.value}`).join(" &middot; ");
+      catRow = `<tr><td style="padding:10px 12px;font-weight:600;color:#666;border-bottom:1px solid #eee">Word Count</td><td style="padding:10px 12px;border-bottom:1px solid #eee;font-size:13px">${catStr}</td></tr>`;
+    }
+  }
+
+  // HO Note row
+  let hoNoteRow = "";
+  if (task?.hoNote) {
+    hoNoteRow = `<tr><td style="padding:10px 12px;background:#f8f9fa;font-weight:600;color:#666;border-bottom:1px solid #eee">HO Note</td><td style="padding:10px 12px;background:#f8f9fa;border-bottom:1px solid #eee">${task.hoNote}</td></tr>`;
+  }
+
   return `<p>Hello <strong>${vars.freelancerName}</strong>,</p>
 <p>We'd like to know if you're available for the following ${role.toLowerCase()} task.</p>
 <table style="width:100%;border-collapse:collapse;margin:16px 0">
 <tr><td style="padding:10px 12px;background:#f8f9fa;font-weight:600;color:#666;border-bottom:1px solid #eee;width:140px">Account</td><td style="padding:10px 12px;background:#f8f9fa;border-bottom:1px solid #eee">${vars.account}</td></tr>
 <tr><td style="padding:10px 12px;font-weight:600;color:#666;border-bottom:1px solid #eee">Source / Tab</td><td style="padding:10px 12px;border-bottom:1px solid #eee">${vars.source} / ${vars.sheet}</td></tr>
 <tr><td style="padding:10px 12px;background:#f8f9fa;font-weight:600;color:#666;border-bottom:1px solid #eee">Project ID</td><td style="padding:10px 12px;background:#f8f9fa;border-bottom:1px solid #eee">${vars.projectId}</td></tr>
-<tr><td style="padding:10px 12px;font-weight:600;color:#666;border-bottom:1px solid #eee">Deadline</td><td style="padding:10px 12px;color:#e74c3c;font-weight:600;border-bottom:1px solid #eee">${vars.deadline}</td></tr>
+<tr><td style="padding:10px 12px;font-weight:600;color:#666;border-bottom:1px solid #eee">${deadlineLabel}</td><td style="padding:10px 12px;color:#e74c3c;font-weight:600;border-bottom:1px solid #eee">${deadline}</td></tr>
 <tr><td style="padding:10px 12px;background:#f8f9fa;font-weight:600;color:#666;border-bottom:1px solid #eee">Total / WWC</td><td style="padding:10px 12px;background:#f8f9fa;border-bottom:1px solid #eee">${vars.total} / ${vars.wwc}</td></tr>
-<tr><td style="padding:10px 12px;font-weight:600;color:#666;border-bottom:1px solid #eee">Task Type</td><td style="padding:10px 12px;border-bottom:1px solid #eee">${role}</td></tr>
+${catRow}
+${hoNoteRow}
+<tr><td style="padding:10px 12px;background:${catRow || hoNoteRow ? '#f8f9fa' : 'transparent'};font-weight:600;color:#666;border-bottom:1px solid #eee">Task Type</td><td style="padding:10px 12px;background:${catRow || hoNoteRow ? '#f8f9fa' : 'transparent'};border-bottom:1px solid #eee">${role}</td></tr>
 </table>`;
 }
 
@@ -295,7 +327,7 @@ function buildOfferEmailHtml(task: any, offer: any, assignment: any, customSubje
   } else {
     const templateKey = assignment.role === "translator" ? "offer_translator" : "offer_reviewer";
     const tpl = storage.getEmailTemplate(templateKey);
-    bodyContent = tpl ? replaceVars(tpl.body, vars) : buildDefaultOfferBody(vars);
+    bodyContent = tpl ? replaceVars(tpl.body, vars) : buildDefaultOfferBody(vars, task);
   }
 
   const html = `

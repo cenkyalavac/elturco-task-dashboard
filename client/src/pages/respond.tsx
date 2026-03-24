@@ -190,7 +190,7 @@ export default function RespondPage() {
               {task.projectTitle && <DetailRow label="Title" value={task.projectTitle} />}
               <DetailRow label={deadlineLabel} value={deadline} highlight />
               <DetailRow label="Total / WWC" value={`${task.total || "—"} / ${task.wwc || "—"}`} />
-              {task.revType && <DetailRow label="Review Type" value={task.revType} />}
+              {isReviewer && task.revType && <DetailRow label="Review Type" value={task.revType} />}
             </div>
 
             {/* CAT Match Breakdown */}

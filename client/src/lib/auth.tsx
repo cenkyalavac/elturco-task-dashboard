@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect } from "react";
-import { apiRequest, setAuthToken, setCurrentUser, getAuthToken } from "./queryClient";
+import { apiRequest, setAuthToken, setCurrentUser, getAuthToken, getCurrentUser } from "./queryClient";
 
 interface User {
   id: number;
@@ -27,8 +27,35 @@ const AuthContext = createContext<AuthContextType>({
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  // Restore user from persisted auth (window.name) on mount
+  const [user, setUser] = useState<User | null>(() => {
+    const saved = getCurrentUser();
+    return saved as User | null;
+  });
   const [isLoading, setIsLoading] = useState(false);
+
+  // Validate persisted session on mount
+  useEffect(() => {
+    const token = getAuthToken();
+    const savedUser = getCurrentUser();
+    if (token && savedUser) {
+      // Validate the session is still active by making a lightweight call
+      setIsLoading(true);
+      apiRequest("GET", "/api/assignments")
+        .then(() => {
+          // Session still valid
+          setUser(savedUser as User);
+          setIsLoading(false);
+        })
+        .catch(() => {
+          // Session expired, clear auth
+          setAuthToken(null);
+          setCurrentUser(null);
+          setUser(null);
+          setIsLoading(false);
+        });
+    }
+  }, []);
 
   const login = useCallback((token: string, userData: User) => {
     setAuthToken(token);
