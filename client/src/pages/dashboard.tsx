@@ -915,15 +915,16 @@ export default function DashboardPage() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Stats bar */}
-      <div className="border-b border-border bg-card px-4 py-2">
-        <div className="flex items-center gap-6 text-xs">
-          <StatPill label="Total" value={stats.total} loading={tasksLoading} />
-          <StatPill label="Ongoing" value={stats.ongoing} loading={tasksLoading} color="text-primary" />
-          <StatPill label="Needs TR" value={stats.needsTR} loading={tasksLoading} color="text-orange-500" />
-          <StatPill label="Needs REV" value={stats.needsREV} loading={tasksLoading} color="text-blue-500" />
-          <StatPill label="Assigned" value={stats.assigned} loading={tasksLoading} color="text-emerald-500" />
-          <StatPill label="Rev Done" value={stats.completed} loading={tasksLoading} color="text-green-600" />
+      {/* Stats bar — clickable filters */}
+      <div className="border-b border-border bg-card px-4 py-1.5">
+        <div className="flex items-center gap-1 text-xs">
+          <StatPill label="Ongoing" value={stats.ongoing} loading={tasksLoading} color="text-primary" active={statusFilter === "ongoing"} onClick={() => setStatusFilter("ongoing")} />
+          <StatPill label="Needs TR" value={stats.needsTR} loading={tasksLoading} color="text-orange-500" active={statusFilter === "needs_tr"} onClick={() => setStatusFilter("needs_tr")} />
+          <StatPill label="Needs REV" value={stats.needsREV} loading={tasksLoading} color="text-blue-500" active={statusFilter === "needs_rev"} onClick={() => setStatusFilter("needs_rev")} />
+          <StatPill label="Unassigned" value={stats.needsTR + stats.needsREV} loading={tasksLoading} color="text-red-500" active={statusFilter === "unassigned"} onClick={() => setStatusFilter("unassigned")} />
+          <StatPill label="Assigned" value={stats.assigned} loading={tasksLoading} color="text-emerald-500" active={statusFilter === "assigned"} onClick={() => setStatusFilter("assigned")} />
+          <StatPill label="Rev Done" value={stats.completed} loading={tasksLoading} color="text-green-600" active={statusFilter === "delivered"} onClick={() => setStatusFilter("delivered")} />
+          <StatPill label="All" value={stats.total} loading={tasksLoading} active={statusFilter === "all"} onClick={() => setStatusFilter("all")} />
         </div>
       </div>
 
@@ -1066,20 +1067,6 @@ export default function DashboardPage() {
                 {uniqueLangPairs.map(lp => (
                   <SelectItem key={lp} value={lp}>{lp}</SelectItem>
                 ))}
-              </SelectContent>
-            </Select>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-32 h-8 text-sm" data-testid="select-status">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ongoing">Ongoing</SelectItem>
-                <SelectItem value="needs_tr">Needs TR</SelectItem>
-                <SelectItem value="needs_rev">Needs REV</SelectItem>
-                <SelectItem value="unassigned">Unassigned</SelectItem>
-                <SelectItem value="assigned">Assigned</SelectItem>
-                <SelectItem value="all">All</SelectItem>
-                <SelectItem value="delivered">Delivered</SelectItem>
               </SelectContent>
             </Select>
             <button
@@ -1884,12 +1871,20 @@ export default function DashboardPage() {
 
 // ── Sub-components ──
 
-function StatPill({ label, value, loading, color }: { label: string; value: number; loading: boolean; color?: string }) {
+function StatPill({ label, value, loading, color, active, onClick }: { label: string; value: number; loading: boolean; color?: string; active?: boolean; onClick?: () => void }) {
   return (
-    <div className="flex items-center gap-1.5">
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${
+        active
+          ? "bg-primary/10 ring-1 ring-primary/30"
+          : "hover:bg-muted/60"
+      } ${onClick ? "cursor-pointer" : "cursor-default"}`}
+      data-testid={`stat-${label.toLowerCase().replace(/\s+/g, "-")}`}
+    >
       <span className={`text-xs ${color || "text-muted-foreground"}`}>{label}:</span>
       {loading ? <Skeleton className="h-4 w-6" /> : <span className={`text-sm font-bold tabular-nums ${color || "text-foreground"}`}>{value}</span>}
-    </div>
+    </button>
   );
 }
 
