@@ -183,6 +183,73 @@ function deadlineClass(d: string): string {
   return "text-muted-foreground";
 }
 
+// Calculate suggested translator deadline based on WWC and business hours
+// Assumes: 300 words/hour, Mon-Fri 9:00-18:00, small buffer (30 min)
+function suggestDeadline(wwcStr: string): string {
+  const wwc = parseFloat((wwcStr || "0").replace(/[^\d.,]/g, "").replace(",", "."));
+  if (!wwc || wwc <= 0) return "";
+  const hoursNeeded = wwc / 300;
+  const bufferHours = 0.5; // 30 min buffer
+  let totalMinutes = Math.ceil((hoursNeeded + bufferHours) * 60);
+
+  const now = new Date();
+  let cursor = new Date(now);
+  
+  // If current time is before 9:00, start at 9:00 today
+  // If after 18:00 or weekend, start at 9:00 next business day
+  function nextBusinessStart(d: Date): Date {
+    const r = new Date(d);
+    // Skip to next day if past 18:00
+    if (r.getHours() >= 18) {
+      r.setDate(r.getDate() + 1);
+      r.setHours(9, 0, 0, 0);
+    }
+    // If before 9:00, set to 9:00
+    if (r.getHours() < 9) {
+      r.setHours(9, 0, 0, 0);
+    }
+    // Skip weekends
+    while (r.getDay() === 0 || r.getDay() === 6) {
+      r.setDate(r.getDate() + 1);
+      r.setHours(9, 0, 0, 0);
+    }
+    return r;
+  }
+
+  cursor = nextBusinessStart(cursor);
+
+  while (totalMinutes > 0) {
+    // Minutes left in current business day (until 18:00)
+    const endOfDay = new Date(cursor);
+    endOfDay.setHours(18, 0, 0, 0);
+    const availableMinutes = Math.max(0, (endOfDay.getTime() - cursor.getTime()) / 60000);
+
+    if (totalMinutes <= availableMinutes) {
+      cursor = new Date(cursor.getTime() + totalMinutes * 60000);
+      totalMinutes = 0;
+    } else {
+      totalMinutes -= availableMinutes;
+      // Move to next business day 9:00
+      cursor.setDate(cursor.getDate() + 1);
+      cursor.setHours(9, 0, 0, 0);
+      cursor = nextBusinessStart(cursor);
+    }
+  }
+
+  // Format as datetime-local value: YYYY-MM-DDTHH:mm
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${cursor.getFullYear()}-${pad(cursor.getMonth() + 1)}-${pad(cursor.getDate())}T${pad(cursor.getHours())}:${pad(cursor.getMinutes())}`;
+}
+
+// Format datetime-local to display format (DD.MM.YYYY HH:mm)
+function formatDeadlineDisplay(dtLocal: string): string {
+  if (!dtLocal) return "";
+  const d = new Date(dtLocal);
+  if (isNaN(d.getTime())) return dtLocal;
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 // Build full taskDetails for assignment API calls
 function buildTaskDetails(t: Task) {
   return {
@@ -243,6 +310,9 @@ export default function DashboardPage() {
 
   // Review type for reviewer assignments
   const [reviewType, setReviewType] = useState("Full Review");
+
+  // Translator deadline (when TR Deadline is empty)
+  const [customDeadline, setCustomDeadline] = useState("");
 
   // Bulk complete state
   const [showBulkComplete, setShowBulkComplete] = useState(false);
@@ -475,6 +545,8 @@ export default function DashboardPage() {
     setCustomSubject("");
     setCustomBody("");
     setShowInstructions(false);
+    // Auto-suggest deadline if TR Deadline is empty
+    setCustomDeadline(t.deadline ? "" : suggestDeadline(t.wwc));
     setShowComplete(false);
     setShowSavePreset(false);
     const newRole = needsTranslator(t) ? "translator" : "reviewer";
@@ -661,6 +733,7 @@ export default function DashboardPage() {
       };
       if (customSubject) body.emailSubject = customSubject;
       if (customBody) body.emailBody = customBody;
+      if (customDeadline) body.customDeadline = formatDeadlineDisplay(customDeadline);
       const res = await apiRequest("POST", "/api/assignments", body);
       return res.json();
     },
@@ -1206,8 +1279,10 @@ export default function DashboardPage() {
         {/* Right: Slide-over detail + assign panel */}
         {(selectedTask || bulkMode) && (
           <div className="w-[480px] shrink-0 border-l border-white/[0.06] bg-card/80 backdrop-blur-sm flex flex-col h-full animate-slide-in-right">
-            {/* Top: task details (compact) */}
-            <div className="overflow-y-auto max-h-[30%] shrink-0">
+            {/* Single scroll container for everything */}
+            <div className="flex-1 overflow-y-auto">
+            {/* Task details header */}
+            <div>
               {bulkMode && !selectedTask ? (
                 /* Bulk mode header */
                 <div className="p-4 border-b border-white/[0.06]">
@@ -1381,10 +1456,10 @@ export default function DashboardPage() {
               ) : null}
             </div>
 
-            {/* Bottom: status view OR assignment controls */}
+            {/* Status view OR assignment controls */}
             {isFullyAssigned && selectedTask && !bulkMode ? (
               /* ── Status View for fully assigned tasks ── */
-              <div className="flex-1 overflow-y-auto min-h-0">
+              <div>
                 <div className="p-4 space-y-3">
                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Active Assignments</p>
 
@@ -1451,7 +1526,7 @@ export default function DashboardPage() {
               </div>
             ) : (
               /* ── Assignment Form ── */
-              <div className="flex-1 flex flex-col min-h-0">
+              <div>
               {/* Assignment config (compact) */}
               <div className="p-3 border-b border-white/[0.06] space-y-2 shrink-0">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Assignment</p>
@@ -1592,6 +1667,40 @@ export default function DashboardPage() {
                     ))}
                   </div>
                 </div>
+
+                {/* TR Deadline input — shown when task has no TR deadline */}
+                {selectedTask && !bulkMode && !selectedTask.deadline && role === "translator" && (
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-medium text-muted-foreground">TR Deadline</label>
+                      {selectedTask.wwc && !customDeadline && (
+                        <button
+                          onClick={() => setCustomDeadline(suggestDeadline(selectedTask.wwc))}
+                          className="text-[10px] text-primary hover:text-primary/80 transition-colors"
+                          data-testid="button-suggest-deadline"
+                        >
+                          <Clock className="w-3 h-3 inline mr-0.5" />
+                          Suggest from WWC
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      type="datetime-local"
+                      value={customDeadline}
+                      onChange={(e) => setCustomDeadline(e.target.value)}
+                      className="w-full h-8 px-2 text-xs rounded-md border border-white/[0.08] bg-background/50 text-foreground focus:ring-1 focus:ring-primary/40 focus:border-primary/40"
+                      data-testid="input-custom-deadline"
+                    />
+                    {customDeadline && (
+                      <p className="text-[10px] text-muted-foreground">
+                        {formatDeadlineDisplay(customDeadline)}
+                        {selectedTask.wwc && (
+                          <span className="text-muted-foreground/60"> · {selectedTask.wwc} WWC ≈ {Math.ceil(parseFloat((selectedTask.wwc || "0").replace(/[^\d.,]/g, "").replace(",", ".")) / 300 * 10) / 10}h @ 300w/h</span>
+                        )}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Selected freelancers chips */}
@@ -1725,8 +1834,8 @@ export default function DashboardPage() {
                 )}
               </div>
 
-              {/* Freelancer search + list (takes remaining space) */}
-              <div className="flex-1 overflow-y-auto min-h-0">
+              {/* Freelancer search + list */}
+              <div>
                 <div className="p-3 sticky top-0 bg-card/95 backdrop-blur-md z-10 border-b border-white/[0.06]">
                   <div className="relative">
                     <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
@@ -1800,7 +1909,12 @@ export default function DashboardPage() {
                 )}
               </div>
 
-              {/* Assign button */}
+              </div>
+            )}
+            </div>
+
+            {/* Assign button — pinned at bottom, outside scroll */}
+            {!(isFullyAssigned && selectedTask && !bulkMode) && (
               <div className="p-3 border-t border-white/[0.06] bg-card shrink-0">
                 {bulkMode ? (
                   <Button
@@ -1863,7 +1977,6 @@ export default function DashboardPage() {
                     )}
                   </Button>
                 )}
-              </div>
               </div>
             )}
           </div>

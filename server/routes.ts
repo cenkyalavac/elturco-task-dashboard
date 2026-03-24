@@ -733,7 +733,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       assignmentType, role, freelancers,
       sequenceTimeoutMinutes, autoAssignReviewer,
       reviewerAssignmentType, reviewerSequenceList,
-      emailSubject, emailBody,
+      emailSubject, emailBody, customDeadline,
     } = req.body;
 
     if (!source || !projectId || !assignmentType || !role || !freelancers?.length) {
@@ -768,6 +768,10 @@ const freelancers = (Array.isArray(data) ? data : [])
     const clientBase = resolveBaseUrl(req);
 
     const task = taskDetails || {};
+    // If PM set a custom deadline, override it in task details for email/display
+    if (customDeadline && role === "translator") {
+      task.deadline = customDeadline;
+    }
 
     if (assignmentType === "direct" || assignmentType === "broadcast") {
       // Send to all freelancers at once
@@ -816,6 +820,11 @@ const freelancers = (Array.isArray(data) ? data : [])
           console.error(`Failed to send email to ${first.email}:`, e);
         }
       }
+    }
+
+    // Write custom TR deadline to sheet if provided
+    if (customDeadline && role === "translator") {
+      safeWriteDeadlineToSheet(assignment, customDeadline);
     }
 
     const enriched = {
@@ -1104,6 +1113,36 @@ const freelancers = (Array.isArray(data) ? data : [])
       console.log(`Sheet status write OK: ${targetCol}=${value} for project ${projectId}`);
     } catch (e) {
       console.error("Sheet status write error (non-fatal):", e);
+    }
+  }
+
+  // Write TR Deadline to sheet
+  async function safeWriteDeadlineToSheet(assignment: any, deadlineValue: string) {
+    try {
+      const configs = storage.getAllSheetConfigs();
+      const config = configs.find(c => c.source === assignment.source && c.sheet === assignment.sheet);
+      if (!config?.sheetDbId) return;
+
+      const apiId = config.sheetDbId;
+      const sheet = assignment.sheet;
+      const projectId = assignment.projectId;
+
+      const idCol = sheet === "TPT" ? "ATMS ID" 
+        : (sheet === "Assignments" || sheet === "RU Assignments" || sheet === "AR Assignments") ? "ID" 
+        : "Project ID";
+
+      // TR Deadline column name varies by sheet
+      const deadlineCol = sheet === "TPT" ? "TR\nDeadline" : "TR Deadline";
+
+      const writeUrl = `https://sheetdb.io/api/v1/${apiId}/${encodeURIComponent(idCol)}/${encodeURIComponent(projectId)}?sheet=${encodeURIComponent(sheet)}`;
+      await fetch(writeUrl, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: { [deadlineCol]: deadlineValue } }),
+      });
+      console.log(`Sheet deadline write OK: ${deadlineCol}=${deadlineValue} for project ${projectId}`);
+    } catch (e) {
+      console.error("Sheet deadline write error (non-fatal):", e);
     }
   }
 
