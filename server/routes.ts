@@ -2,7 +2,6 @@ import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
 import { randomUUID } from "crypto";
-import { execSync } from "child_process";
 
 // ============================================
 // CONFIG
@@ -10,6 +9,7 @@ import { execSync } from "child_process";
 const BASE44_API = "https://elts.base44.app/api/apps/694868412332f081649b2833/entities/Freelancer";
 const BASE44_KEY = "bf9b19a625ae4083ba38b8585fb5a78f";
 const FROM_EMAIL = process.env.FROM_EMAIL || "ElTurco Projects <projects@eltur.co>";
+const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
 const MAGIC_LINK_EXPIRY_MINUTES = 30;
 const SESSION_EXPIRY_HOURS = 72;
 
@@ -23,26 +23,90 @@ const ACCOUNT_MATCH: Record<string, string[]> = {
 };
 
 // ============================================
-// HELPERS
+// EMAIL — Proper Resend API with sandbox fallback
 // ============================================
-function callExternalTool(sourceId: string, toolName: string, args: any): any {
-  const params = JSON.stringify({ source_id: sourceId, tool_name: toolName, arguments: args });
-  const escaped = params.replace(/'/g, "'\\''");
-  const result = execSync(`external-tool call '${escaped}'`, { timeout: 30000 }).toString();
-  return JSON.parse(result);
+
+// Primary: Use Resend HTTP API directly (works on any server)
+async function sendEmailViaResend(to: string[], subject: string, html: string) {
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ from: FROM_EMAIL, to, subject, html }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Resend API error ${res.status}: ${err}`);
+  }
+  return res.json();
 }
 
-function sendEmail(to: string[], subject: string, html: string) {
-  return callExternalTool("resend__pipedream", "resend-send-email", {
-    from: FROM_EMAIL,
-    to,
-    subject,
-    html,
-  });
+// Fallback: Perplexity sandbox external-tool (dev environment only)
+function sendEmailViaSandbox(to: string[], subject: string, html: string) {
+  try {
+    const { execSync } = require("child_process");
+    const params = JSON.stringify({
+      source_id: "resend__pipedream",
+      tool_name: "resend-send-email",
+      arguments: { from: FROM_EMAIL, to, subject, html },
+    });
+    const escaped = params.replace(/'/g, "'\\''");
+    const result = execSync(`external-tool call '${escaped}'`, { timeout: 30000 }).toString();
+    return JSON.parse(result);
+  } catch (e: any) {
+    console.error("Sandbox email fallback failed:", e.message);
+    throw e;
+  }
 }
+
+async function sendEmail(to: string[], subject: string, html: string) {
+  if (RESEND_API_KEY) {
+    return sendEmailViaResend(to, subject, html);
+  }
+  // Fallback for Perplexity sandbox environment
+  return sendEmailViaSandbox(to, subject, html);
+}
+
+// ============================================
+// HELPERS
+// ============================================
 
 function generateToken(): string {
   return randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "");
+}
+
+// ============================================
+// RESILIENT COLUMN LOOKUP
+// ============================================
+// Normalizes column names by stripping whitespace, newlines, special chars,
+// and lowercasing — so "TR\nDeadline", "TR Deadline", " TR  Deadline " all match.
+function normalizeColName(name: string): string {
+  return name.replace(/[\s\n\r]+/g, "").toLowerCase().replace(/[^a-z0-9%]/g, "");
+}
+
+// Find a value in a row by trying multiple possible column names.
+// Uses exact match first, then normalized fuzzy match.
+function getCol(row: any, ...candidates: string[]): string {
+  // Try exact matches first (fastest)
+  for (const c of candidates) {
+    if (row[c] !== undefined && row[c] !== null) return String(row[c]).trim();
+  }
+  // Fuzzy: normalize all row keys and candidate names
+  const rowKeys = Object.keys(row);
+  const normalizedMap = new Map<string, string>();
+  for (const key of rowKeys) {
+    normalizedMap.set(normalizeColName(key), key);
+  }
+  for (const c of candidates) {
+    const normalized = normalizeColName(c);
+    const matchKey = normalizedMap.get(normalized);
+    if (matchKey && row[matchKey] !== undefined && row[matchKey] !== null) {
+      return String(row[matchKey]).trim();
+    }
+  }
+  return "";
 }
 
 // Resolve the public-facing base URL for links in emails.
@@ -138,83 +202,79 @@ async function fetchSheetTasks(apiId: string, tabName: string, sheetLabel: strin
       wwc: extractWWC(row, sheetLabel),
       revType: extractRevType(row),
       revDeadline: extractRevDeadline(row, sheetLabel),
-      // CAT analysis breakdown
+      // CAT analysis breakdown (all using resilient getCol)
       catCounts: {
-        ice: (row["ICE"] || row["Ice"] || row["ICE Match/101"] || row["101%"] || "0").toString().trim(),
-        rep: (row["Rep"] || row["REP"] || row["Reps"] || "0").toString().trim(),
-        match100: (row["100%"] || row["100"] || "0").toString().trim(),
-        fuzzy95: (row["95-99%"] || row["95-99"] || row["99-95%"] || "0").toString().trim(),
-        fuzzy85: (row["85-94%"] || row["85-94"] || row["94-85%"] || "0").toString().trim(),
-        fuzzy75: (row["75-84%"] || row["75-84"] || row["84-75%"] || "0").toString().trim(),
-        noMatch: (row["No Match"] || row["NM"] || row["74-0%"] || "0").toString().trim(),
-        mt: (row["MT"] || "0").toString().trim(),
+        ice: getCol(row, "ICE", "Ice", "ICE Match/101", "101%") || "0",
+        rep: getCol(row, "Rep", "REP", "Reps") || "0",
+        match100: getCol(row, "100%", "100") || "0",
+        fuzzy95: getCol(row, "95-99%", "95-99", "99-95%") || "0",
+        fuzzy85: getCol(row, "85-94%", "85-94", "94-85%") || "0",
+        fuzzy75: getCol(row, "75-84%", "75-84", "84-75%") || "0",
+        noMatch: getCol(row, "No Match", "NM", "74-0%") || "0",
+        mt: getCol(row, "MT") || "0",
       },
       // Notes & metadata
-      hoNote: (row["HO Note"] || row["HO Notes"] || row["HO Note // Q&A SHEET"] || "").trim(),
-      trHbNote: (row["TR HB Note"] || row["TR HB Notes"] || row["TR\nHB Note"] || "").trim(),
-      revHbNote: (row["Rev HB Note"] || row["Rev HB Notes"] || row["Rev\nHB Note"] || "").trim(),
-      instructions: (row["Instructions"] || row["Instruction"] || "").trim(),
-      lqi: (row["LQI"] || row["LQI?"] || row["LQI ?"] || "").trim(),
-      qs: (row["QS"] || "").toString().trim(),
-      projectTitle: (row["Project Title"] || row["Title"] || row["Project"] || "").trim(),
-      atmsId: (row["ATMS ID"] || row[" ATMS ID"] || "").toString().trim(),
-      symfonieLink: (row["Symfonie"] || row["Symfonie link"] || "").trim(),
-      symfonieId: (row["Symfonie ID"] || "").trim(),
+      hoNote: getCol(row, "HO Note", "HO Notes", "HO Note // Q&A SHEET"),
+      trHbNote: getCol(row, "TR HB Note", "TR HB Notes", "TR\nHB Note"),
+      revHbNote: getCol(row, "Rev HB Note", "Rev HB Notes", "Rev\nHB Note"),
+      instructions: getCol(row, "Instructions", "Instruction"),
+      lqi: getCol(row, "LQI", "LQI?", "LQI ?"),
+      qs: getCol(row, "QS"),
+      projectTitle: getCol(row, "Project Title", "Title", "Project"),
+      atmsId: getCol(row, "ATMS ID", "ATMS_ID"),
+      symfonieLink: getCol(row, "Symfonie", "Symfonie link", "Symfonie Link"),
+      symfonieId: getCol(row, "Symfonie ID", "SymfonieID"),
     })).filter((t: any) => t.projectId);
   } catch (e) {
     return [];
   }
 }
 
+// All extract functions use getCol() for resilient column matching.
+// If a PM renames "ATMS ID" to "ATMS_ID" or adds/removes spaces, it still works.
 function extractProjectId(row: any, sheet: string): string {
-  if (sheet === "TPT") return (row["ATMS ID"] || row["ID"] || "").trim();
-  return (row["Project ID"] || row["ID"] || "").trim();
+  if (sheet === "TPT") return getCol(row, "ATMS ID", "ATMS_ID", "ID");
+  return getCol(row, "Project ID", "ProjectID", "ID");
 }
 function extractAccount(row: any, sheet: string): string {
-  if (sheet === "AFT") return (row["m"] || "").trim();
-  if (sheet === "DPX") return (row[" Account"] || row["Account"] || "Amazon DPX").trim();
-  if (sheet === "TPT") return (row["Account"] || row["Division"] || "").trim();
-  return (row["Account"] || "").trim();
+  if (sheet === "AFT") return getCol(row, "m", "Account") || "Amazon AFT";
+  if (sheet === "DPX") return getCol(row, "Account") || "Amazon DPX";
+  return getCol(row, "Account", "Division");
 }
 function extractTranslator(row: any, sheet: string): string {
-  if (sheet === "TPT") return (row["TR"] || "").trim();
-  return (row["TR "] || row["TR"] || "").trim();
+  return getCol(row, "TR ", "TR");
 }
 function extractReviewer(row: any, sheet: string): string {
-  if (sheet === "TPT") return (row["REV"] || "").trim();
-  return (row["Rev"] || "").trim();
+  return getCol(row, "Rev", "REV");
 }
 function extractTrDone(row: any, sheet: string): string {
-  if (sheet === "TPT") return (row["TR\nDone?"] || row["TR Done?"] || "").trim();
-  return (row["TR Dlvr"] || row["TR Dlvr?"] || row["TR Dlv?"] || "").trim();
+  return getCol(row, "TR\nDone?", "TR Done?", "TR Dlvr", "TR Dlvr?", "TR Dlv?");
 }
 function extractDelivered(row: any): string {
-  const v = (row["Delivered?"] || "").trim().toLowerCase();
+  const v = getCol(row, "Delivered?", "Delivered").toLowerCase();
   if (v === "yes" || v === "y") return "Delivered";
   if (v === "cancelled" || v === "canceled") return "Cancelled";
   if (!v) return "Ongoing";
   return v.charAt(0).toUpperCase() + v.slice(1);
 }
 function extractDeadline(row: any, sheet: string): string {
-  if (sheet === "TPT") return (row["TR\nDeadline"] || row["TR Deadline"] || "").trim();
-  return (row["TR Deadline"] || "").trim();
+  return getCol(row, "TR\nDeadline", "TR Deadline");
 }
 function extractRevDeadline(row: any, sheet: string): string {
-  if (sheet === "TPT") return (row["Client\nDeadline"] || row["Client Deadline"] || "").trim();
-  return (row["Deadline"] || "").trim();
+  if (sheet === "TPT") return getCol(row, "Client\nDeadline", "Client Deadline");
+  return getCol(row, "Deadline", "Rev Deadline");
 }
 function extractTotal(row: any, sheet: string): string {
-  return (row["Total"] || row["TWC"] || "0").toString().trim();
+  return getCol(row, "Total", "TWC") || "0";
 }
 function extractWWC(row: any, sheet: string): string {
-  return (row["TR WWC"] || row["WWC"] || "0").toString().trim();
+  return getCol(row, "TR WWC", "WWC") || "0";
 }
 function extractRevComplete(row: any, sheet: string): string {
-  if (sheet === "TPT") return (row["Rev\nDone?"] || row["Rev Done?"] || "").trim();
-  return (row["Rev Complete? (in minutes)"] || row["Rev Complete?"] || "").trim();
+  return getCol(row, "Rev\nDone?", "Rev Done?", "Rev Complete? (in minutes)", "Rev Complete?", "Time Spent\n(in minutes)", "Time Spent (in minutes)");
 }
 function extractRevType(row: any): string {
-  return (row["Rev Type"] || row["Rev\nType"] || "").trim();
+  return getCol(row, "Rev Type", "Rev\nType", "Review Type");
 }
 
 // ============================================

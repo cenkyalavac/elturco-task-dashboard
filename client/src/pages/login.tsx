@@ -41,26 +41,39 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <div className="w-full max-w-sm">
+    <div className="min-h-screen bg-background flex items-center justify-center p-4 relative overflow-hidden">
+      {/* Subtle gradient background */}
+      <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-purple-500/5" />
+      {/* Subtle grid pattern */}
+      <div
+        className="absolute inset-0 opacity-[0.03]"
+        style={{
+          backgroundImage: `linear-gradient(hsl(217 91% 60% / 0.3) 1px, transparent 1px), linear-gradient(90deg, hsl(217 91% 60% / 0.3) 1px, transparent 1px)`,
+          backgroundSize: "48px 48px",
+        }}
+      />
+      {/* Radial glow behind the card */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-primary/[0.04] rounded-full blur-3xl" />
+
+      <div className="w-full max-w-sm relative z-10">
         {/* Logo */}
-        <div className="flex flex-col items-center mb-8">
-          <div className="w-12 h-12 bg-primary rounded-xl flex items-center justify-center mb-4">
-            <svg width="24" height="24" viewBox="0 0 32 32" fill="none" aria-label="ElTurco Dispatch">
+        <div className="flex flex-col items-center mb-10">
+          <div className="w-14 h-14 bg-gradient-to-br from-primary to-blue-400 rounded-2xl flex items-center justify-center mb-5 shadow-lg shadow-primary/20 ring-1 ring-white/10">
+            <svg width="28" height="28" viewBox="0 0 32 32" fill="none" aria-label="ElTurco Dispatch">
               <path d="M6 8h20M6 14h14M6 20h8M22 18l4 4-4 4" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </div>
-          <h1 className="text-xl font-semibold text-foreground" data-testid="text-app-title">
+          <h1 className="text-2xl font-bold text-foreground tracking-tight" data-testid="text-app-title">
             ElTurco Dispatch
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">Task Management System</p>
+          <p className="text-sm text-muted-foreground mt-1.5">Task Management System</p>
         </div>
 
-        <Card className="border border-border">
-          <CardContent className="pt-6">
-            <form onSubmit={handleSubmit} className="space-y-4">
+        <Card className="border border-white/[0.06] bg-card/80 backdrop-blur-xl shadow-2xl shadow-black/20 ring-1 ring-white/[0.04]">
+          <CardContent className="pt-6 pb-6">
+            <form onSubmit={handleSubmit} className="space-y-5">
               <div>
-                <label className="text-sm font-medium text-foreground mb-1.5 block">
+                <label className="text-sm font-medium text-foreground mb-2 block">
                   Email
                 </label>
                 <div className="relative">
@@ -70,14 +83,14 @@ export default function LoginPage() {
                     placeholder="you@eltur.co"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="pl-10"
+                    className="pl-10 h-10 bg-background/50 border-white/[0.08] focus:border-primary/50 focus:ring-primary/20"
                     required
                     data-testid="input-email"
                   />
                 </div>
               </div>
               <div>
-                <label className="text-sm font-medium text-foreground mb-1.5 block">
+                <label className="text-sm font-medium text-foreground mb-2 block">
                   Password
                 </label>
                 <div className="relative">
@@ -87,7 +100,7 @@ export default function LoginPage() {
                     placeholder="••••••••"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="pl-10"
+                    className="pl-10 h-10 bg-background/50 border-white/[0.08] focus:border-primary/50 focus:ring-primary/20"
                     required
                     data-testid="input-password"
                   />
@@ -95,7 +108,7 @@ export default function LoginPage() {
               </div>
               <Button
                 type="submit"
-                className="w-full"
+                className="w-full h-10 bg-gradient-to-r from-primary to-blue-500 hover:from-primary/90 hover:to-blue-500/90 shadow-lg shadow-primary/25 font-medium"
                 disabled={loading || !email.trim() || !password}
                 data-testid="button-login"
               >
@@ -111,6 +124,10 @@ export default function LoginPage() {
             </form>
           </CardContent>
         </Card>
+
+        <p className="text-center text-xs text-muted-foreground/50 mt-6">
+          Secure access for authorized personnel only.
+        </p>
       </div>
     </div>
   );

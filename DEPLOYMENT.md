@@ -124,27 +124,16 @@ docker run -d -p 5000:5000 -v dispatch-data:/app elturco-dispatch
 ## Important Notes
 
 ### Email Sending
-The app uses Resend via the Perplexity Computer connector. For self-hosting:
+The app uses the Resend API for email delivery. It works in two modes:
+- **Self-hosted**: Set `RESEND_API_KEY` env var — emails go via Resend HTTP API directly
+- **Perplexity sandbox**: Falls back to `external-tool` CLI automatically (no API key needed)
+
+To set up for production:
 1. Sign up at [resend.com](https://resend.com)
-2. Get an API key
-3. Replace the `callExternalTool` email function in `server/routes.ts` with direct Resend API calls:
+2. Get an API key and verify your domain
+3. Set the env var: `RESEND_API_KEY=re_xxxxx`
 
-```typescript
-// Replace callExternalTool with:
-import { Resend } from 'resend';
-const resend = new Resend(process.env.RESEND_API_KEY);
-
-function sendEmail(to: string[], subject: string, html: string) {
-  return resend.emails.send({
-    from: FROM_EMAIL,
-    to,
-    subject,
-    html,
-  });
-}
-```
-
-Install: `npm install resend`
+No code changes needed — the `sendEmail()` function auto-detects the environment.
 
 ### Freelancer API
 The Base44 freelancer API (`https://elts.base44.app/api/...`) is accessed directly via HTTP — works from any host.

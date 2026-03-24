@@ -29,10 +29,10 @@ function NavLink({ href, label, icon }: { href: string; label: string; icon?: Re
     <Link
       href={href}
       data-testid={`nav-${label.toLowerCase()}`}
-      className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center ${
+      className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-150 flex items-center ${
         isActive
-          ? "bg-white/10 text-white"
-          : "text-white/60 hover:text-white hover:bg-white/5"
+          ? "bg-white/[0.10] text-white shadow-sm shadow-white/5"
+          : "text-white/50 hover:text-white/90 hover:bg-white/[0.06]"
       }`}
     >
       {icon}
@@ -47,16 +47,16 @@ function AppLayout() {
 
   return (
     <div className="flex flex-col h-screen bg-background">
-      {/* Top navbar */}
-      <header className="h-12 bg-[#1a1a2e] border-b border-white/10 flex items-center px-4 shrink-0">
+      {/* Top navbar — premium dark with gradient */}
+      <header className="h-12 bg-gradient-to-r from-[#0d1117] via-[#111827] to-[#0d1117] border-b border-white/[0.06] flex items-center px-5 shrink-0 shadow-lg shadow-black/20">
         {/* Left: Logo */}
-        <div className="flex items-center gap-2 mr-8">
-          <div className="w-7 h-7 bg-white/10 rounded-lg flex items-center justify-center">
+        <div className="flex items-center gap-2.5 mr-8">
+          <div className="w-7 h-7 bg-gradient-to-br from-primary/80 to-blue-400/60 rounded-lg flex items-center justify-center shadow-sm shadow-primary/20">
             <svg width="14" height="14" viewBox="0 0 32 32" fill="none">
               <path d="M6 8h20M6 14h14M6 20h8M22 18l4 4-4 4" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </div>
-          <span className="font-semibold text-white text-sm" data-testid="text-nav-title">Dispatch</span>
+          <span className="font-semibold text-white text-sm tracking-tight" data-testid="text-nav-title">Dispatch</span>
         </div>
 
         {/* Center: Nav links */}
@@ -69,11 +69,12 @@ function AppLayout() {
 
         {/* Right: User + logout */}
         <div className="ml-auto flex items-center gap-3">
-          <span className="text-xs text-white/50" data-testid="text-nav-email">{displayEmail}</span>
+          <span className="text-xs text-white/40 font-medium" data-testid="text-nav-email">{displayEmail}</span>
+          <div className="w-px h-4 bg-white/[0.08]" />
           <button
             onClick={logout}
             data-testid="button-logout"
-            className="flex items-center gap-1.5 px-2 py-1 rounded text-xs text-white/50 hover:text-white hover:bg-white/5 transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs text-white/40 hover:text-white hover:bg-white/[0.06] transition-all duration-150"
           >
             <LogOut className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Sign out</span>

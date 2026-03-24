@@ -178,8 +178,8 @@ function deadlineClass(d: string): string {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const deadlineDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  if (deadlineDay < today) return "text-red-600 font-semibold";
-  if (deadlineDay.getTime() === today.getTime()) return "text-orange-600 font-semibold";
+  if (deadlineDay < today) return "text-red-400 font-semibold";
+  if (deadlineDay.getTime() === today.getTime()) return "text-amber-400 font-semibold";
   return "text-muted-foreground";
 }
 
@@ -917,31 +917,31 @@ export default function DashboardPage() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Stats bar — clickable filters */}
-      <div className="border-b border-border bg-card px-4 py-1.5">
-        <div className="flex items-center gap-1 text-xs">
-          <StatPill label="Ongoing" value={stats.ongoing} loading={tasksLoading} color="text-primary" active={statusFilter === "ongoing"} onClick={() => setStatusFilter("ongoing")} />
-          <StatPill label="Needs TR" value={stats.needsTR} loading={tasksLoading} color="text-orange-500" active={statusFilter === "needs_tr"} onClick={() => setStatusFilter("needs_tr")} />
-          <StatPill label="Needs REV" value={stats.needsREV} loading={tasksLoading} color="text-blue-500" active={statusFilter === "needs_rev"} onClick={() => setStatusFilter("needs_rev")} />
-          <StatPill label="Unassigned" value={stats.needsTR + stats.needsREV} loading={tasksLoading} color="text-red-500" active={statusFilter === "unassigned"} onClick={() => setStatusFilter("unassigned")} />
-          <StatPill label="Assigned" value={stats.assigned} loading={tasksLoading} color="text-emerald-500" active={statusFilter === "assigned"} onClick={() => setStatusFilter("assigned")} />
-          <StatPill label="Rev Done" value={stats.completed} loading={tasksLoading} color="text-green-600" active={statusFilter === "delivered"} onClick={() => setStatusFilter("delivered")} />
-          <StatPill label="All" value={stats.total} loading={tasksLoading} active={statusFilter === "all"} onClick={() => setStatusFilter("all")} />
+      {/* Stats bar — premium glassmorphism stat pills */}
+      <div className="border-b border-white/[0.06] bg-gradient-to-r from-card via-card to-card/80 px-4 py-2">
+        <div className="flex items-center gap-1.5 text-xs">
+          <StatPill label="Ongoing" value={stats.ongoing} loading={tasksLoading} color="blue" active={statusFilter === "ongoing"} onClick={() => setStatusFilter("ongoing")} />
+          <StatPill label="Needs TR" value={stats.needsTR} loading={tasksLoading} color="orange" active={statusFilter === "needs_tr"} onClick={() => setStatusFilter("needs_tr")} />
+          <StatPill label="Needs REV" value={stats.needsREV} loading={tasksLoading} color="cyan" active={statusFilter === "needs_rev"} onClick={() => setStatusFilter("needs_rev")} />
+          <StatPill label="Unassigned" value={stats.needsTR + stats.needsREV} loading={tasksLoading} color="red" active={statusFilter === "unassigned"} onClick={() => setStatusFilter("unassigned")} />
+          <StatPill label="Assigned" value={stats.assigned} loading={tasksLoading} color="emerald" active={statusFilter === "assigned"} onClick={() => setStatusFilter("assigned")} />
+          <StatPill label="Rev Done" value={stats.completed} loading={tasksLoading} color="green" active={statusFilter === "delivered"} onClick={() => setStatusFilter("delivered")} />
+          <StatPill label="All" value={stats.total} loading={tasksLoading} color="gray" active={statusFilter === "all"} onClick={() => setStatusFilter("all")} />
         </div>
       </div>
 
-      {/* Filters + bulk actions */}
-      <div className="border-b border-border bg-card px-4 py-2 flex items-center gap-3 relative">
+      {/* Filters + bulk actions — integrated filter bar */}
+      <div className="border-b border-white/[0.06] bg-card/50 backdrop-blur-sm px-4 py-2 flex items-center gap-3 relative">
         {hasChecked ? (
           <>
-            <Badge variant="secondary" className="text-xs gap-1">
+            <Badge variant="secondary" className="text-xs gap-1 bg-primary/10 text-primary border border-primary/20">
               <CheckCircle2 className="w-3 h-3" />
               {checkedKeys.size} selected
             </Badge>
             <Button
               variant="default"
               size="sm"
-              className="h-7 text-xs bg-orange-600 hover:bg-orange-700"
+              className="h-7 text-xs bg-orange-600 hover:bg-orange-700 shadow-sm shadow-orange-900/20"
               onClick={() => {
                 setBulkMode("translator");
                 setSelectedTaskKey(null);
@@ -956,7 +956,7 @@ export default function DashboardPage() {
             <Button
               variant="default"
               size="sm"
-              className="h-7 text-xs bg-blue-600 hover:bg-blue-700"
+              className="h-7 text-xs bg-blue-600 hover:bg-blue-700 shadow-sm shadow-blue-900/20"
               onClick={() => {
                 setBulkMode("reviewer");
                 setSelectedTaskKey(null);
@@ -971,7 +971,7 @@ export default function DashboardPage() {
             <Button
               variant="default"
               size="sm"
-              className="h-7 text-xs bg-green-600 hover:bg-green-700"
+              className="h-7 text-xs bg-green-600 hover:bg-green-700 shadow-sm shadow-green-900/20"
               onClick={() => setShowBulkComplete(true)}
               data-testid="button-bulk-complete"
             >
@@ -981,13 +981,13 @@ export default function DashboardPage() {
             <Button
               variant="outline"
               size="sm"
-              className="h-7 text-xs"
+              className="h-7 text-xs border-white/10"
               onClick={() => { setCheckedKeys(new Set()); setBulkMode(null); setShowBulkComplete(false); }}
             >
               Clear
             </Button>
             {showBulkComplete && (
-              <div className="absolute top-full left-0 mt-1 z-20 bg-card border border-border rounded-lg shadow-lg p-3 w-72">
+              <div className="absolute top-full left-0 mt-1 z-20 bg-card border border-white/[0.08] rounded-lg shadow-xl shadow-black/30 p-3 w-72">
                 <p className="text-xs font-semibold mb-2">Bulk Complete {checkedKeys.size} tasks</p>
                 <div className="space-y-2">
                   <div className="flex items-center gap-3">
@@ -1035,12 +1035,12 @@ export default function DashboardPage() {
                 placeholder="Search by project ID, account, translator..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 h-8 text-sm"
+                className="pl-10 h-8 text-sm bg-background/50 border-white/[0.08]"
                 data-testid="input-search"
               />
             </div>
             <Select value={sourceFilter} onValueChange={setSourceFilter}>
-              <SelectTrigger className="w-32 h-8 text-sm" data-testid="select-source">
+              <SelectTrigger className="w-32 h-8 text-sm bg-background/50 border-white/[0.08]" data-testid="select-source">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1050,7 +1050,7 @@ export default function DashboardPage() {
               </SelectContent>
             </Select>
             <Select value={accountFilter} onValueChange={setAccountFilter}>
-              <SelectTrigger className="w-40 h-8 text-sm" data-testid="select-account">
+              <SelectTrigger className="w-40 h-8 text-sm bg-background/50 border-white/[0.08]" data-testid="select-account">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1061,7 +1061,7 @@ export default function DashboardPage() {
               </SelectContent>
             </Select>
             <Select value={langFilter} onValueChange={setLangFilter}>
-              <SelectTrigger className="w-28 h-8 text-sm" data-testid="select-lang">
+              <SelectTrigger className="w-28 h-8 text-sm bg-background/50 border-white/[0.08]" data-testid="select-lang">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1073,10 +1073,10 @@ export default function DashboardPage() {
             </Select>
             <button
               onClick={() => setMyProjectsOnly(!myProjectsOnly)}
-              className={`h-8 px-3 text-xs rounded-md border transition-colors ${
+              className={`h-8 px-3 text-xs rounded-md border transition-all duration-150 ${
                 myProjectsOnly
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "bg-background text-muted-foreground border-border hover:bg-muted/50"
+                  ? "bg-primary/15 text-primary border-primary/30 shadow-sm shadow-primary/10"
+                  : "bg-background/30 text-muted-foreground border-white/[0.08] hover:bg-white/[0.04] hover:border-white/[0.12]"
               }`}
               data-testid="toggle-my-projects"
             >
@@ -1115,24 +1115,24 @@ export default function DashboardPage() {
             </div>
           ) : (
             <table className="w-full text-sm" data-testid="table-tasks">
-              <thead className="sticky top-0 bg-muted/90 backdrop-blur-sm z-10">
-                <tr className="border-b border-border">
-                  <th className="w-10 px-2 py-2">
+              <thead className="sticky top-0 bg-card/95 backdrop-blur-md z-10 border-b border-white/[0.06]">
+                <tr>
+                  <th className="w-10 px-2 py-2.5">
                     <Checkbox
                       checked={filteredTasks.length > 0 && checkedKeys.size === filteredTasks.length}
                       onCheckedChange={toggleAllVisible}
                       data-testid="checkbox-all"
                     />
                   </th>
-                  <th className="text-left font-medium text-muted-foreground px-2 py-2 text-xs">Project ID</th>
-                  <th className="text-left font-medium text-muted-foreground px-2 py-2 text-xs">Source</th>
-                  <th className="text-left font-medium text-muted-foreground px-2 py-2 text-xs">Account</th>
-                  <th className="text-left font-medium text-muted-foreground px-2 py-2 text-xs">TR</th>
-                  <th className="text-left font-medium text-muted-foreground px-2 py-2 text-xs">REV</th>
-                  <th className="text-left font-medium text-muted-foreground px-2 py-2 text-xs">Deadline</th>
-                  <th className="text-right font-medium text-muted-foreground px-2 py-2 text-xs">Total</th>
-                  <th className="text-right font-medium text-muted-foreground px-2 py-2 text-xs">WWC</th>
-                  <th className="text-left font-medium text-muted-foreground px-2 py-2 text-xs">Status</th>
+                  <th className="text-left font-medium text-muted-foreground px-2 py-2.5 text-[11px] uppercase tracking-wider">Project ID</th>
+                  <th className="text-left font-medium text-muted-foreground px-2 py-2.5 text-[11px] uppercase tracking-wider">Source</th>
+                  <th className="text-left font-medium text-muted-foreground px-2 py-2.5 text-[11px] uppercase tracking-wider">Account</th>
+                  <th className="text-left font-medium text-muted-foreground px-2 py-2.5 text-[11px] uppercase tracking-wider">TR</th>
+                  <th className="text-left font-medium text-muted-foreground px-2 py-2.5 text-[11px] uppercase tracking-wider">REV</th>
+                  <th className="text-left font-medium text-muted-foreground px-2 py-2.5 text-[11px] uppercase tracking-wider">Deadline</th>
+                  <th className="text-right font-medium text-muted-foreground px-2 py-2.5 text-[11px] uppercase tracking-wider">Total</th>
+                  <th className="text-right font-medium text-muted-foreground px-2 py-2.5 text-[11px] uppercase tracking-wider">WWC</th>
+                  <th className="text-left font-medium text-muted-foreground px-2 py-2.5 text-[11px] uppercase tracking-wider">Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -1142,50 +1142,53 @@ export default function DashboardPage() {
                   const isChecked = checkedKeys.has(key);
                   const nTR = needsTranslator(task);
                   const nREV = needsReviewer(task);
+                  const isEven = idx % 2 === 0;
                   return (
                     <tr
                       key={`${key}-${idx}`}
-                      className={`border-b border-border cursor-pointer transition-colors ${
-                        isSelected ? "bg-primary/5 border-l-2 border-l-primary" : isChecked ? "bg-blue-500/5" : "hover:bg-muted/30"
+                      className={`border-b border-white/[0.03] cursor-pointer transition-all duration-100 ${
+                        isSelected
+                          ? "bg-primary/[0.08] border-l-2 border-l-primary"
+                          : isChecked
+                          ? "bg-blue-500/[0.06]"
+                          : isEven
+                          ? "bg-transparent hover:bg-white/[0.03]"
+                          : "bg-white/[0.015] hover:bg-white/[0.04]"
                       }`}
                       onClick={() => selectTask(task)}
                       data-testid={`row-task-${idx}`}
                     >
-                      <td className="w-10 px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
+                      <td className="w-10 px-2 py-2" onClick={(e) => e.stopPropagation()}>
                         <Checkbox
                           checked={isChecked}
                           onCheckedChange={() => toggleCheck(key)}
                         />
                       </td>
-                      <td className="px-2 py-1.5 font-medium text-foreground whitespace-nowrap text-xs">{task.projectId}</td>
-                      <td className="px-2 py-1.5">
-                        <Badge variant="secondary" className="text-[10px] font-normal px-1.5 py-0">
+                      <td className="px-2 py-2 font-medium text-foreground whitespace-nowrap text-xs">{task.projectId}</td>
+                      <td className="px-2 py-2">
+                        <Badge variant="secondary" className="text-[10px] font-normal px-1.5 py-0 bg-white/[0.04] border border-white/[0.06]">
                           {task.source}/{task.sheet}
                         </Badge>
                       </td>
-                      <td className="px-2 py-1.5 text-muted-foreground text-xs truncate max-w-[120px]">{task.account}</td>
-                      <td className="px-2 py-1.5 text-xs">
-                        {nTR ? <span className="text-muted-foreground/40">—</span> : <span className="text-foreground">{task.translator}</span>}
+                      <td className="px-2 py-2 text-muted-foreground text-xs truncate max-w-[120px]">{task.account}</td>
+                      <td className="px-2 py-2 text-xs">
+                        {nTR ? <span className="text-muted-foreground/30">—</span> : <span className="text-foreground">{task.translator}</span>}
                       </td>
-                      <td className="px-2 py-1.5 text-xs">
+                      <td className="px-2 py-2 text-xs">
                         {task.translator && !isXX(task.translator)
-                          ? (nREV ? <span className="text-muted-foreground/40">—</span> : <span className="text-foreground">{task.reviewer}</span>)
-                          : <span className="text-muted-foreground/40">—</span>}
+                          ? (nREV ? <span className="text-muted-foreground/30">—</span> : <span className="text-foreground">{task.reviewer}</span>)
+                          : <span className="text-muted-foreground/30">—</span>}
                       </td>
-                      <td className={`px-2 py-1.5 text-xs whitespace-nowrap ${deadlineClass(task.deadline)}`}>
+                      <td className={`px-2 py-2 text-xs whitespace-nowrap ${deadlineClass(task.deadline)}`}>
                         {task.deadline || "—"}
                       </td>
-                      <td className="px-2 py-1.5 text-xs tabular-nums text-right text-muted-foreground">{task.total}</td>
-                      <td className="px-2 py-1.5 text-xs tabular-nums text-right text-muted-foreground">{task.wwc}</td>
-                      <td className="px-2 py-1.5">
-                        {nTR && <Badge className="text-[10px] px-1.5 py-0 bg-orange-500/10 text-orange-600 border-orange-500/20">Needs TR</Badge>}
-                        {nREV && <Badge className="text-[10px] px-1.5 py-0 bg-blue-500/10 text-blue-600 border-blue-500/20">Needs REV</Badge>}
-                        {!nTR && !nREV && task.delivered === "Delivered" && (
-                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Delivered</Badge>
-                        )}
-                        {!nTR && !nREV && task.delivered !== "Delivered" && (
-                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-green-500/10 text-green-600">Assigned</Badge>
-                        )}
+                      <td className="px-2 py-2 text-xs tabular-nums text-right text-muted-foreground">{task.total}</td>
+                      <td className="px-2 py-2 text-xs tabular-nums text-right text-muted-foreground">{task.wwc}</td>
+                      <td className="px-2 py-2">
+                        {nTR && <StatusBadge type="needs-tr" />}
+                        {nREV && <StatusBadge type="needs-rev" />}
+                        {!nTR && !nREV && task.delivered === "Delivered" && <StatusBadge type="delivered" />}
+                        {!nTR && !nREV && task.delivered !== "Delivered" && <StatusBadge type="assigned" />}
                       </td>
                     </tr>
                   );
@@ -1194,7 +1197,7 @@ export default function DashboardPage() {
             </table>
           )}
           {filteredTasks.length > 300 && (
-            <div className="text-center py-2 text-xs text-muted-foreground border-t border-border">
+            <div className="text-center py-2 text-xs text-muted-foreground border-t border-white/[0.06]">
               Showing first 300 of {filteredTasks.length} results
             </div>
           )}
@@ -1202,27 +1205,27 @@ export default function DashboardPage() {
 
         {/* Right: Slide-over detail + assign panel */}
         {(selectedTask || bulkMode) && (
-          <div className="w-[480px] shrink-0 border-l border-border bg-card flex flex-col h-full">
+          <div className="w-[480px] shrink-0 border-l border-white/[0.06] bg-card/80 backdrop-blur-sm flex flex-col h-full animate-slide-in-right">
             {/* Fixed top: header + task details (scrollable if tall) */}
             <div className="overflow-y-auto max-h-[40%] shrink-0">
               {bulkMode && !selectedTask ? (
                 /* Bulk mode header */
-                <div className="p-4 border-b border-border">
+                <div className="p-4 border-b border-white/[0.06]">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <h3 className="font-semibold text-sm text-foreground">Bulk Assign</h3>
-                      <Badge className={`text-[10px] ${bulkMode === "translator" ? "bg-orange-500/10 text-orange-600 border-orange-500/20" : "bg-blue-500/10 text-blue-600 border-blue-500/20"}`}>
+                      <Badge className={`text-[10px] ${bulkMode === "translator" ? "bg-orange-500/15 text-orange-400 border-orange-500/20" : "bg-blue-500/15 text-blue-400 border-blue-500/20"}`}>
                         {checkedKeys.size} tasks · {bulkMode === "translator" ? "Translator" : "Reviewer"}
                       </Badge>
                     </div>
-                    <Button variant="ghost" size="sm" onClick={() => setBulkMode(null)} data-testid="button-close-bulk" className="h-6 w-6 p-0">
+                    <Button variant="ghost" size="sm" onClick={() => setBulkMode(null)} data-testid="button-close-bulk" className="h-6 w-6 p-0 hover:bg-white/[0.06]">
                       <X className="w-4 h-4" />
                     </Button>
                   </div>
                   <p className="text-xs text-muted-foreground">
                     Assigning {bulkMode === "translator" ? "translator" : "reviewer"} to {checkedKeys.size} selected tasks.
                     {bulkSources.length > 1 && (
-                      <span className="block mt-1 text-yellow-600">
+                      <span className="block mt-1 text-amber-400">
                         Multiple sources selected ({bulkSources.join(", ")}). Showing freelancers matching all sources.
                       </span>
                     )}
@@ -1231,13 +1234,13 @@ export default function DashboardPage() {
               ) : selectedTask ? (
                 /* Single task header */
                 <>
-                  <div className="p-4 border-b border-border">
+                  <div className="p-4 border-b border-white/[0.06]">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
                         <h3 className="font-semibold text-sm text-foreground">{selectedTask.projectId}</h3>
-                        <Badge variant="secondary" className="text-[10px]">{selectedTask.source}/{selectedTask.sheet}</Badge>
+                        <Badge variant="secondary" className="text-[10px] bg-white/[0.04] border border-white/[0.06]">{selectedTask.source}/{selectedTask.sheet}</Badge>
                       </div>
-                      <Button variant="ghost" size="sm" onClick={() => setSelectedTaskKey(null)} data-testid="button-close-panel" className="h-6 w-6 p-0">
+                      <Button variant="ghost" size="sm" onClick={() => setSelectedTaskKey(null)} data-testid="button-close-panel" className="h-6 w-6 p-0 hover:bg-white/[0.06]">
                         <X className="w-4 h-4" />
                       </Button>
                     </div>
@@ -1245,8 +1248,8 @@ export default function DashboardPage() {
                       <p className="text-xs text-muted-foreground mb-2">{selectedTask.projectTitle}</p>
                     )}
 
-                    {/* Task details grid */}
-                    <div className="grid grid-cols-3 gap-x-3 gap-y-1.5 text-xs mt-2">
+                    {/* Task details grid — card section */}
+                    <div className="grid grid-cols-3 gap-x-3 gap-y-2 text-xs mt-3 p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
                       <DetailItem label="Account" value={selectedTask.account} />
                       <DetailItem label="Deadline" value={selectedTask.deadline || "—"} />
                       <DetailItem label="Rev Type" value={selectedTask.revType || "—"} />
@@ -1257,7 +1260,7 @@ export default function DashboardPage() {
 
                     {/* HO Note - yellow highlight */}
                     {selectedTask.hoNote && (
-                      <div className="mt-2 p-2 rounded bg-yellow-500/10 border border-yellow-500/20 text-xs text-yellow-800 dark:text-yellow-300">
+                      <div className="mt-3 p-2.5 rounded-lg bg-amber-500/[0.08] border border-amber-500/20 text-xs text-amber-300">
                         <span className="font-semibold">HO Note: </span>{selectedTask.hoNote}
                       </div>
                     )}
@@ -1267,9 +1270,9 @@ export default function DashboardPage() {
                       <div className="mt-2">
                         <button
                           onClick={() => setShowInstructions(!showInstructions)}
-                          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
                         >
-                          <ChevronRight className={`w-3 h-3 transition-transform ${showInstructions ? "rotate-90" : ""}`} />
+                          <ChevronRight className={`w-3 h-3 transition-transform duration-150 ${showInstructions ? "rotate-90" : ""}`} />
                           Instructions
                         </button>
                         {showInstructions && (
@@ -1280,15 +1283,15 @@ export default function DashboardPage() {
 
                     {/* Notes */}
                     {(selectedTask.trHbNote || selectedTask.revHbNote || selectedTask.lqi) && (
-                      <div className="mt-2 pt-2 border-t border-border">
+                      <div className="mt-2 pt-2 border-t border-white/[0.04]">
                         {selectedTask.trHbNote && (
-                          <p className="text-[10px] text-muted-foreground"><span className="font-medium">TR HB:</span> {selectedTask.trHbNote}</p>
+                          <p className="text-[10px] text-muted-foreground"><span className="font-medium text-muted-foreground/80">TR HB:</span> {selectedTask.trHbNote}</p>
                         )}
                         {selectedTask.revHbNote && (
-                          <p className="text-[10px] text-muted-foreground"><span className="font-medium">Rev HB:</span> {selectedTask.revHbNote}</p>
+                          <p className="text-[10px] text-muted-foreground"><span className="font-medium text-muted-foreground/80">Rev HB:</span> {selectedTask.revHbNote}</p>
                         )}
                         {selectedTask.lqi && (
-                          <p className="text-[10px] text-muted-foreground"><span className="font-medium">LQI:</span> {selectedTask.lqi}</p>
+                          <p className="text-[10px] text-muted-foreground"><span className="font-medium text-muted-foreground/80">LQI:</span> {selectedTask.lqi}</p>
                         )}
                       </div>
                     )}
@@ -1300,14 +1303,14 @@ export default function DashboardPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            className="h-7 text-xs text-green-600 border-green-500/30 hover:bg-green-500/10"
+                            className="h-7 text-xs text-green-400 border-green-500/20 hover:bg-green-500/10"
                             onClick={() => setShowComplete(true)}
                           >
                             <CheckCircle2 className="w-3 h-3 mr-1" />
                             Mark Complete
                           </Button>
                         ) : (
-                          <div className="p-2 rounded bg-green-500/5 border border-green-500/20 space-y-2">
+                          <div className="p-2.5 rounded-lg bg-green-500/[0.06] border border-green-500/15 space-y-2">
                             <div className="flex items-center gap-3">
                               <label className="flex items-center gap-1.5 text-xs cursor-pointer">
                                 <input type="radio" name="completeMode" checked={completeMode === "yes"} onChange={() => setCompleteMode("yes")} />
@@ -1349,8 +1352,8 @@ export default function DashboardPage() {
 
                   {/* CAT Analysis */}
                   {selectedTask.catCounts && catSum(selectedTask.catCounts) > 0 && (
-                    <div className="px-4 py-2 border-b border-border">
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">CAT Analysis</p>
+                    <div className="px-4 py-3 border-b border-white/[0.06]">
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">CAT Analysis</p>
                       <div className="flex flex-wrap gap-1">
                         {([
                           ["ICE", selectedTask.catCounts.ice],
@@ -1362,13 +1365,13 @@ export default function DashboardPage() {
                           ["NM", selectedTask.catCounts.noMatch],
                           ["MT", selectedTask.catCounts.mt],
                         ] as [string, string][]).filter(([, v]) => parseInt(v) > 0).map(([label, value]) => (
-                          <span key={label} className="inline-flex items-center gap-1 bg-muted rounded px-1.5 py-0.5 text-[10px]">
+                          <span key={label} className="inline-flex items-center gap-1 bg-white/[0.04] border border-white/[0.06] rounded px-1.5 py-0.5 text-[10px]">
                             <span className="text-muted-foreground">{label}:</span>
                             <span className="font-medium text-foreground tabular-nums">{value}</span>
                           </span>
                         ))}
                       </div>
-                      <div className="flex gap-3 mt-1 text-[10px]">
+                      <div className="flex gap-3 mt-1.5 text-[10px]">
                         <span className="text-muted-foreground">Total: <span className="font-semibold text-foreground">{selectedTask.total}</span></span>
                         <span className="text-muted-foreground">WWC: <span className="font-semibold text-foreground">{selectedTask.wwc}</span></span>
                       </div>
@@ -1390,9 +1393,9 @@ export default function DashboardPage() {
                   ) : (
                     <div className="space-y-3">
                       {taskAssignments.map((asgn) => (
-                        <div key={asgn.id} className="border border-border rounded-lg p-3 space-y-2">
+                        <div key={asgn.id} className="border border-white/[0.06] rounded-lg p-3 space-y-2 bg-white/[0.02]">
                           <div className="flex items-center gap-2">
-                            <Badge className={`text-[10px] px-1.5 py-0 ${asgn.role === "translator" ? "bg-orange-500/10 text-orange-600 border-orange-500/20" : "bg-blue-500/10 text-blue-600 border-blue-500/20"}`}>
+                            <Badge className={`text-[10px] px-1.5 py-0 ${asgn.role === "translator" ? "bg-orange-500/15 text-orange-400 border-orange-500/20" : "bg-blue-500/15 text-blue-400 border-blue-500/20"}`}>
                               {asgn.role === "translator" ? "Translator" : "Reviewer"}
                             </Badge>
                             <span className="text-[10px] text-muted-foreground">
@@ -1432,7 +1435,7 @@ export default function DashboardPage() {
                             <Button
                               variant="outline"
                               size="sm"
-                              className="h-6 text-[10px] text-destructive border-destructive/30 hover:bg-destructive/10"
+                              className="h-6 text-[10px] text-destructive border-destructive/20 hover:bg-destructive/10"
                               disabled={cancelAssignmentMutation.isPending}
                               onClick={() => cancelAssignmentMutation.mutate(asgn.id)}
                             >
@@ -1450,7 +1453,7 @@ export default function DashboardPage() {
               /* ── Assignment Form ── */
               <div className="flex-1 flex flex-col min-h-0">
               {/* Assignment config */}
-              <div className="p-4 border-b border-border space-y-3 shrink-0">
+              <div className="p-4 border-b border-white/[0.06] space-y-3 shrink-0">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Assignment</p>
 
                 {/* Assign to Me button (single task only) */}
@@ -1458,7 +1461,7 @@ export default function DashboardPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-7 text-xs w-full border-primary/30 text-primary hover:bg-primary/10"
+                    className="h-7 text-xs w-full border-primary/20 text-primary hover:bg-primary/10"
                     disabled={selfAssignMutation.isPending}
                     onClick={() => selfAssignMutation.mutate()}
                     data-testid="button-assign-to-me"
@@ -1490,7 +1493,7 @@ export default function DashboardPage() {
                       <div key={p.id} className="flex items-center gap-0.5">
                         <button
                           onClick={() => loadPreset(p)}
-                          className="px-2 py-0.5 rounded bg-muted text-xs text-foreground hover:bg-muted/80 transition-colors"
+                          className="px-2 py-0.5 rounded bg-white/[0.04] border border-white/[0.06] text-xs text-foreground hover:bg-white/[0.08] transition-colors"
                         >
                           {p.name}
                         </button>
@@ -1522,24 +1525,22 @@ export default function DashboardPage() {
                   <div className="flex items-center gap-3">
                     <label className="text-xs font-medium text-muted-foreground w-10">Role</label>
                     <div className="flex gap-1">
-                      <button
+                      <TogglePill
+                        active={role === "translator"}
                         onClick={() => setRole("translator")}
+                        color="orange"
                         data-testid="button-role-translator"
-                        className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
-                          role === "translator" ? "bg-orange-500/10 text-orange-600 border border-orange-500/30" : "bg-muted text-muted-foreground"
-                        }`}
                       >
                         Translator
-                      </button>
-                      <button
+                      </TogglePill>
+                      <TogglePill
+                        active={role === "reviewer"}
                         onClick={() => setRole("reviewer")}
+                        color="blue"
                         data-testid="button-role-reviewer"
-                        className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
-                          role === "reviewer" ? "bg-blue-500/10 text-blue-600 border border-blue-500/30" : "bg-muted text-muted-foreground"
-                        }`}
                       >
                         Reviewer
-                      </button>
+                      </TogglePill>
                     </div>
                   </div>
                 )}
@@ -1549,19 +1550,18 @@ export default function DashboardPage() {
                   <label className="text-xs font-medium text-muted-foreground w-10">Type</label>
                   <div className="flex gap-1">
                     {(["direct", "sequence", "broadcast"] as const).map((t) => (
-                      <button
+                      <TogglePill
                         key={t}
+                        active={assignmentType === t}
                         onClick={() => {
                           setAssignmentType(t);
                           if (t === "direct") setSelectedFreelancers((prev) => prev.slice(0, 1));
                         }}
+                        color="primary"
                         data-testid={`button-type-${t}`}
-                        className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
-                          assignmentType === t ? "bg-primary/10 text-primary border border-primary/30" : "bg-muted text-muted-foreground"
-                        }`}
                       >
                         {t === "direct" ? "Direct" : t === "sequence" ? "Sequential" : "Broadcast"}
-                      </button>
+                      </TogglePill>
                     ))}
                   </div>
                 </div>
@@ -1571,27 +1571,24 @@ export default function DashboardPage() {
                   <label className="text-xs font-medium text-muted-foreground w-10">Rev</label>
                   <div className="flex gap-1">
                     {(["Full Review", "Self-Edit", "LQA", "QA"] as const).map((rt) => (
-                      <button
+                      <TogglePill
                         key={rt}
+                        active={reviewType === rt}
                         onClick={() => {
                           if (reviewType === rt) {
-                            // Clicking active button deselects it
                             setReviewType("Full Review");
                           } else {
                             setReviewType(rt);
-                            // Self-Edit: auto-switch to reviewer role (writes same code to TR+REV)
                             if (rt === "Self-Edit" && !bulkMode) {
                               setRole("reviewer");
                             }
                           }
                         }}
+                        color="purple"
                         data-testid={`button-revtype-${rt.toLowerCase().replace(" ", "-")}`}
-                        className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                          reviewType === rt ? "bg-purple-500/10 text-purple-600 border border-purple-500/30" : "bg-muted text-muted-foreground"
-                        }`}
                       >
                         {rt}
-                      </button>
+                      </TogglePill>
                     ))}
                   </div>
                 </div>
@@ -1599,7 +1596,7 @@ export default function DashboardPage() {
 
               {/* Selected freelancers chips */}
               {selectedFreelancers.length > 0 && (
-                <div className="px-4 py-2 border-b border-border shrink-0">
+                <div className="px-4 py-2 border-b border-white/[0.06] shrink-0">
                   <div className="flex items-center justify-between mb-1.5">
                     <div className="text-[10px] font-medium text-muted-foreground">
                       Selected ({selectedFreelancers.length})
@@ -1632,7 +1629,7 @@ export default function DashboardPage() {
                   )}
                   <div className="flex flex-wrap gap-1">
                     {selectedFreelancers.map((f, idx) => (
-                      <div key={f.id} className="flex items-center gap-1 bg-muted rounded px-2 py-0.5 text-xs" data-testid={`chip-${f.resourceCode}`}>
+                      <div key={f.id} className="flex items-center gap-1 bg-white/[0.04] border border-white/[0.06] rounded-md px-2 py-0.5 text-xs" data-testid={`chip-${f.resourceCode}`}>
                         {assignmentType === "sequence" && (
                           <span className="text-muted-foreground font-medium">{idx + 1}.</span>
                         )}
@@ -1658,7 +1655,7 @@ export default function DashboardPage() {
               )}
 
               {/* Email preview/edit */}
-              <div className="px-4 py-2 border-b border-border shrink-0">
+              <div className="px-4 py-2 border-b border-white/[0.06] shrink-0">
                 <div className="flex items-center justify-between mb-1.5">
                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Email Template</p>
                   <div className="flex items-center gap-2">
@@ -1697,8 +1694,8 @@ export default function DashboardPage() {
                       data-testid="input-email-subject"
                     />
                     {emailPreviewMode ? (
-                      <div className="border border-border rounded p-2 bg-white text-xs max-h-[200px] overflow-y-auto">
-                        <p className="text-xs font-medium mb-1 text-gray-800">{replacePreviewVars(customSubject)}</p>
+                      <div className="border border-white/[0.06] rounded-lg p-2 bg-white/[0.02] text-xs max-h-[200px] overflow-y-auto">
+                        <p className="text-xs font-medium mb-1 text-foreground">{replacePreviewVars(customSubject)}</p>
                         <div dangerouslySetInnerHTML={{ __html: replacePreviewVars(customBody) }} />
                       </div>
                     ) : (
@@ -1730,14 +1727,14 @@ export default function DashboardPage() {
 
               {/* Freelancer search + list (scrollable) */}
               <div className="flex-1 overflow-y-auto min-h-0">
-                <div className="p-3 sticky top-0 bg-card z-10 border-b border-border">
+                <div className="p-3 sticky top-0 bg-card/95 backdrop-blur-md z-10 border-b border-white/[0.06]">
                   <div className="relative">
                     <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
                     <Input
                       placeholder="Search freelancers..."
                       value={freelancerSearch}
                       onChange={(e) => setFreelancerSearch(e.target.value)}
-                      className="pl-8 h-7 text-xs"
+                      className="pl-8 h-7 text-xs bg-background/50 border-white/[0.08]"
                       data-testid="input-freelancer-search"
                     />
                   </div>
@@ -1757,17 +1754,17 @@ export default function DashboardPage() {
                     No matching freelancers found.
                   </p>
                 ) : (
-                  <div className="divide-y divide-border">
+                  <div className="divide-y divide-white/[0.03]">
                     {displayFreelancers.slice(0, 50).map((f) => {
                       const fStats = freelancerStats?.[f.resourceCode];
                       return (
                         <div
                           key={f.id}
-                          className="flex items-center gap-2.5 px-3 py-2 hover:bg-muted/30 cursor-pointer transition-colors"
+                          className="flex items-center gap-2.5 px-3 py-2.5 hover:bg-white/[0.03] cursor-pointer transition-colors"
                           onClick={() => addFreelancer(f)}
                           data-testid={`freelancer-${f.resourceCode}`}
                         >
-                          <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-[10px] font-medium text-muted-foreground shrink-0">
+                          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-primary/20 to-blue-400/10 flex items-center justify-center text-[10px] font-medium text-primary/80 shrink-0 ring-1 ring-white/[0.06]">
                             {f.fullName?.split(" ").map((n) => n[0]).join("").slice(0, 2)}
                           </div>
                           <div className="flex-1 min-w-0">
@@ -1779,11 +1776,11 @@ export default function DashboardPage() {
                               <span>{f.languagePairs?.slice(0, 3).map((lp: any) => typeof lp === "string" ? lp : `${lp.source_language}>${lp.target_language}`).join(", ")}</span>
                               {fStats && (
                                 <>
-                                  <span className="text-muted-foreground/50">·</span>
+                                  <span className="text-muted-foreground/40">·</span>
                                   <span className="tabular-nums">{fStats.taskCount} tasks</span>
                                   {fStats.avgQs !== null && (
                                     <>
-                                      <span className="text-muted-foreground/50">·</span>
+                                      <span className="text-muted-foreground/40">·</span>
                                       <span className="tabular-nums">QS: {fStats.avgQs}</span>
                                     </>
                                   )}
@@ -1804,10 +1801,10 @@ export default function DashboardPage() {
               </div>
 
               {/* Assign button */}
-              <div className="p-3 border-t border-border bg-card shrink-0">
+              <div className="p-3 border-t border-white/[0.06] bg-card shrink-0">
                 {bulkMode ? (
                   <Button
-                    className="w-full"
+                    className="w-full shadow-lg shadow-primary/20"
                     size="sm"
                     disabled={selectedFreelancers.length === 0 || bulkAssignMutation.isPending}
                     onClick={() => bulkAssignMutation.mutate()}
@@ -1827,7 +1824,7 @@ export default function DashboardPage() {
                   </Button>
                 ) : skipEmail ? (
                   <Button
-                    className="w-full bg-emerald-600 hover:bg-emerald-700"
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-900/20"
                     size="sm"
                     disabled={selectedFreelancers.length === 0 || confirmedAssignMutation.isPending}
                     onClick={() => confirmedAssignMutation.mutate()}
@@ -1847,7 +1844,7 @@ export default function DashboardPage() {
                   </Button>
                 ) : (
                   <Button
-                    className="w-full"
+                    className="w-full shadow-lg shadow-primary/20"
                     size="sm"
                     disabled={selectedFreelancers.length === 0 || createMutation.isPending}
                     onClick={() => createMutation.mutate()}
@@ -1878,19 +1875,70 @@ export default function DashboardPage() {
 
 // ── Sub-components ──
 
-function StatPill({ label, value, loading, color, active, onClick }: { label: string; value: number; loading: boolean; color?: string; active?: boolean; onClick?: () => void }) {
+const STAT_COLORS: Record<string, { dot: string; text: string; activeBg: string; activeRing: string }> = {
+  blue: { dot: "bg-blue-400", text: "text-blue-400", activeBg: "bg-blue-500/[0.12]", activeRing: "ring-blue-500/30" },
+  orange: { dot: "bg-orange-400", text: "text-orange-400", activeBg: "bg-orange-500/[0.12]", activeRing: "ring-orange-500/30" },
+  cyan: { dot: "bg-cyan-400", text: "text-cyan-400", activeBg: "bg-cyan-500/[0.12]", activeRing: "ring-cyan-500/30" },
+  red: { dot: "bg-red-400", text: "text-red-400", activeBg: "bg-red-500/[0.12]", activeRing: "ring-red-500/30" },
+  emerald: { dot: "bg-emerald-400", text: "text-emerald-400", activeBg: "bg-emerald-500/[0.12]", activeRing: "ring-emerald-500/30" },
+  green: { dot: "bg-green-400", text: "text-green-400", activeBg: "bg-green-500/[0.12]", activeRing: "ring-green-500/30" },
+  gray: { dot: "bg-gray-400", text: "text-gray-400", activeBg: "bg-gray-500/[0.12]", activeRing: "ring-gray-500/30" },
+};
+
+function StatPill({ label, value, loading, color, active, onClick }: { label: string; value: number; loading: boolean; color: string; active?: boolean; onClick?: () => void }) {
+  const c = STAT_COLORS[color] || STAT_COLORS.gray;
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${
+      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all duration-150 ${
         active
-          ? "bg-primary/10 ring-1 ring-primary/30"
-          : "hover:bg-muted/60"
+          ? `${c.activeBg} ring-1 ${c.activeRing}`
+          : "hover:bg-white/[0.04]"
       } ${onClick ? "cursor-pointer" : "cursor-default"}`}
       data-testid={`stat-${label.toLowerCase().replace(/\s+/g, "-")}`}
     >
-      <span className={`text-xs ${color || "text-muted-foreground"}`}>{label}:</span>
-      {loading ? <Skeleton className="h-4 w-6" /> : <span className={`text-sm font-bold tabular-nums ${color || "text-foreground"}`}>{value}</span>}
+      <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
+      <span className="text-xs text-muted-foreground">{label}</span>
+      {loading ? <Skeleton className="h-4 w-6" /> : <span className={`text-sm font-bold tabular-nums ${c.text}`}>{value}</span>}
+    </button>
+  );
+}
+
+function StatusBadge({ type }: { type: "needs-tr" | "needs-rev" | "assigned" | "delivered" }) {
+  const config = {
+    "needs-tr": "bg-orange-500/15 text-orange-400 border-orange-500/25 shadow-sm shadow-orange-500/5",
+    "needs-rev": "bg-blue-500/15 text-blue-400 border-blue-500/25 shadow-sm shadow-blue-500/5",
+    "assigned": "bg-emerald-500/15 text-emerald-400 border-emerald-500/25 shadow-sm shadow-emerald-500/5",
+    "delivered": "bg-white/[0.06] text-muted-foreground border-white/[0.08]",
+  };
+  const labels = {
+    "needs-tr": "Needs TR",
+    "needs-rev": "Needs REV",
+    "assigned": "Assigned",
+    "delivered": "Delivered",
+  };
+  return (
+    <Badge className={`text-[10px] px-1.5 py-0 border ${config[type]}`}>
+      {labels[type]}
+    </Badge>
+  );
+}
+
+function TogglePill({ active, onClick, color, children, ...rest }: { active: boolean; onClick: () => void; color: string; children: React.ReactNode; [key: string]: any }) {
+  const colorMap: Record<string, { active: string; inactive: string }> = {
+    orange: { active: "bg-orange-500/15 text-orange-400 border border-orange-500/25", inactive: "bg-white/[0.03] text-muted-foreground border border-white/[0.06]" },
+    blue: { active: "bg-blue-500/15 text-blue-400 border border-blue-500/25", inactive: "bg-white/[0.03] text-muted-foreground border border-white/[0.06]" },
+    primary: { active: "bg-primary/15 text-primary border border-primary/25", inactive: "bg-white/[0.03] text-muted-foreground border border-white/[0.06]" },
+    purple: { active: "bg-purple-500/15 text-purple-400 border border-purple-500/25", inactive: "bg-white/[0.03] text-muted-foreground border border-white/[0.06]" },
+  };
+  const c = colorMap[color] || colorMap.primary;
+  return (
+    <button
+      onClick={onClick}
+      className={`px-3 py-1 rounded-md text-xs font-medium transition-all duration-150 ${active ? c.active : c.inactive} hover:bg-white/[0.06]`}
+      {...rest}
+    >
+      {children}
     </button>
   );
 }
@@ -1898,22 +1946,22 @@ function StatPill({ label, value, loading, color, active, onClick }: { label: st
 function DetailItem({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
-      <span className="text-muted-foreground">{label}</span>
-      <p className="font-medium text-foreground truncate">{value}</p>
+      <span className="text-muted-foreground/70 text-[10px] uppercase tracking-wider">{label}</span>
+      <p className="font-medium text-foreground truncate text-xs">{value}</p>
     </div>
   );
 }
 
 function OfferStatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
-    pending: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
-    accepted: "bg-green-500/10 text-green-600 border-green-500/20",
-    rejected: "bg-red-500/10 text-red-600 border-red-500/20",
-    withdrawn: "bg-gray-500/10 text-gray-500 border-gray-500/20",
-    completed: "bg-blue-500/10 text-blue-600 border-blue-500/20",
-    offered: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
-    expired: "bg-gray-500/10 text-gray-500 border-gray-500/20",
-    cancelled: "bg-gray-500/10 text-gray-500 border-gray-500/20",
+    pending: "bg-amber-500/15 text-amber-400 border-amber-500/20",
+    accepted: "bg-green-500/15 text-green-400 border-green-500/20",
+    rejected: "bg-red-500/15 text-red-400 border-red-500/20",
+    withdrawn: "bg-gray-500/10 text-gray-400 border-gray-500/20",
+    completed: "bg-blue-500/15 text-blue-400 border-blue-500/20",
+    offered: "bg-amber-500/15 text-amber-400 border-amber-500/20",
+    expired: "bg-gray-500/10 text-gray-400 border-gray-500/20",
+    cancelled: "bg-gray-500/10 text-gray-400 border-gray-500/20",
   };
   const icons: Record<string, React.ReactNode> = {
     pending: <Clock className="w-2.5 h-2.5 mr-0.5" />,
