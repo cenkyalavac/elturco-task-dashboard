@@ -366,6 +366,7 @@ function PmUsersSection() {
   const [showAdd, setShowAdd] = useState(false);
   const [newEmail, setNewEmail] = useState("");
   const [newName, setNewName] = useState("");
+  const [newInitial, setNewInitial] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newRole, setNewRole] = useState("pm");
 
@@ -382,6 +383,7 @@ function PmUsersSection() {
       const res = await apiRequest("POST", "/api/pm-users", {
         email: newEmail,
         name: newName,
+        initial: newInitial,
         password: newPassword,
         role: newRole,
       });
@@ -392,6 +394,7 @@ function PmUsersSection() {
       toast({ title: "User created" });
       setNewEmail("");
       setNewName("");
+      setNewInitial("");
       setNewPassword("");
       setNewRole("pm");
       setShowAdd(false);
@@ -437,6 +440,17 @@ function PmUsersSection() {
                   placeholder="Full Name"
                   className="h-8 text-sm"
                   data-testid="input-user-name"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Initial (sheet code)</label>
+                <Input
+                  value={newInitial}
+                  onChange={(e) => setNewInitial(e.target.value.toUpperCase())}
+                  placeholder="CY"
+                  className="h-8 text-sm"
+                  maxLength={5}
+                  data-testid="input-user-initial"
                 />
               </div>
               <div>
@@ -488,6 +502,7 @@ function PmUsersSection() {
               <tr className="border-b border-border">
                 <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Email</th>
                 <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Name</th>
+                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Initial</th>
                 <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Role</th>
               </tr>
             </thead>
@@ -496,6 +511,7 @@ function PmUsersSection() {
                 <tr key={u.id} className="border-b border-border last:border-0" data-testid={`user-row-${u.id}`}>
                   <td className="px-3 py-2 text-foreground">{u.email}</td>
                   <td className="px-3 py-2 text-foreground">{u.name}</td>
+                  <td className="px-3 py-2 text-foreground font-mono text-xs">{(u as any).initial || "—"}</td>
                   <td className="px-3 py-2">
                     <Badge variant={u.role === "admin" ? "default" : "secondary"} className="text-xs">
                       {u.role === "admin" ? "Admin" : "PM"}

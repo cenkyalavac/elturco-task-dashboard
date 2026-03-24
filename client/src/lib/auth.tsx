@@ -5,6 +5,7 @@ interface User {
   id: number;
   email: string;
   name: string;
+  initial?: string;
   role: string;
   defaultFilter?: string;
   defaultMyProjects?: boolean;

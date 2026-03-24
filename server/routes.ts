@@ -461,7 +461,7 @@ export async function registerRoutes(server: Server, app: Express) {
     const expiresAt = new Date(Date.now() + SESSION_EXPIRY_HOURS * 3600 * 1000).toISOString();
     storage.createSession(sessionToken, pmUser.id, expiresAt);
 
-    res.json({ token: sessionToken, user: { id: pmUser.id, email: pmUser.email, name: pmUser.name, role: pmUser.role, defaultFilter: pmUser.defaultFilter || "ongoing", defaultMyProjects: !!pmUser.defaultMyProjects } });
+    res.json({ token: sessionToken, user: { id: pmUser.id, email: pmUser.email, name: pmUser.name, initial: pmUser.initial || "", role: pmUser.role, defaultFilter: pmUser.defaultFilter || "ongoing", defaultMyProjects: !!pmUser.defaultMyProjects } });
   });
 
   // ---- REDIRECT ENDPOINTS (no '#' in URL — safe for email clients) ----
@@ -662,7 +662,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       taskDetails: JSON.stringify(taskDetails || {}),
       assignmentType: "direct", role, status: "accepted",
       assignedBy: session.pmUserId,
-      acceptedBy: user.name, acceptedByName: user.name, acceptedByEmail: user.email,
+      acceptedBy: user.initial || user.name, acceptedByName: user.name, acceptedByEmail: user.email,
       sequenceList: null, currentSequenceIndex: 0, sequenceTimeoutMinutes: 60,
       broadcastList: null, autoAssignReviewer: 0,
       reviewerAssignmentType: null, reviewerSequenceList: null,
@@ -670,8 +670,8 @@ const freelancers = (Array.isArray(data) ? data : [])
       createdAt: now, offeredAt: now, acceptedAt: now,
     });
 
-    // Write PM's name/initial to Sheet (only if cell is empty or XX)
-    const pmInitial = req.body.resourceCode || user.name;
+    // Write PM's initial to Sheet (only if cell is empty or XX)
+    const pmInitial = user.initial || user.name;
     safeWriteToSheet(assignment, pmInitial, role as "translator" | "reviewer");
 
     // Self-Edit: write the same code to both TR and REV
@@ -1261,11 +1261,11 @@ const freelancers = (Array.isArray(data) ? data : [])
   });
 
   app.post("/api/pm-users", requireAuth, (req: Request, res: Response) => {
-    const { email, name, password, role } = req.body;
+    const { email, name, initial, password, role } = req.body;
     if (!email || !name || !password) return res.status(400).json({ error: "Email, name, and password required" });
     const existing = storage.getPmUserByEmail(email.toLowerCase().trim());
     if (existing) return res.status(400).json({ error: "This email is already registered." });
-    const user = storage.createPmUser({ email: email.toLowerCase().trim(), name, password, role: role || "pm" });
+    const user = storage.createPmUser({ email: email.toLowerCase().trim(), name, initial: initial || "", password, role: role || "pm" });
     res.json(user);
   });
 

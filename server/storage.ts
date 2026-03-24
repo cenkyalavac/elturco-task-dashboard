@@ -72,15 +72,21 @@ export class DatabaseStorage implements IStorage {
     // Seed default PM user
     // Seed default admin users with passwords
     const seeds = [
-      { email: "perplexity@eltur.co", name: "Cenk Yalavaç", password: "elturco2026", role: "admin" },
-      { email: "cenk@eltur.co", name: "Cenk Yalavaç", password: "elturco2026", role: "admin" },
+      { email: "perplexity@eltur.co", name: "Cenk Yalavaç", initial: "CY", password: "elturco2026", role: "admin" },
+      { email: "cenk@eltur.co", name: "Cenk Yalavaç", initial: "CY", password: "elturco2026", role: "admin" },
     ];
     for (const s of seeds) {
       const existing = db.select().from(pmUsers).where(eq(pmUsers.email, s.email)).get();
       if (!existing) {
         db.insert(pmUsers).values(s).run();
-      } else if (!existing.password) {
-        db.update(pmUsers).set({ password: s.password }).where(eq(pmUsers.email, s.email)).run();
+      } else {
+        // Update password and initial if missing
+        const updates: any = {};
+        if (!existing.password) updates.password = s.password;
+        if (!existing.initial && s.initial) updates.initial = s.initial;
+        if (Object.keys(updates).length > 0) {
+          db.update(pmUsers).set(updates).where(eq(pmUsers.email, s.email)).run();
+        }
       }
     }
 
