@@ -565,6 +565,10 @@ const freelancers = (Array.isArray(data) ? data : [])
       createdAt: now, offeredAt: now, acceptedAt: now,
     });
 
+    // Write PM's name/initial to Sheet (only if cell is empty or XX)
+    const pmInitial = req.body.resourceCode || user.name;
+    safeWriteToSheet(assignment, pmInitial, role as "translator" | "reviewer");
+
     res.json({ success: true, assignment });
   });
 
@@ -598,6 +602,9 @@ const freelancers = (Array.isArray(data) ? data : [])
       token, status: "accepted", sentAt: now,
       respondedAt: now, sequenceOrder: null, clientBaseUrl: null,
     });
+
+    // Write freelancer code to Sheet (only if cell is empty or XX)
+    safeWriteToSheet(assignment, freelancer.resourceCode, role as "translator" | "reviewer");
 
     res.json({ success: true, assignment });
   });
@@ -773,6 +780,13 @@ const freelancers = (Array.isArray(data) ? data : [])
       }
     }
 
+    // Write initial to Google Sheet (only if cell is empty or XX)
+    safeWriteToSheet(
+      assignment,
+      offer.freelancerCode,
+      assignment.role as "translator" | "reviewer"
+    );
+
     res.json({ success: true, message: "Task accepted. Thank you!" });
   });
 
@@ -857,8 +871,56 @@ const freelancers = (Array.isArray(data) ? data : [])
     res.json({ success: true, message: "Task marked as completed!" });
   });
 
-  // NOTE: Sheet write-back (PATCH) has been intentionally removed.
-  // We never modify sheet data — existing initials represent payment assignments.
+  // ---- SAFE SHEET WRITE-BACK ----
+  // Only writes to empty or "XX" cells. Never overwrites existing initials.
+
+  async function safeWriteToSheet(assignment: any, freelancerCode: string, columnType: "translator" | "reviewer") {
+    try {
+      // Find the SheetDB API ID from config
+      const configs = storage.getAllSheetConfigs();
+      const config = configs.find(c => c.source === assignment.source && c.sheet === assignment.sheet);
+      if (!config?.sheetDbId) return;
+
+      const apiId = config.sheetDbId;
+      const sheet = assignment.sheet;
+      const projectId = assignment.projectId;
+
+      // Determine column names based on sheet type
+      const idCol = sheet === "TPT" ? "ATMS ID" 
+        : (sheet === "Assignments" || sheet === "RU Assignments" || sheet === "AR Assignments") ? "ID" 
+        : "Project ID";
+      
+      const trCol = sheet === "TPT" ? "TR" : "TR ";
+      const revCol = sheet === "TPT" ? "REV" : "Rev";
+      const targetCol = columnType === "translator" ? trCol : revCol;
+
+      // First, READ the current value to check if it's empty or XX
+      const readUrl = `https://sheetdb.io/api/v1/${apiId}/search?${encodeURIComponent(idCol)}=${encodeURIComponent(projectId)}&sheet=${encodeURIComponent(sheet)}`;
+      const readRes = await fetch(readUrl);
+      if (!readRes.ok) return;
+      const rows = await readRes.json();
+      if (!Array.isArray(rows) || rows.length === 0) return;
+
+      const currentValue = (rows[0][targetCol] || "").toString().trim();
+      
+      // SAFETY CHECK: Only write if cell is empty or XX
+      if (currentValue && currentValue.toUpperCase() !== "XX") {
+        console.log(`Sheet write BLOCKED: ${targetCol} already has '${currentValue}' for project ${projectId}`);
+        return;
+      }
+
+      // Safe to write
+      const writeUrl = `https://sheetdb.io/api/v1/${apiId}/${encodeURIComponent(idCol)}/${encodeURIComponent(projectId)}?sheet=${encodeURIComponent(sheet)}`;
+      await fetch(writeUrl, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: { [targetCol]: freelancerCode } }),
+      });
+      console.log(`Sheet write OK: ${targetCol}=${freelancerCode} for project ${projectId}`);
+    } catch (e) {
+      console.error("Sheet write error (non-fatal):", e);
+    }
+  }
 
   // ---- ADMIN: SHEET CONFIG ----
 
