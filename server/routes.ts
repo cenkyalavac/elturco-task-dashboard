@@ -137,25 +137,29 @@ async function fetchSheetTasks(apiId: string, tabName: string, sheetLabel: strin
       total: extractTotal(row, sheetLabel),
       wwc: extractWWC(row, sheetLabel),
       revType: extractRevType(row),
+      revDeadline: extractRevDeadline(row, sheetLabel),
       // CAT analysis breakdown
       catCounts: {
-        ice: (row["ICE"] || row["Ice"] || "0").toString().trim(),
-        rep: (row["Rep"] || row["REP"] || "0").toString().trim(),
+        ice: (row["ICE"] || row["Ice"] || row["ICE Match/101"] || row["101%"] || "0").toString().trim(),
+        rep: (row["Rep"] || row["REP"] || row["Reps"] || "0").toString().trim(),
         match100: (row["100%"] || row["100"] || "0").toString().trim(),
-        fuzzy95: (row["95-99%"] || row["95-99"] || "0").toString().trim(),
-        fuzzy85: (row["85-94%"] || row["85-94"] || "0").toString().trim(),
-        fuzzy75: (row["75-84%"] || row["75-84"] || "0").toString().trim(),
-        noMatch: (row["No Match"] || row["NM"] || "0").toString().trim(),
+        fuzzy95: (row["95-99%"] || row["95-99"] || row["99-95%"] || "0").toString().trim(),
+        fuzzy85: (row["85-94%"] || row["85-94"] || row["94-85%"] || "0").toString().trim(),
+        fuzzy75: (row["75-84%"] || row["75-84"] || row["84-75%"] || "0").toString().trim(),
+        noMatch: (row["No Match"] || row["NM"] || row["74-0%"] || "0").toString().trim(),
         mt: (row["MT"] || "0").toString().trim(),
       },
       // Notes & metadata
-      hoNote: (row["HO Note"] || row["HO Notes"] || "").trim(),
-      trHbNote: (row["TR HB Note"] || row["TR HB Notes"] || "").trim(),
-      revHbNote: (row["Rev HB Note"] || row["Rev HB Notes"] || "").trim(),
+      hoNote: (row["HO Note"] || row["HO Notes"] || row["HO Note // Q&A SHEET"] || "").trim(),
+      trHbNote: (row["TR HB Note"] || row["TR HB Notes"] || row["TR\nHB Note"] || "").trim(),
+      revHbNote: (row["Rev HB Note"] || row["Rev HB Notes"] || row["Rev\nHB Note"] || "").trim(),
       instructions: (row["Instructions"] || row["Instruction"] || "").trim(),
-      lqi: (row["LQI"] || "").trim(),
+      lqi: (row["LQI"] || row["LQI?"] || row["LQI ?"] || "").trim(),
       qs: (row["QS"] || "").toString().trim(),
-      projectTitle: (row["Project Title"] || row["Title"] || "").trim(),
+      projectTitle: (row["Project Title"] || row["Title"] || row["Project"] || "").trim(),
+      atmsId: (row["ATMS ID"] || row[" ATMS ID"] || "").toString().trim(),
+      symfonieLink: (row["Symfonie"] || row["Symfonie link"] || "").trim(),
+      symfonieId: (row["Symfonie ID"] || "").trim(),
     })).filter((t: any) => t.projectId);
   } catch (e) {
     return [];
@@ -193,7 +197,11 @@ function extractDelivered(row: any): string {
 }
 function extractDeadline(row: any, sheet: string): string {
   if (sheet === "TPT") return (row["TR\nDeadline"] || row["TR Deadline"] || "").trim();
-  return (row["TR Deadline"] || row["Deadline"] || "").trim();
+  return (row["TR Deadline"] || "").trim();
+}
+function extractRevDeadline(row: any, sheet: string): string {
+  if (sheet === "TPT") return (row["Client\nDeadline"] || row["Client Deadline"] || "").trim();
+  return (row["Deadline"] || "").trim();
 }
 function extractTotal(row: any, sheet: string): string {
   return (row["Total"] || row["TWC"] || "0").toString().trim();
@@ -566,6 +574,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       sequenceList: null, currentSequenceIndex: 0, sequenceTimeoutMinutes: 60,
       broadcastList: null, autoAssignReviewer: 0,
       reviewerAssignmentType: null, reviewerSequenceList: null,
+      reviewType: req.body.reviewType || null,
       createdAt: now, offeredAt: now, acceptedAt: now,
     });
 
@@ -598,6 +607,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       sequenceList: null, currentSequenceIndex: 0, sequenceTimeoutMinutes: 60,
       broadcastList: null, autoAssignReviewer: 0,
       reviewerAssignmentType: null, reviewerSequenceList: null,
+      reviewType: req.body.reviewType || null,
       createdAt: now, offeredAt: now, acceptedAt: now,
     });
 
@@ -657,6 +667,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       autoAssignReviewer: autoAssignReviewer ? 1 : 0,
       reviewerAssignmentType: reviewerAssignmentType || null,
       reviewerSequenceList: reviewerSequenceList ? JSON.stringify(reviewerSequenceList) : null,
+      reviewType: req.body.reviewType || null,
       createdAt: now,
       offeredAt: now,
     });
@@ -752,6 +763,7 @@ const freelancers = (Array.isArray(data) ? data : [])
         role: assignment.role,
         status: assignment.status,
         assignmentType: assignment.assignmentType,
+        reviewType: assignment.reviewType || null,
       },
       task: taskDetails,
     });
@@ -883,6 +895,30 @@ const freelancers = (Array.isArray(data) ? data : [])
     const now = new Date().toISOString();
     storage.updateAssignment(assignment.id, { status: "completed", completedAt: now });
 
+    // Write-back to sheet: mark task as done
+    const { timeSpent } = req.body || {};
+    const role = assignment.role;
+    const reviewType = assignment.reviewType || "";
+
+    try {
+      if (role === "translator") {
+        // Translator completed: write "Yes" to TR Done column
+        await safeWriteStatusToSheet(assignment, "trDone", "Yes");
+      } else if (role === "reviewer") {
+        if (reviewType === "Self-Edit") {
+          // Self-Edit: write "Yes" to both TR Done and Rev Complete
+          await safeWriteStatusToSheet(assignment, "trDone", "Yes");
+          await safeWriteStatusToSheet(assignment, "revComplete", "Yes");
+        } else {
+          // Normal reviewer: write time spent (or "Yes") to Rev Complete
+          const revValue = timeSpent ? String(timeSpent) : "Yes";
+          await safeWriteStatusToSheet(assignment, "revComplete", revValue);
+        }
+      }
+    } catch (e) {
+      console.error("Sheet status write error (non-fatal):", e);
+    }
+
     res.json({ success: true, message: "Task marked as completed!" });
   });
 
@@ -934,6 +970,48 @@ const freelancers = (Array.isArray(data) ? data : [])
       console.log(`Sheet write OK: ${targetCol}=${freelancerCode} for project ${projectId}`);
     } catch (e) {
       console.error("Sheet write error (non-fatal):", e);
+    }
+  }
+
+  // Write status values (TR Done, Rev Complete) to sheet
+  async function safeWriteStatusToSheet(assignment: any, columnType: "trDone" | "revComplete", value: string) {
+    try {
+      const configs = storage.getAllSheetConfigs();
+      const config = configs.find(c => c.source === assignment.source && c.sheet === assignment.sheet);
+      if (!config?.sheetDbId) return;
+
+      const apiId = config.sheetDbId;
+      const sheet = assignment.sheet;
+      const projectId = assignment.projectId;
+
+      // Determine ID column
+      const idCol = sheet === "TPT" ? "ATMS ID" 
+        : (sheet === "Assignments" || sheet === "RU Assignments" || sheet === "AR Assignments") ? "ID" 
+        : "Project ID";
+
+      // Determine target column based on sheet type
+      let targetCol: string;
+      if (columnType === "trDone") {
+        if (sheet === "TPT") targetCol = "TR\nDone?";
+        else if (sheet === "Assignments" || sheet === "RU Assignments" || sheet === "AR Assignments") targetCol = "TR Dlvr?";
+        else targetCol = "TR Dlvr";
+      } else {
+        // revComplete
+        if (sheet === "TPT") targetCol = "Time Spent\n(in minutes)";
+        else if (sheet === "Assignments" || sheet === "RU Assignments" || sheet === "AR Assignments") targetCol = "Rev Complete?";
+        else targetCol = "Rev Complete? (in minutes)";
+      }
+
+      // Write the value
+      const writeUrl = `https://sheetdb.io/api/v1/${apiId}/${encodeURIComponent(idCol)}/${encodeURIComponent(projectId)}?sheet=${encodeURIComponent(sheet)}`;
+      await fetch(writeUrl, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: { [targetCol]: value } }),
+      });
+      console.log(`Sheet status write OK: ${targetCol}=${value} for project ${projectId}`);
+    } catch (e) {
+      console.error("Sheet status write error (non-fatal):", e);
     }
   }
 

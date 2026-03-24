@@ -183,6 +183,22 @@ function deadlineClass(d: string): string {
   return "text-muted-foreground";
 }
 
+// Build full taskDetails for assignment API calls
+function buildTaskDetails(t: Task) {
+  return {
+    source: t.source, sheet: t.sheet, projectId: t.projectId,
+    account: t.account, deadline: t.deadline, revDeadline: (t as any).revDeadline || "",
+    total: t.total, wwc: t.wwc, revType: t.revType,
+    projectTitle: t.projectTitle,
+    catCounts: t.catCounts, hoNote: t.hoNote,
+    trHbNote: t.trHbNote, revHbNote: t.revHbNote,
+    instructions: t.instructions, lqi: t.lqi, qs: t.qs,
+    atmsId: (t as any).atmsId || "",
+    symfonieLink: (t as any).symfonieLink || "",
+    symfonieId: (t as any).symfonieId || "",
+  };
+}
+
 // ── Component ──
 
 export default function DashboardPage() {
@@ -630,17 +646,7 @@ export default function DashboardPage() {
         sheet: selectedTask.sheet,
         projectId: selectedTask.projectId,
         account: selectedTask.account,
-        taskDetails: {
-          source: selectedTask.source,
-          sheet: selectedTask.sheet,
-          projectId: selectedTask.projectId,
-          account: selectedTask.account,
-          deadline: selectedTask.deadline,
-          total: selectedTask.total,
-          wwc: selectedTask.wwc,
-          revType: selectedTask.revType,
-          projectTitle: selectedTask.projectTitle,
-        },
+        taskDetails: buildTaskDetails(selectedTask),
         assignmentType,
         role,
         freelancers: selectedFreelancers.map((f) => ({
@@ -683,11 +689,7 @@ export default function DashboardPage() {
           sheet: task.sheet,
           projectId: task.projectId,
           account: task.account,
-          taskDetails: {
-            source: task.source, sheet: task.sheet, projectId: task.projectId,
-            account: task.account, deadline: task.deadline, total: task.total,
-            wwc: task.wwc, revType: task.revType, projectTitle: task.projectTitle,
-          },
+          taskDetails: buildTaskDetails(task),
           assignmentType,
           role: bulkMode,
           freelancers: selectedFreelancers.map(f => ({
@@ -780,14 +782,9 @@ export default function DashboardPage() {
         sheet: selectedTask.sheet,
         projectId: selectedTask.projectId,
         account: selectedTask.account,
-        taskDetails: {
-          source: selectedTask.source, sheet: selectedTask.sheet,
-          projectId: selectedTask.projectId, account: selectedTask.account,
-          deadline: selectedTask.deadline, total: selectedTask.total,
-          wwc: selectedTask.wwc, revType: selectedTask.revType,
-          projectTitle: selectedTask.projectTitle,
-        },
+        taskDetails: buildTaskDetails(selectedTask),
         role,
+        reviewType,
       });
       return res.json();
     },
@@ -812,13 +809,7 @@ export default function DashboardPage() {
         sheet: selectedTask.sheet,
         projectId: selectedTask.projectId,
         account: selectedTask.account,
-        taskDetails: {
-          source: selectedTask.source, sheet: selectedTask.sheet,
-          projectId: selectedTask.projectId, account: selectedTask.account,
-          deadline: selectedTask.deadline, total: selectedTask.total,
-          wwc: selectedTask.wwc, revType: selectedTask.revType,
-          projectTitle: selectedTask.projectTitle,
-        },
+        taskDetails: buildTaskDetails(selectedTask),
         role,
         freelancerCode: f.resourceCode,
         freelancerName: f.fullName,

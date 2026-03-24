@@ -61,6 +61,8 @@ export const assignments = sqliteTable("assignments", {
   autoAssignReviewer: integer("auto_assign_reviewer").default(0),
   reviewerAssignmentType: text("reviewer_assignment_type"), // same options
   reviewerSequenceList: text("reviewer_sequence_list"), // JSON
+  // Review type selected by PM at assignment time
+  reviewType: text("review_type"), // "Full Review" | "Self-Edit" | "LQA" | "QA"
   // Timestamps
   createdAt: text("created_at").notNull(),
   offeredAt: text("offered_at"),

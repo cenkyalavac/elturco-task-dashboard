@@ -3,7 +3,8 @@ import { useRoute } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, CheckCircle2, XCircle, AlertTriangle, FileCheck } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Loader2, CheckCircle2, XCircle, AlertTriangle, FileCheck, Clock } from "lucide-react";
 
 const API_BASE = "__PORT_5000__".startsWith("__") ? "" : "__PORT_5000__";
 
@@ -24,6 +25,7 @@ interface OfferData {
     role: string;
     status: string;
     assignmentType: string;
+    reviewType: string | null;
   };
   task: any;
 }
@@ -36,6 +38,8 @@ export default function RespondPage() {
   const [error, setError] = useState("");
   const [actionLoading, setActionLoading] = useState<"accept" | "reject" | "complete" | null>(null);
   const [actionResult, setActionResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [showTimeInput, setShowTimeInput] = useState(false);
+  const [timeSpent, setTimeSpent] = useState("");
 
   useEffect(() => {
     if (!token) return;
@@ -51,18 +55,23 @@ export default function RespondPage() {
   async function handleAction(action: "accept" | "reject" | "complete") {
     setActionLoading(action);
     try {
+      const bodyData: any = {
+        clientBaseUrl: window.location.href.split("#")[0].replace(/\/$/, ""),
+        apiBaseUrl: (() => {
+          const ab = "__PORT_5000__";
+          if (ab.startsWith("__")) return window.location.origin;
+          const m = window.location.href.split("#")[0].match(/^(https?:\/\/[^/]+\/sites\/proxy\/[^/]+\/)/);
+          return m ? m[1] + ab : window.location.origin + "/" + ab;
+        })(),
+      };
+      // For complete action, add timeSpent if reviewer (non-self-edit)
+      if (action === "complete" && timeSpent) {
+        bodyData.timeSpent = parseInt(timeSpent, 10);
+      }
       const res = await fetch(`${API_BASE}/api/offers/${token}/${action}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clientBaseUrl: window.location.href.split("#")[0].replace(/\/$/, ""),
-          apiBaseUrl: (() => {
-            const ab = "__PORT_5000__";
-            if (ab.startsWith("__")) return window.location.origin;
-            const m = window.location.href.split("#")[0].match(/^(https?:\/\/[^/]+\/sites\/proxy\/[^/]+\/)/);
-            return m ? m[1] + ab : window.location.origin + "/" + ab;
-          })(),
-        }),
+        body: JSON.stringify(bodyData),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -77,6 +86,7 @@ export default function RespondPage() {
       setActionResult({ success: false, message: "Connection error. Please try again." });
     } finally {
       setActionLoading(null);
+      setShowTimeInput(false);
     }
   }
 
@@ -102,10 +112,34 @@ export default function RespondPage() {
   }
 
   const { offer, assignment, task } = data;
-  const role = assignment.role === "translator" ? "Translation" : "Review";
+  const isTranslator = assignment.role === "translator";
+  const isReviewer = assignment.role === "reviewer";
+  const isSelfEdit = assignment.reviewType === "Self-Edit";
+  const role = isTranslator ? "Translation" : (isSelfEdit ? "Self-Edit (Translation + Review)" : "Review");
   const isPending = offer.status === "pending";
   const isAccepted = offer.status === "accepted";
   const isCompleted = assignment.status === "completed";
+
+  // Show the right deadline based on role
+  const deadline = isTranslator ? (task.deadline || "—") : (task.revDeadline || task.deadline || "—");
+  const deadlineLabel = isTranslator ? "Translation Deadline" : "Review Deadline";
+
+  // Cat counts
+  const cc = task.catCounts || {};
+  const hasCatCounts = cc.ice || cc.rep || cc.match100 || cc.fuzzy95 || cc.fuzzy85 || cc.fuzzy75 || cc.noMatch || cc.mt;
+  const nonZeroCats = hasCatCounts ? [
+    { label: "ICE/101%", value: cc.ice },
+    { label: "Rep", value: cc.rep },
+    { label: "100%", value: cc.match100 },
+    { label: "95-99%", value: cc.fuzzy95 },
+    { label: "85-94%", value: cc.fuzzy85 },
+    { label: "75-84%", value: cc.fuzzy75 },
+    { label: "No Match", value: cc.noMatch },
+    { label: "MT", value: cc.mt },
+  ].filter(c => c.value && c.value !== "0") : [];
+
+  // Should we ask for time spent? Only for reviewers who are NOT self-edit
+  const needsTimeInput = isReviewer && !isSelfEdit;
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -145,18 +179,73 @@ export default function RespondPage() {
             </div>
 
             {/* Task details */}
-            <div className="space-y-2 text-sm mb-6">
+            <div className="space-y-0 text-sm mb-4">
               <DetailRow label="Task Type" value={role} />
               <DetailRow label="Account" value={task.account || assignment.account} />
               <DetailRow label="Source" value={`${assignment.source} / ${assignment.sheet}`} />
               <DetailRow label="Project ID" value={assignment.projectId} />
-              <DetailRow label="Deadline" value={task.deadline || "—"} />
+              {task.atmsId && task.atmsId !== assignment.projectId && (
+                <DetailRow label="ATMS ID" value={task.atmsId} />
+              )}
+              {task.projectTitle && <DetailRow label="Title" value={task.projectTitle} />}
+              <DetailRow label={deadlineLabel} value={deadline} highlight />
               <DetailRow label="Total / WWC" value={`${task.total || "—"} / ${task.wwc || "—"}`} />
+              {task.revType && <DetailRow label="Review Type" value={task.revType} />}
             </div>
+
+            {/* CAT Match Breakdown */}
+            {nonZeroCats.length > 0 && (
+              <div className="mb-4">
+                <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">Word Count Breakdown</p>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs bg-muted/30 rounded-lg p-3">
+                  {nonZeroCats.map(c => (
+                    <div key={c.label} className="flex justify-between py-0.5">
+                      <span className="text-muted-foreground">{c.label}</span>
+                      <span className="font-medium text-foreground tabular-nums">{c.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* HO Note */}
+            {task.hoNote && (
+              <div className="mb-4">
+                <p className="text-xs font-medium text-muted-foreground mb-1 uppercase tracking-wider">HO Note</p>
+                <p className="text-sm text-foreground bg-amber-500/5 border border-amber-500/20 rounded-lg p-3">{task.hoNote}</p>
+              </div>
+            )}
+
+            {/* Instructions */}
+            {task.instructions && (
+              <div className="mb-4">
+                <p className="text-xs font-medium text-muted-foreground mb-1 uppercase tracking-wider">Instructions</p>
+                <p className="text-sm text-foreground bg-blue-500/5 border border-blue-500/20 rounded-lg p-3 whitespace-pre-wrap">{task.instructions}</p>
+              </div>
+            )}
+
+            {/* Symfonie link */}
+            {(task.symfonieLink || task.symfonieId) && (
+              <div className="mb-4">
+                <p className="text-xs font-medium text-muted-foreground mb-1 uppercase tracking-wider">Symfonie</p>
+                <div className="text-sm bg-muted/30 rounded-lg p-3">
+                  {task.symfonieLink && (
+                    <a href={task.symfonieLink.startsWith("http") ? task.symfonieLink : `https://${task.symfonieLink}`} 
+                       target="_blank" rel="noopener noreferrer"
+                       className="text-primary underline break-all">
+                      {task.symfonieLink}
+                    </a>
+                  )}
+                  {task.symfonieId && !task.symfonieLink && (
+                    <span className="text-foreground">{task.symfonieId}</span>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Action buttons */}
             {isPending && !actionResult?.success && (
-              <div className="space-y-2">
+              <div className="space-y-2 mt-4">
                 <Button
                   className="w-full"
                   size="lg"
@@ -182,16 +271,64 @@ export default function RespondPage() {
             )}
 
             {isAccepted && !isCompleted && (
-              <Button
-                className="w-full mt-4"
-                size="lg"
-                onClick={() => handleAction("complete")}
-                disabled={!!actionLoading}
-                data-testid="button-complete"
-              >
-                {actionLoading === "complete" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileCheck className="w-4 h-4 mr-2" />}
-                Mark as Completed
-              </Button>
+              <div className="mt-4 space-y-3">
+                {needsTimeInput && !showTimeInput && (
+                  <Button
+                    className="w-full"
+                    size="lg"
+                    onClick={() => setShowTimeInput(true)}
+                    disabled={!!actionLoading}
+                    data-testid="button-complete"
+                  >
+                    <FileCheck className="w-4 h-4 mr-2" />
+                    Mark as Completed
+                  </Button>
+                )}
+                {needsTimeInput && showTimeInput && (
+                  <div className="space-y-3 p-4 bg-muted/30 rounded-lg border border-border">
+                    <p className="text-sm font-medium text-foreground">How long did the review take?</p>
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
+                      <Input
+                        type="number"
+                        placeholder="Minutes spent..."
+                        value={timeSpent}
+                        onChange={(e) => setTimeSpent(e.target.value)}
+                        className="h-9 text-sm"
+                        autoFocus
+                        data-testid="input-time-spent"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        className="flex-1"
+                        size="sm"
+                        onClick={() => handleAction("complete")}
+                        disabled={!!actionLoading || !timeSpent}
+                        data-testid="button-confirm-complete"
+                      >
+                        {actionLoading === "complete" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
+                        Confirm
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => { setShowTimeInput(false); setTimeSpent(""); }}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                {!needsTimeInput && (
+                  <Button
+                    className="w-full"
+                    size="lg"
+                    onClick={() => handleAction("complete")}
+                    disabled={!!actionLoading}
+                    data-testid="button-complete"
+                  >
+                    {actionLoading === "complete" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileCheck className="w-4 h-4 mr-2" />}
+                    Mark as Completed
+                  </Button>
+                )}
+              </div>
             )}
           </CardContent>
         </Card>
@@ -204,11 +341,11 @@ export default function RespondPage() {
   );
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+function DetailRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
     <div className="flex justify-between py-1.5 border-b border-border last:border-0">
       <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium text-foreground">{value}</span>
+      <span className={`font-medium ${highlight ? "text-red-600" : "text-foreground"}`}>{value}</span>
     </div>
   );
 }
