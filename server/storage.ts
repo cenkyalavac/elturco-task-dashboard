@@ -21,6 +21,7 @@ export interface IStorage {
   getPmUserByEmail(email: string): PmUser | undefined;
   createPmUser(data: InsertPmUser): PmUser;
   getAllPmUsers(): PmUser[];
+  updatePmUser(id: number, data: Partial<PmUser>): void;
 
   // Auth
   createAuthToken(token: string, email: string, expiresAt: string, clientBaseUrl?: string): void;
@@ -150,6 +151,9 @@ export class DatabaseStorage implements IStorage {
   }
   getAllPmUsers() {
     return db.select().from(pmUsers).all();
+  }
+  updatePmUser(id: number, data: Partial<PmUser>) {
+    db.update(pmUsers).set(data).where(eq(pmUsers.id, id)).run();
   }
 
   // Auth

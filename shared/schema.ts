@@ -9,6 +9,8 @@ export const pmUsers = sqliteTable("pm_users", {
   name: text("name").notNull(),
   password: text("password").notNull().default(""),
   role: text("role").notNull().default("pm"), // "pm" | "admin"
+  defaultFilter: text("default_filter").default("ongoing"), // "ongoing" | "unassigned" | "needs_tr" | "needs_rev" | "assigned" | "all"
+  defaultMyProjects: integer("default_my_projects").default(0), // 0 or 1
 });
 
 // Magic link tokens for authentication

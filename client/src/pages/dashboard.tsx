@@ -194,8 +194,8 @@ export default function DashboardPage() {
   const [sourceFilter, setSourceFilter] = useState("all");
   const [accountFilter, setAccountFilter] = useState("all");
   const [langFilter, setLangFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("ongoing");
-  const [myProjectsOnly, setMyProjectsOnly] = useState(false);
+  const [statusFilter, setStatusFilter] = useState(user?.defaultFilter || "ongoing");
+  const [myProjectsOnly, setMyProjectsOnly] = useState(user?.defaultMyProjects || false);
   const [selectedTaskKey, setSelectedTaskKey] = useState<string | null>(null);
   const [checkedKeys, setCheckedKeys] = useState<Set<string>>(new Set());
 
@@ -605,6 +605,22 @@ export default function DashboardPage() {
     },
   });
 
+  // Save default filter preferences
+  const saveDefaultsMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", "/api/pm-users/preferences", {
+        defaultFilter: statusFilter,
+        defaultMyProjects: myProjectsOnly,
+      });
+    },
+    onSuccess: () => {
+      toast({ title: "Default filters saved", description: `Will open with "${statusFilter}"${myProjectsOnly ? " + My Projects" : ""} next time.` });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error saving defaults", description: err.message, variant: "destructive" });
+    },
+  });
+
   // Submit assignment
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -635,7 +651,7 @@ export default function DashboardPage() {
         autoAssignReviewer: false,
         clientBaseUrl: window.location.href.split("#")[0].replace(/\/$/, ""),
         apiBaseUrl: getPublicApiBase(),
-        reviewType: role === "reviewer" ? reviewType : undefined,
+        reviewType,
       };
       if (customSubject) body.emailSubject = customSubject;
       if (customBody) body.emailBody = customBody;
@@ -680,7 +696,7 @@ export default function DashboardPage() {
           autoAssignReviewer: false,
           clientBaseUrl: window.location.href.split("#")[0].replace(/\/$/, ""),
           apiBaseUrl: getPublicApiBase(),
-          reviewType: bulkMode === "reviewer" ? reviewType : undefined,
+          reviewType,
           ...(customSubject ? { emailSubject: customSubject } : {}),
           ...(customBody ? { emailBody: customBody } : {}),
         });
@@ -807,7 +823,7 @@ export default function DashboardPage() {
         freelancerCode: f.resourceCode,
         freelancerName: f.fullName,
         freelancerEmail: f.email,
-        reviewType: role === "reviewer" ? reviewType : undefined,
+        reviewType,
       });
       return res.json();
     },
@@ -1086,6 +1102,18 @@ export default function DashboardPage() {
             >
               My Projects
             </button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => saveDefaultsMutation.mutate()}
+              disabled={saveDefaultsMutation.isPending}
+              title="Save current status filter and My Projects toggle as your default view"
+              data-testid="button-save-defaults"
+            >
+              {saveDefaultsMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+              <span className="ml-1 hidden sm:inline">Save as Default</span>
+            </Button>
             <span className="text-xs text-muted-foreground ml-auto tabular-nums">
               {filteredTasks.length} tasks
             </span>
@@ -1558,26 +1586,30 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Review Type selector (only when role is reviewer) */}
-                {(bulkMode === "reviewer" || (!bulkMode && role === "reviewer")) && (
-                  <div className="flex items-center gap-3">
-                    <label className="text-xs font-medium text-muted-foreground w-10">Rev</label>
-                    <div className="flex gap-1">
-                      {(["Full Review", "Self-Edit", "LQA", "QA"] as const).map((rt) => (
-                        <button
-                          key={rt}
-                          onClick={() => setReviewType(rt)}
-                          data-testid={`button-revtype-${rt.toLowerCase().replace(" ", "-")}`}
-                          className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                            reviewType === rt ? "bg-purple-500/10 text-purple-600 border border-purple-500/30" : "bg-muted text-muted-foreground"
-                          }`}
-                        >
-                          {rt}
-                        </button>
-                      ))}
-                    </div>
+                {/* Review Type selector — always visible */}
+                <div className="flex items-center gap-3">
+                  <label className="text-xs font-medium text-muted-foreground w-10">Rev</label>
+                  <div className="flex gap-1">
+                    {(["Full Review", "Self-Edit", "LQA", "QA"] as const).map((rt) => (
+                      <button
+                        key={rt}
+                        onClick={() => {
+                          setReviewType(rt);
+                          // Self-Edit: auto-switch to reviewer role (writes same code to TR+REV)
+                          if (rt === "Self-Edit" && !bulkMode) {
+                            setRole("reviewer");
+                          }
+                        }}
+                        data-testid={`button-revtype-${rt.toLowerCase().replace(" ", "-")}`}
+                        className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                          reviewType === rt ? "bg-purple-500/10 text-purple-600 border border-purple-500/30" : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {rt}
+                      </button>
+                    ))}
                   </div>
-                )}
+                </div>
               </div>
 
               {/* Selected freelancers chips */}

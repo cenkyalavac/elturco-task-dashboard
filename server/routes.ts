@@ -361,7 +361,7 @@ export async function registerRoutes(server: Server, app: Express) {
     const expiresAt = new Date(Date.now() + SESSION_EXPIRY_HOURS * 3600 * 1000).toISOString();
     storage.createSession(sessionToken, pmUser.id, expiresAt);
 
-    res.json({ token: sessionToken, user: { id: pmUser.id, email: pmUser.email, name: pmUser.name, role: pmUser.role } });
+    res.json({ token: sessionToken, user: { id: pmUser.id, email: pmUser.email, name: pmUser.name, role: pmUser.role, defaultFilter: pmUser.defaultFilter || "ongoing", defaultMyProjects: !!pmUser.defaultMyProjects } });
   });
 
   // ---- REDIRECT ENDPOINTS (no '#' in URL — safe for email clients) ----
@@ -1097,6 +1097,23 @@ const freelancers = (Array.isArray(data) ? data : [])
     if (existing) return res.status(400).json({ error: "This email is already registered." });
     const user = storage.createPmUser({ email: email.toLowerCase().trim(), name, password, role: role || "pm" });
     res.json(user);
+  });
+
+  // Update PM preferences (default filter, my projects)
+  app.post("/api/pm-users/preferences", requireAuth, (req: Request, res: Response) => {
+    const { defaultFilter, defaultMyProjects } = req.body;
+    const session = storage.getSession(req.headers.authorization!.replace("Bearer ", ""));
+    if (!session) return res.status(401).json({ error: "Unauthorized" });
+    const user = storage.getAllPmUsers().find(u => u.id === session.pmUserId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    // Update using raw SQL since we don't have a dedicated update method for these fields
+    const updates: any = {};
+    if (defaultFilter !== undefined) updates.defaultFilter = defaultFilter;
+    if (defaultMyProjects !== undefined) updates.defaultMyProjects = defaultMyProjects ? 1 : 0;
+    if (Object.keys(updates).length > 0) {
+      storage.updatePmUser(user.id, updates);
+    }
+    res.json({ success: true });
   });
 
   // ---- BULK COMPLETE ----

@@ -6,6 +6,8 @@ interface User {
   email: string;
   name: string;
   role: string;
+  defaultFilter?: string;
+  defaultMyProjects?: boolean;
 }
 
 interface AuthContextType {
