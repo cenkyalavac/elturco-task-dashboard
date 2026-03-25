@@ -40,6 +40,7 @@ export default function RespondPage() {
   const [actionResult, setActionResult] = useState<{ success: boolean; message: string } | null>(null);
   const [showTimeInput, setShowTimeInput] = useState(false);
   const [timeSpent, setTimeSpent] = useState("");
+  const [qsScore, setQsScore] = useState("");
 
   useEffect(() => {
     if (!token) return;
@@ -67,6 +68,9 @@ export default function RespondPage() {
       // For complete action, add timeSpent if reviewer (non-self-edit)
       if (action === "complete" && timeSpent) {
         bodyData.timeSpent = parseInt(timeSpent, 10);
+      }
+      if (action === "complete" && qsScore) {
+        bodyData.qsScore = parseFloat(qsScore);
       }
       const res = await fetch(`${API_BASE}/api/offers/${token}/${action}`, {
         method: "POST",
@@ -299,6 +303,27 @@ export default function RespondPage() {
                         data-testid="input-time-spent"
                       />
                     </div>
+                    {/* QS Score Selector */}
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1.5">QS Score <span className="opacity-60">(optional)</span></p>
+                      <div className="flex flex-wrap gap-1.5" data-testid="qs-score-selector">
+                        {["1", "1.5", "2", "2.5", "3", "3.5", "4", "4.5", "5"].map((score) => (
+                          <button
+                            key={score}
+                            type="button"
+                            className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                              qsScore === score
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : "bg-transparent text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
+                            }`}
+                            onClick={() => setQsScore(qsScore === score ? "" : score)}
+                            data-testid={`qs-btn-${score}`}
+                          >
+                            {score}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     <div className="flex gap-2">
                       <Button
                         className="flex-1"
@@ -310,7 +335,7 @@ export default function RespondPage() {
                         {actionLoading === "complete" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
                         Confirm
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={() => { setShowTimeInput(false); setTimeSpent(""); }}>
+                      <Button variant="ghost" size="sm" onClick={() => { setShowTimeInput(false); setTimeSpent(""); setQsScore(""); }}>
                         Cancel
                       </Button>
                     </div>

@@ -258,12 +258,25 @@ function extractTrDone(row: any, sheet: string): string {
   return getCol(row, "TR\nDone?", "TR Done?", "TR Dlvr", "TR Dlvr?", "TR Dlv?");
 }
 function extractDelivered(row: any): string {
-  const v = getCol(row, "Delivered?", "Delivered").toLowerCase();
+  const v = getCol(row, "Delivered?", "Delivered").toLowerCase().trim();
   if (v === "yes" || v === "y") return "Delivered";
   if (v === "cancelled" || v === "canceled") return "Cancelled";
+  if (v === "on hold" || v === "onhold" || v === "on-hold") return "On Hold";
   if (!v) return "Ongoing";
+  // Any other non-empty value is NOT ongoing — return as-is with capital
   return v.charAt(0).toUpperCase() + v.slice(1);
 }
+// Parse deadline string (DD.MM.YYYY HH:mm) to Date
+function parseDeadline(d: string): Date | null {
+  if (!d) return null;
+  // Try DD.MM.YYYY HH:mm format
+  const m = d.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})\s*(\d{1,2}):(\d{2})/);
+  if (m) return new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5]);
+  // Try ISO or other parseable format
+  const parsed = new Date(d);
+  return isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function extractDeadline(row: any, sheet: string): string {
   return getCol(row, "TR\nDeadline", "TR Deadline");
 }
@@ -1054,23 +1067,24 @@ const freelancers = (Array.isArray(data) ? data : [])
     storage.updateAssignment(assignment.id, { status: "completed", completedAt: now });
 
     // Write-back to sheet: mark task as done
-    const { timeSpent } = req.body || {};
+    const { timeSpent, qsScore } = req.body || {};
     const role = assignment.role;
     const reviewType = assignment.reviewType || "";
 
     try {
       if (role === "translator") {
-        // Translator completed: write "Yes" to TR Done column
         await safeWriteStatusToSheet(assignment, "trDone", "Yes");
       } else if (role === "reviewer") {
         if (reviewType === "Self-Edit") {
-          // Self-Edit: write "Yes" to both TR Done and Rev Complete
           await safeWriteStatusToSheet(assignment, "trDone", "Yes");
           await safeWriteStatusToSheet(assignment, "revComplete", "Yes");
         } else {
-          // Normal reviewer: write time spent (or "Yes") to Rev Complete
           const revValue = timeSpent ? String(timeSpent) : "Yes";
           await safeWriteStatusToSheet(assignment, "revComplete", revValue);
+        }
+        // Write QS score to sheet if provided (reviewer only)
+        if (qsScore && role === "reviewer") {
+          await safeWriteQsToSheet(assignment, String(qsScore));
         }
       }
     } catch (e) {
@@ -1330,6 +1344,108 @@ const freelancers = (Array.isArray(data) ? data : [])
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
       res.setHeader("Content-Disposition", `attachment; filename=dispatch-export-${new Date().toISOString().slice(0,10)}.xlsx`);
       res.send(buf);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Write QS to sheet
+  async function safeWriteQsToSheet(assignment: any, qsValue: string) {
+    try {
+      const configs = storage.getAllSheetConfigs();
+      const config = configs.find(c => c.source === assignment.source && c.sheet === assignment.sheet);
+      if (!config?.sheetDbId) return;
+      const apiId = config.sheetDbId;
+      const sheet = assignment.sheet;
+      const projectId = assignment.projectId;
+      const idCol = sheet === "TPT" ? "ATMS ID" 
+        : (sheet === "Assignments" || sheet === "RU Assignments" || sheet === "AR Assignments") ? "ID" 
+        : "Project ID";
+      const qsCol = "QS";
+      const writeUrl = `https://sheetdb.io/api/v1/${apiId}/${encodeURIComponent(idCol)}/${encodeURIComponent(projectId)}?sheet=${encodeURIComponent(sheet)}`;
+      await fetch(writeUrl, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: { [qsCol]: qsValue } }),
+      });
+      console.log(`Sheet QS write OK: QS=${qsValue} for project ${projectId}`);
+    } catch (e) {
+      console.error("Sheet QS write error (non-fatal):", e);
+    }
+  }
+
+  // ---- ELTS AVAILABILITY WRITE (PM edit → ELTS) ----
+  app.post("/api/elts/availability", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { freelancerCode, date, status, hours, notes } = req.body;
+      if (!freelancerCode || !date || !status) return res.status(400).json({ error: "Missing fields" });
+
+      // Resolve freelancer code to ELTS ID
+      const flRes = await fetch(BASE44_API, {
+        headers: { "Content-Type": "application/json", "api_key": BASE44_KEY },
+      });
+      const freelancers = await flRes.json();
+      const fl = (Array.isArray(freelancers) ? freelancers : []).find((f: any) => f.resource_code === freelancerCode);
+      if (!fl) return res.status(404).json({ error: `Freelancer ${freelancerCode} not found in ELTS` });
+
+      const availUrl = BASE44_API.replace("/entities/Freelancer", "/entities/Availability");
+
+      // Check if record already exists for this freelancer+date
+      const existingRes = await fetch(availUrl, {
+        headers: { "Content-Type": "application/json", "api_key": BASE44_KEY },
+      });
+      const allAvail = await existingRes.json();
+      const existing = (Array.isArray(allAvail) ? allAvail : []).find(
+        (a: any) => a.freelancer_id === fl.id && a.date === date
+      );
+
+      if (existing) {
+        // Update
+        await fetch(`${availUrl}/${existing.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", "api_key": BASE44_KEY },
+          body: JSON.stringify({ status, hours_available: hours || 0, notes: notes || "" }),
+        });
+        res.json({ success: true, action: "updated", id: existing.id });
+      } else {
+        // Create
+        const createRes = await fetch(availUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "api_key": BASE44_KEY },
+          body: JSON.stringify({ freelancer_id: fl.id, date, status, hours_available: hours || 0, notes: notes || "" }),
+        });
+        const created = await createRes.json();
+        res.json({ success: true, action: "created", id: created.id });
+      }
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/elts/availability/:freelancerCode/:date", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { freelancerCode, date } = req.params;
+      const flRes = await fetch(BASE44_API, {
+        headers: { "Content-Type": "application/json", "api_key": BASE44_KEY },
+      });
+      const freelancers = await flRes.json();
+      const fl = (Array.isArray(freelancers) ? freelancers : []).find((f: any) => f.resource_code === freelancerCode);
+      if (!fl) return res.status(404).json({ error: "Freelancer not found" });
+
+      const availUrl = BASE44_API.replace("/entities/Freelancer", "/entities/Availability");
+      const allAvail = await fetch(availUrl, {
+        headers: { "Content-Type": "application/json", "api_key": BASE44_KEY },
+      }).then(r => r.json());
+      const existing = (Array.isArray(allAvail) ? allAvail : []).find(
+        (a: any) => a.freelancer_id === fl.id && a.date === date
+      );
+      if (!existing) return res.status(404).json({ error: "No availability record for this date" });
+
+      await fetch(`${availUrl}/${existing.id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", "api_key": BASE44_KEY },
+      });
+      res.json({ success: true });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -1843,9 +1959,82 @@ const freelancers = (Array.isArray(data) ? data : [])
     sendSlackNotification(`\u274c ${freelancerName} declined ${role} for ${projectId}.`);
   }
 
-  // ---- ANALYTICS ----
+  // ---- ANALYTICS (with sheet data cache) ----
+  let sheetAnalyticsCache: { data: any; timestamp: number } | null = null;
+  const ANALYTICS_CACHE_MS = 5 * 60 * 1000; // 5 minutes
+
   app.get("/api/analytics", requireAuth, async (_req: Request, res: Response) => {
     try {
+      // Fetch sheet tasks with cache
+      let allSheetTasks: any[] = [];
+      if (sheetAnalyticsCache && Date.now() - sheetAnalyticsCache.timestamp < ANALYTICS_CACHE_MS) {
+        allSheetTasks = sheetAnalyticsCache.data;
+      } else {
+        const configs = storage.getAllSheetConfigs();
+        const byApiId = new Map<string, typeof configs>();
+        for (const c of configs) {
+          if (!c.sheetDbId) continue;
+          if (!byApiId.has(c.sheetDbId)) byApiId.set(c.sheetDbId, []);
+          byApiId.get(c.sheetDbId)!.push(c);
+        }
+        const promises: Promise<void>[] = [];
+        byApiId.forEach((cfgs, apiId) => {
+          for (const cfg of cfgs) {
+            promises.push(
+              fetchSheetTasks(apiId, cfg.sheet, cfg.sheet, cfg.source)
+                .then(rows => { allSheetTasks.push(...rows); })
+            );
+          }
+        });
+        await Promise.all(promises);
+        sheetAnalyticsCache = { data: allSheetTasks, timestamp: Date.now() };
+      }
+
+      // Sheet-based analytics
+      const byAccount: Record<string, { count: number; totalWwc: number }> = {};
+      const bySource: Record<string, number> = {};
+      const byStatus: Record<string, number> = {};
+      const byMonth: Record<string, { count: number; wwc: number }> = {};
+      const freelancerWwc: Record<string, { name: string; wwc: number; tasks: number; qsScores: number[] }> = {};
+
+      for (const t of allSheetTasks) {
+        // By account
+        const acc = t.account || "Unknown";
+        if (!byAccount[acc]) byAccount[acc] = { count: 0, totalWwc: 0 };
+        byAccount[acc].count++;
+        const wwc = parseFloat((t.wwc || "0").toString().replace(/[^\d.,]/g, "").replace(",", "."));
+        byAccount[acc].totalWwc += wwc;
+
+        // By source
+        const src = `${t.source}/${t.sheet}`;
+        bySource[src] = (bySource[src] || 0) + 1;
+
+        // By delivered status
+        byStatus[t.delivered || "Unknown"] = (byStatus[t.delivered || "Unknown"] || 0) + 1;
+
+        // By month (from deadline)
+        if (t.deadline) {
+          const d = parseDeadline(t.deadline);
+          if (d) {
+            const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+            if (!byMonth[month]) byMonth[month] = { count: 0, wwc: 0 };
+            byMonth[month].count++;
+            byMonth[month].wwc += wwc;
+          }
+        }
+
+        // Freelancer performance
+        const tr = (t.translator || "").trim();
+        if (tr && tr !== "XX") {
+          if (!freelancerWwc[tr]) freelancerWwc[tr] = { name: tr, wwc: 0, tasks: 0, qsScores: [] };
+          freelancerWwc[tr].wwc += wwc;
+          freelancerWwc[tr].tasks++;
+          const qs = parseFloat(t.qs || "0");
+          if (qs > 0) freelancerWwc[tr].qsScores.push(qs);
+        }
+      }
+
+      // Dispatch assignment analytics
       const allAssignments = storage.getAllAssignments();
 
       // Assignments by day
@@ -1905,15 +2094,32 @@ const freelancers = (Array.isArray(data) ? data : [])
         ? Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length)
         : null;
 
+      // Freelancer performance top 15
+      const topFreelancersByWwc = Object.entries(freelancerWwc)
+        .map(([code, d]) => ({
+          code, name: d.name, wwc: Math.round(d.wwc), tasks: d.tasks,
+          avgQs: d.qsScores.length > 0 ? Math.round(d.qsScores.reduce((a,b) => a+b, 0) / d.qsScores.length * 10) / 10 : null,
+        }))
+        .sort((a, b) => b.wwc - a.wwc)
+        .slice(0, 15);
+
       res.json({
+        // Dispatch data
         byDay: Object.entries(byDay).sort(([a], [b]) => a.localeCompare(b)),
-        byRole, byType, byStatus,
-        topFreelancers: Object.entries(topFreelancers)
+        byRole, byType,
+        dispatchTopFreelancers: Object.entries(topFreelancers)
           .sort(([, a], [, b]) => b.accepted - a.accepted)
           .slice(0, 10),
         totalAssignments: allAssignments.length,
         totalOffers: allOffers.length,
         avgResponseTimeMinutes: avgResponseTime,
+        // Sheet data
+        totalSheetTasks: allSheetTasks.length,
+        byAccount: Object.entries(byAccount).sort(([,a], [,b]) => b.count - a.count),
+        bySource: Object.entries(bySource).sort(([,a], [,b]) => b - a),
+        byStatus,
+        byMonth: Object.entries(byMonth).sort(([a], [b]) => a.localeCompare(b)),
+        topFreelancersByWwc,
       });
     } catch (e: any) {
       res.status(500).json({ error: e.message });

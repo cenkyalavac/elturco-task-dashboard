@@ -508,6 +508,15 @@ export default function DashboardPage() {
   // T2.6: Email preview modal
   const [showEmailPreviewModal, setShowEmailPreviewModal] = useState(false);
 
+  // Availability Calendar
+  const [calendarFreelancer, setCalendarFreelancer] = useState<string | null>(null);
+  const [calendarMonth, setCalendarMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
+  const [editingDay, setEditingDay] = useState<string | null>(null);
+  const [editDayStatus, setEditDayStatus] = useState("unavailable");
+  const [editDayHours, setEditDayHours] = useState("");
+  const [editDayNotes, setEditDayNotes] = useState("");
+  const [savingAvail, setSavingAvail] = useState(false);
+
   // T2.7: Mobile filter toggle
   const isMobile = useIsMobile();
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
@@ -830,11 +839,12 @@ export default function DashboardPage() {
 
       const revDone = isRevCompleted(t);
 
-      if (statusFilter === "ongoing" && (revDone || t.delivered === "Delivered")) return false;
+      const isTerminal = t.delivered === "Delivered" || t.delivered === "Cancelled" || t.delivered === "On Hold";
+      if (statusFilter === "ongoing" && (revDone || isTerminal)) return false;
       if (statusFilter === "needs_tr" && !nTR) return false;
       if (statusFilter === "needs_rev" && !nREV) return false;
       if (statusFilter === "unassigned" && !isUnassigned) return false;
-      if (statusFilter === "assigned" && (isUnassigned || t.delivered === "Delivered")) return false;
+      if (statusFilter === "assigned" && (isUnassigned || isTerminal)) return false;
       if (statusFilter === "delivered" && t.delivered !== "Delivered") return false;
       // Overdue filter
       if (statusFilter === "overdue") {
@@ -965,7 +975,7 @@ export default function DashboardPage() {
   // Stats
   const stats = useMemo(() => {
     if (!tasks) return { total: 0, ongoing: 0, needsTR: 0, needsREV: 0, assigned: 0, completed: 0, pastDeadline: 0 };
-    const nonDelivered = tasks.filter((t) => t.delivered !== "Delivered");
+    const nonDelivered = tasks.filter((t) => t.delivered !== "Delivered" && t.delivered !== "Cancelled" && t.delivered !== "On Hold");
     const ongoing = nonDelivered.filter(t => !isRevCompleted(t)).length;
     const nTR = nonDelivered.filter(needsTranslator).length;
     const nREV = nonDelivered.filter(needsReviewer).length;
@@ -2869,14 +2879,15 @@ export default function DashboardPage() {
                                   <span className="tabular-nums">QS: {fStats.avgQs}</span>
                                 </>
                               ) : null}
-                              {/* Availability indicator */}
+                              {/* Availability indicator — clickable to open calendar */}
                               {isUnavailableToday && (
                                 <>
                                   <span className="text-muted-foreground/40">·</span>
                                   <span
-                                    className="inline-flex items-center gap-1 text-red-400"
+                                    className="inline-flex items-center gap-1 text-red-400 cursor-pointer hover:underline"
                                     title={availTooltip}
                                     data-testid={`avail-${f.resourceCode}`}
+                                    onClick={(e) => { e.stopPropagation(); setCalendarFreelancer(f.resourceCode); setCalendarMonth({ year: new Date().getFullYear(), month: new Date().getMonth() }); }}
                                   >
                                     <span className="w-1.5 h-1.5 rounded-full bg-red-400 inline-block" />
                                     Off today
@@ -2887,9 +2898,10 @@ export default function DashboardPage() {
                                 <>
                                   <span className="text-muted-foreground/40">·</span>
                                   <span
-                                    className="inline-flex items-center gap-1 text-amber-400"
+                                    className="inline-flex items-center gap-1 text-amber-400 cursor-pointer hover:underline"
                                     title={availTooltip}
                                     data-testid={`avail-${f.resourceCode}`}
+                                    onClick={(e) => { e.stopPropagation(); setCalendarFreelancer(f.resourceCode); setCalendarMonth({ year: new Date().getFullYear(), month: new Date().getMonth() }); }}
                                   >
                                     <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" />
                                     {todayAvail?.hours}h today
@@ -2900,12 +2912,26 @@ export default function DashboardPage() {
                                 <>
                                   <span className="text-muted-foreground/40">·</span>
                                   <span
-                                    className="inline-flex items-center gap-1 text-amber-400/70"
+                                    className="inline-flex items-center gap-1 text-amber-400/70 cursor-pointer hover:underline"
                                     title={availTooltip}
                                     data-testid={`avail-upcoming-${f.resourceCode}`}
+                                    onClick={(e) => { e.stopPropagation(); setCalendarFreelancer(f.resourceCode); setCalendarMonth({ year: new Date().getFullYear(), month: new Date().getMonth() }); }}
                                   >
                                     <span className="w-1.5 h-1.5 rounded-full bg-amber-400/60 inline-block" />
                                     Off {upcomingOff.start}{upcomingOff.start !== upcomingOff.end ? `-${upcomingOff.end}` : ""}
+                                  </span>
+                                </>
+                              )}
+                              {/* Calendar icon — always visible for PM to click */}
+                              {!isUnavailableToday && !isPartialToday && !upcomingOff && (
+                                <>
+                                  <span className="text-muted-foreground/40">·</span>
+                                  <span
+                                    className="inline-flex items-center gap-1 text-muted-foreground/50 cursor-pointer hover:text-muted-foreground"
+                                    data-testid={`avail-calendar-${f.resourceCode}`}
+                                    onClick={(e) => { e.stopPropagation(); setCalendarFreelancer(f.resourceCode); setCalendarMonth({ year: new Date().getFullYear(), month: new Date().getMonth() }); }}
+                                  >
+                                    <CalendarClock className="w-3 h-3" />
                                   </span>
                                 </>
                               )}
@@ -3093,6 +3119,205 @@ export default function DashboardPage() {
               Send
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Availability Calendar Dialog ── */}
+      <Dialog open={!!calendarFreelancer} onOpenChange={(open) => { if (!open) { setCalendarFreelancer(null); setEditingDay(null); } }}>
+        <DialogContent className="max-w-lg" data-testid="availability-calendar-dialog">
+          <DialogHeader>
+            <DialogTitle className="text-sm font-semibold">
+              Availability — {calendarFreelancer}
+              {freelancers?.find(f => f.resourceCode === calendarFreelancer)?.fullName
+                ? ` (${freelancers.find(f => f.resourceCode === calendarFreelancer)!.fullName})`
+                : ""}
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">Click a day to add or edit availability.</DialogDescription>
+          </DialogHeader>
+          {(() => {
+            const { year, month } = calendarMonth;
+            const firstDay = new Date(year, month, 1);
+            const lastDay = new Date(year, month + 1, 0);
+            const startDow = firstDay.getDay(); // 0=Sun
+            const daysInMonth = lastDay.getDate();
+            const monthLabel = firstDay.toLocaleString("en-US", { month: "long", year: "numeric" });
+            const fDays = calendarFreelancer ? (eltsAvailability?.[calendarFreelancer] || []) : [];
+            const dayMap = new Map(fDays.map(d => [d.date, d]));
+
+            const cells: (number | null)[] = [];
+            for (let i = 0; i < startDow; i++) cells.push(null);
+            for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+            while (cells.length % 7 !== 0) cells.push(null);
+
+            const todayStr = new Date().toISOString().slice(0, 10);
+
+            return (
+              <div className="space-y-3">
+                {/* Month nav */}
+                <div className="flex items-center justify-between">
+                  <Button variant="ghost" size="sm" onClick={() => setCalendarMonth(prev => {
+                    const d = new Date(prev.year, prev.month - 1, 1);
+                    return { year: d.getFullYear(), month: d.getMonth() };
+                  })} data-testid="calendar-prev-month">
+                    <ChevronUp className="w-4 h-4 -rotate-90" />
+                  </Button>
+                  <span className="text-sm font-medium text-foreground" data-testid="calendar-month-label">{monthLabel}</span>
+                  <Button variant="ghost" size="sm" onClick={() => setCalendarMonth(prev => {
+                    const d = new Date(prev.year, prev.month + 1, 1);
+                    return { year: d.getFullYear(), month: d.getMonth() };
+                  })} data-testid="calendar-next-month">
+                    <ChevronUp className="w-4 h-4 rotate-90" />
+                  </Button>
+                </div>
+
+                {/* Calendar grid */}
+                <div className="grid grid-cols-7 gap-1 text-center">
+                  {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map(d => (
+                    <div key={d} className="text-[10px] text-muted-foreground font-medium py-1">{d}</div>
+                  ))}
+                  {cells.map((day, idx) => {
+                    if (day === null) return <div key={`e-${idx}`} />;
+                    const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                    const avail = dayMap.get(dateStr);
+                    const isToday = dateStr === todayStr;
+                    const isEditing = editingDay === dateStr;
+                    let bgColor = "bg-transparent hover:bg-white/[0.04]";
+                    let dotColor = "";
+                    if (avail) {
+                      if (avail.status === "unavailable") { bgColor = "bg-red-500/15 hover:bg-red-500/25"; dotColor = "bg-red-400"; }
+                      else if (avail.status === "partially_available") { bgColor = "bg-amber-500/15 hover:bg-amber-500/25"; dotColor = "bg-amber-400"; }
+                      else if (avail.status === "available") { bgColor = "bg-emerald-500/15 hover:bg-emerald-500/25"; dotColor = "bg-emerald-400"; }
+                    }
+                    return (
+                      <button
+                        key={dateStr}
+                        className={`relative p-1.5 rounded-md text-xs cursor-pointer transition-colors ${bgColor} ${isToday ? "ring-1 ring-primary/50" : ""} ${isEditing ? "ring-2 ring-primary" : ""}`}
+                        onClick={() => {
+                          setEditingDay(dateStr);
+                          if (avail) {
+                            setEditDayStatus(avail.status);
+                            setEditDayHours(avail.hours ? String(avail.hours) : "");
+                            setEditDayNotes(avail.notes || "");
+                          } else {
+                            setEditDayStatus("unavailable");
+                            setEditDayHours("");
+                            setEditDayNotes("");
+                          }
+                        }}
+                        data-testid={`cal-day-${dateStr}`}
+                      >
+                        <span className="text-foreground">{day}</span>
+                        {dotColor && <span className={`absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full ${dotColor}`} />}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Legend */}
+                <div className="flex items-center gap-3 text-[10px] text-muted-foreground justify-center">
+                  <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400" />Available</span>
+                  <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400" />Partial</span>
+                  <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-400" />Unavailable</span>
+                </div>
+
+                {/* Edit form for selected day */}
+                {editingDay && (
+                  <div className="border border-white/[0.06] rounded-lg p-3 space-y-2.5 bg-muted/20" data-testid="avail-edit-form">
+                    <p className="text-xs font-medium text-foreground">Edit: {editingDay}</p>
+                    <div className="flex items-center gap-2">
+                      <Select value={editDayStatus} onValueChange={setEditDayStatus}>
+                        <SelectTrigger className="h-8 text-xs flex-1" data-testid="avail-status-select">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="available">Available</SelectItem>
+                          <SelectItem value="partially_available">Partially Available</SelectItem>
+                          <SelectItem value="unavailable">Unavailable</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {editDayStatus === "partially_available" && (
+                        <Input
+                          type="number"
+                          placeholder="Hours"
+                          value={editDayHours}
+                          onChange={e => setEditDayHours(e.target.value)}
+                          className="h-8 w-20 text-xs"
+                          data-testid="avail-hours-input"
+                        />
+                      )}
+                    </div>
+                    <Textarea
+                      placeholder="Notes (optional)"
+                      value={editDayNotes}
+                      onChange={e => setEditDayNotes(e.target.value)}
+                      className="text-xs min-h-[50px] resize-none"
+                      data-testid="avail-notes-input"
+                    />
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        className="flex-1 h-7 text-xs"
+                        disabled={savingAvail}
+                        data-testid="avail-save-btn"
+                        onClick={async () => {
+                          if (!calendarFreelancer || !editingDay) return;
+                          setSavingAvail(true);
+                          try {
+                            await apiRequest("POST", "/api/elts/availability", {
+                              freelancerCode: calendarFreelancer,
+                              date: editingDay,
+                              status: editDayStatus,
+                              hours: editDayHours ? parseFloat(editDayHours) : 0,
+                              notes: editDayNotes,
+                            });
+                            queryClient.invalidateQueries({ queryKey: ["/api/elts/availability"] });
+                            toast({ title: "Saved", description: `Availability for ${editingDay} updated.` });
+                            setEditingDay(null);
+                          } catch (err: any) {
+                            toast({ title: "Error", description: err?.message || "Failed to save.", variant: "destructive" });
+                          } finally {
+                            setSavingAvail(false);
+                          }
+                        }}
+                      >
+                        {savingAvail ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Save className="w-3 h-3 mr-1" />}
+                        Save
+                      </Button>
+                      {dayMap.has(editingDay) && (
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          className="h-7 text-xs"
+                          disabled={savingAvail}
+                          data-testid="avail-delete-btn"
+                          onClick={async () => {
+                            if (!calendarFreelancer || !editingDay) return;
+                            setSavingAvail(true);
+                            try {
+                              await apiRequest("DELETE", `/api/elts/availability/${calendarFreelancer}/${editingDay}`);
+                              queryClient.invalidateQueries({ queryKey: ["/api/elts/availability"] });
+                              toast({ title: "Deleted", description: `Availability for ${editingDay} removed.` });
+                              setEditingDay(null);
+                            } catch (err: any) {
+                              toast({ title: "Error", description: err?.message || "Failed to delete.", variant: "destructive" });
+                            } finally {
+                              setSavingAvail(false);
+                            }
+                          }}
+                        >
+                          <Trash2 className="w-3 h-3 mr-1" />
+                          Delete
+                        </Button>
+                      )}
+                      <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEditingDay(null)} data-testid="avail-cancel-btn">
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </DialogContent>
       </Dialog>
     </div>
