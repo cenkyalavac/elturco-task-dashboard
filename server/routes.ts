@@ -2045,9 +2045,46 @@ const freelancers = (Array.isArray(data) ? data : [])
   }
 
   // ---- ANALYTICS (uses shared task cache) ----
-  app.get("/api/analytics", requireAuth, async (_req: Request, res: Response) => {
+  // ── Analytics filter options ──
+  app.get("/api/analytics/filters", requireAuth, async (_req: Request, res: Response) => {
     try {
       const allSheetTasks = await getAllTasksCached();
+      const sources = new Set<string>();
+      const accounts = new Set<string>();
+      for (const t of allSheetTasks) {
+        if (t.source) sources.add(t.source);
+        if (t.account) accounts.add(t.account);
+      }
+      res.json({
+        sources: [...sources].sort(),
+        accounts: [...accounts].sort(),
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/analytics", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const allSheetTasksRaw = await getAllTasksCached();
+
+      // ── Apply filters ──
+      const fSource = req.query.source ? String(req.query.source).split(",") : null;
+      const fAccount = req.query.account ? String(req.query.account).split(",") : null;
+      const fDateFrom = req.query.dateFrom ? new Date(String(req.query.dateFrom)) : null;
+      const fDateTo = req.query.dateTo ? new Date(String(req.query.dateTo) + "T23:59:59") : null;
+
+      const allSheetTasks = allSheetTasksRaw.filter((t: any) => {
+        if (fSource && !fSource.includes(t.source)) return false;
+        if (fAccount && !fAccount.includes(t.account)) return false;
+        if (fDateFrom || fDateTo) {
+          const d = t.deadline ? parseDeadline(t.deadline) : null;
+          if (!d) return false;
+          if (fDateFrom && d < fDateFrom) return false;
+          if (fDateTo && d > fDateTo) return false;
+        }
+        return true;
+      });
 
       // Sheet-based analytics
       const byAccount: Record<string, { count: number; totalWwc: number }> = {};
@@ -2094,7 +2131,12 @@ const freelancers = (Array.isArray(data) ? data : [])
       }
 
       // Dispatch assignment analytics
-      const allAssignments = storage.getAllAssignments();
+      const allAssignmentsRaw = storage.getAllAssignments();
+      const allAssignments = allAssignmentsRaw.filter((a: any) => {
+        if (fSource && !fSource.includes(a.source)) return false;
+        if (fAccount && !fAccount.includes(a.account)) return false;
+        return true;
+      });
 
       // Assignments by day
       const byDay: Record<string, { created: number; accepted: number; completed: number }> = {};

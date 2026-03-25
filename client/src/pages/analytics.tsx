@@ -1,10 +1,14 @@
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   BarChart3, Activity, Clock, FileSpreadsheet, TrendingUp, Users,
+  Filter, X, ChevronDown, RotateCcw,
 } from "lucide-react";
 import {
   BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area,
@@ -12,6 +16,20 @@ import {
 } from "recharts";
 
 const COLORS = ["#3b82f6", "#8b5cf6", "#10b981", "#f59e0b", "#ef4444", "#ec4899", "#06b6d4", "#84cc16"];
+
+type DatePreset = "30D" | "3M" | "6M" | "1Y" | "All";
+
+function getDateRange(preset: DatePreset): { dateFrom: string; dateTo: string } | null {
+  if (preset === "All") return null;
+  const now = new Date();
+  const to = now.toISOString().slice(0, 10);
+  const from = new Date(now);
+  if (preset === "30D") from.setDate(from.getDate() - 30);
+  else if (preset === "3M") from.setMonth(from.getMonth() - 3);
+  else if (preset === "6M") from.setMonth(from.getMonth() - 6);
+  else if (preset === "1Y") from.setFullYear(from.getFullYear() - 1);
+  return { dateFrom: from.toISOString().slice(0, 10), dateTo: to };
+}
 
 function formatNumber(n: number | undefined | null): string {
   if (n === undefined || n === null) return "—";
@@ -21,13 +39,68 @@ function formatNumber(n: number | undefined | null): string {
 }
 
 export default function AnalyticsPage() {
-  const { data, isLoading, error } = useQuery<any>({
-    queryKey: ["/api/analytics"],
+  const [selectedSources, setSelectedSources] = useState<string[]>([]);
+  const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
+  const [datePreset, setDatePreset] = useState<DatePreset>("All");
+  const [sourcePopoverOpen, setSourcePopoverOpen] = useState(false);
+  const [accountPopoverOpen, setAccountPopoverOpen] = useState(false);
+
+  // Fetch filter options
+  const { data: filterOptions } = useQuery<{ sources: string[]; accounts: string[] }>({
+    queryKey: ["/api/analytics/filters"],
     queryFn: async () => {
-      const res = await apiRequest("GET", "/api/analytics");
+      const res = await apiRequest("GET", "/api/analytics/filters");
       return res.json();
     },
   });
+
+  // Build query params from filter state
+  const queryParams = useMemo(() => {
+    const params = new URLSearchParams();
+    if (selectedSources.length > 0) params.set("source", selectedSources.join(","));
+    if (selectedAccounts.length > 0) params.set("account", selectedAccounts.join(","));
+    const dateRange = getDateRange(datePreset);
+    if (dateRange) {
+      params.set("dateFrom", dateRange.dateFrom);
+      params.set("dateTo", dateRange.dateTo);
+    }
+    return params.toString();
+  }, [selectedSources, selectedAccounts, datePreset]);
+
+  const { data, isLoading, error } = useQuery<any>({
+    queryKey: ["/api/analytics", queryParams],
+    queryFn: async () => {
+      const url = queryParams ? `/api/analytics?${queryParams}` : "/api/analytics";
+      const res = await apiRequest("GET", url);
+      return res.json();
+    },
+  });
+
+  // Filter accounts list by selected sources
+  const availableAccounts = useMemo(() => {
+    if (!filterOptions?.accounts) return [];
+    return filterOptions.accounts;
+  }, [filterOptions]);
+
+  const hasFilters = selectedSources.length > 0 || selectedAccounts.length > 0 || datePreset !== "All";
+
+  const resetFilters = () => {
+    setSelectedSources([]);
+    setSelectedAccounts([]);
+    setDatePreset("All");
+  };
+
+  const toggleSource = (src: string) => {
+    setSelectedSources((prev) =>
+      prev.includes(src) ? prev.filter((s) => s !== src) : [...prev, src],
+    );
+  };
+
+  const toggleAccount = (acc: string) => {
+    setSelectedAccounts((prev) =>
+      prev.includes(acc) ? prev.filter((a) => a !== acc) : [...prev, acc],
+    );
+  };
 
   if (isLoading) {
     return (
@@ -112,6 +185,152 @@ export default function AnalyticsPage() {
   return (
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto" data-testid="analytics-page">
       <h1 className="text-lg font-semibold text-foreground">Analytics</h1>
+
+      {/* ── Filter Bar ── */}
+      <div
+        className="flex flex-wrap items-center gap-2 p-3 rounded-lg bg-card border border-white/[0.06]"
+        data-testid="analytics-filter-bar"
+      >
+        <Filter className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+
+        {/* Source multi-select */}
+        <Popover open={sourcePopoverOpen} onOpenChange={setSourcePopoverOpen}>
+          <PopoverTrigger asChild>
+            <button
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-white/[0.04] border border-white/[0.08] text-foreground hover:bg-white/[0.08] transition-colors"
+              data-testid="filter-source-trigger"
+            >
+              Source
+              {selectedSources.length > 0 && (
+                <Badge variant="secondary" className="ml-0.5 px-1.5 py-0 text-[10px] h-4 min-w-0">
+                  {selectedSources.length}
+                </Badge>
+              )}
+              <ChevronDown className="w-3 h-3 text-muted-foreground" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-56 p-2" align="start">
+            <div className="max-h-64 overflow-y-auto space-y-0.5">
+              {(filterOptions?.sources || []).map((src) => (
+                <button
+                  key={src}
+                  onClick={() => toggleSource(src)}
+                  className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors ${
+                    selectedSources.includes(src)
+                      ? "bg-blue-500/15 text-blue-400 font-medium"
+                      : "text-foreground hover:bg-white/[0.06]"
+                  }`}
+                  data-testid={`filter-source-${src}`}
+                >
+                  {src}
+                </button>
+              ))}
+              {(!filterOptions?.sources || filterOptions.sources.length === 0) && (
+                <p className="text-xs text-muted-foreground py-2 text-center">No sources</p>
+              )}
+            </div>
+          </PopoverContent>
+        </Popover>
+
+        {/* Active source pills */}
+        {selectedSources.map((src) => (
+          <span
+            key={src}
+            className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full text-[10px] font-medium bg-blue-500/15 text-blue-400 border border-blue-500/20"
+          >
+            {src}
+            <button onClick={() => toggleSource(src)} className="hover:text-blue-200 p-0.5">
+              <X className="w-2.5 h-2.5" />
+            </button>
+          </span>
+        ))}
+
+        {/* Account multi-select */}
+        <Popover open={accountPopoverOpen} onOpenChange={setAccountPopoverOpen}>
+          <PopoverTrigger asChild>
+            <button
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-white/[0.04] border border-white/[0.08] text-foreground hover:bg-white/[0.08] transition-colors"
+              data-testid="filter-account-trigger"
+            >
+              Account
+              {selectedAccounts.length > 0 && (
+                <Badge variant="secondary" className="ml-0.5 px-1.5 py-0 text-[10px] h-4 min-w-0">
+                  {selectedAccounts.length}
+                </Badge>
+              )}
+              <ChevronDown className="w-3 h-3 text-muted-foreground" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-64 p-2" align="start">
+            <div className="max-h-64 overflow-y-auto space-y-0.5">
+              {availableAccounts.map((acc) => (
+                <button
+                  key={acc}
+                  onClick={() => toggleAccount(acc)}
+                  className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors ${
+                    selectedAccounts.includes(acc)
+                      ? "bg-purple-500/15 text-purple-400 font-medium"
+                      : "text-foreground hover:bg-white/[0.06]"
+                  }`}
+                  data-testid={`filter-account-${acc}`}
+                >
+                  {acc}
+                </button>
+              ))}
+              {availableAccounts.length === 0 && (
+                <p className="text-xs text-muted-foreground py-2 text-center">No accounts</p>
+              )}
+            </div>
+          </PopoverContent>
+        </Popover>
+
+        {/* Active account pills */}
+        {selectedAccounts.map((acc) => (
+          <span
+            key={acc}
+            className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full text-[10px] font-medium bg-purple-500/15 text-purple-400 border border-purple-500/20"
+          >
+            {acc.length > 18 ? acc.slice(0, 16) + "…" : acc}
+            <button onClick={() => toggleAccount(acc)} className="hover:text-purple-200 p-0.5">
+              <X className="w-2.5 h-2.5" />
+            </button>
+          </span>
+        ))}
+
+        {/* Separator */}
+        <div className="w-px h-5 bg-white/[0.08] mx-0.5" />
+
+        {/* Date range presets */}
+        {(["30D", "3M", "6M", "1Y", "All"] as DatePreset[]).map((preset) => (
+          <button
+            key={preset}
+            onClick={() => setDatePreset(preset)}
+            className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
+              datePreset === preset
+                ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/25"
+                : "text-muted-foreground hover:text-foreground hover:bg-white/[0.06]"
+            }`}
+            data-testid={`filter-date-${preset.toLowerCase()}`}
+          >
+            {preset}
+          </button>
+        ))}
+
+        {/* Reset button */}
+        {hasFilters && (
+          <>
+            <div className="w-px h-5 bg-white/[0.08] mx-0.5" />
+            <button
+              onClick={resetFilters}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium text-red-400 hover:bg-red-500/10 transition-colors"
+              data-testid="filter-reset"
+            >
+              <RotateCcw className="w-3 h-3" />
+              Reset
+            </button>
+          </>
+        )}
+      </div>
 
       {/* ── Row 1: KPI Cards ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4" data-testid="kpi-row">
