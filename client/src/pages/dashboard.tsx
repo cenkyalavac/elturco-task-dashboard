@@ -15,6 +15,7 @@ import {
   CheckCircle2, Pencil, Save, Eye, Code, ListOrdered, Trash2,
   Ban, Clock, XCircle, UserCheck, CheckSquare,
   FileSpreadsheet, ArrowUpDown, StickyNote, GripVertical, Mail, Filter,
+  Star, Volume2, VolumeX, CalendarClock, Undo2,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -302,6 +303,50 @@ function buildTaskDetails(t: Task) {
   };
 }
 
+// ── Sound helpers (Web Audio API) ──
+
+function playAcceptSound() {
+  try {
+    const ctx = new AudioContext();
+    const osc1 = ctx.createOscillator();
+    const gain1 = ctx.createGain();
+    osc1.frequency.value = 440;
+    gain1.gain.value = 0.15;
+    osc1.connect(gain1);
+    gain1.connect(ctx.destination);
+    osc1.start(ctx.currentTime);
+    osc1.stop(ctx.currentTime + 0.1);
+
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.frequency.value = 660;
+    gain2.gain.value = 0.15;
+    osc2.connect(gain2);
+    gain2.connect(ctx.destination);
+    osc2.start(ctx.currentTime + 0.1);
+    osc2.stop(ctx.currentTime + 0.2);
+
+    setTimeout(() => ctx.close(), 500);
+  } catch {}
+}
+
+function playRejectSound() {
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.frequency.setValueAtTime(440, ctx.currentTime);
+    osc.frequency.linearRampToValueAtTime(220, ctx.currentTime + 0.15);
+    gain.gain.value = 0.12;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.15);
+
+    setTimeout(() => ctx.close(), 500);
+  } catch {}
+}
+
 // ── Component ──
 
 export default function DashboardPage() {
@@ -381,6 +426,86 @@ export default function DashboardPage() {
   // Search input ref for keyboard shortcut
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  // Feature 1: Notification sounds — mute state (default: muted)
+  const soundMutedRef = useRef(true);
+  const [soundMuted, setSoundMuted] = useState(true);
+  const prevAssignmentsRef = useRef<Assignment[] | null>(null);
+
+  // Feature 2: Freelancer favorites
+  const { data: favorites } = useQuery<string[]>({
+    queryKey: ["/api/favorites"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/favorites");
+      return res.json();
+    },
+    staleTime: 60000,
+  });
+
+  const favoritesSet = useMemo(() => new Set(favorites || []), [favorites]);
+
+  const toggleFavoriteMutation = useMutation({
+    mutationFn: async (freelancerCode: string) => {
+      const res = await apiRequest("POST", "/api/favorites", { freelancerCode });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/favorites"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error toggling favorite", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // Feature 3: Undo last action
+  const [lastAssignmentId, setLastAssignmentId] = useState<number | null>(null);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const undoMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/assignments/${id}/undo`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/assignments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      toast({ title: "Assignment undone" });
+      setLastAssignmentId(null);
+    },
+    onError: (err: any) => {
+      toast({ title: "Undo failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // Feature 4: Batch deadline
+  const [showBatchDeadline, setShowBatchDeadline] = useState(false);
+  const [batchDeadlineValue, setBatchDeadlineValue] = useState("");
+
+  const batchDeadlineMutation = useMutation({
+    mutationFn: async () => {
+      if (!tasks) throw new Error("No tasks");
+      const checkedTasks = tasks.filter(t => checkedKeys.has(taskKey(t)));
+      const taskIds = checkedTasks.map(t => ({
+        source: t.source,
+        sheet: t.sheet,
+        projectId: t.projectId,
+      }));
+      const res = await apiRequest("POST", "/api/tasks/batch-deadline", {
+        tasks: taskIds,
+        deadline: formatDeadlineDisplay(batchDeadlineValue),
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      toast({ title: "Deadlines updated", description: `${checkedKeys.size} tasks updated.` });
+      setShowBatchDeadline(false);
+      setBatchDeadlineValue("");
+    },
+    onError: (err: any) => {
+      toast({ title: "Error setting deadlines", description: err.message, variant: "destructive" });
+    },
+  });
+
   // Queries
   const { data: tasks, isLoading: tasksLoading } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
@@ -399,7 +524,38 @@ export default function DashboardPage() {
       return res.json();
     },
     staleTime: 30000,
+    refetchInterval: 30000,
   });
+
+  // Feature 1: Notification sounds — detect status changes on refetch
+  useEffect(() => {
+    if (!assignments) return;
+    const prev = prevAssignmentsRef.current;
+    if (prev !== null && !soundMutedRef.current) {
+      // Build map of previous offer statuses
+      const prevOfferStatuses = new Map<number, string>();
+      for (const a of prev) {
+        for (const o of (a.offers || [])) {
+          prevOfferStatuses.set(o.id, o.status);
+        }
+      }
+      // Check for new accepted/rejected
+      let hasAccept = false;
+      let hasReject = false;
+      for (const a of assignments) {
+        for (const o of (a.offers || [])) {
+          const prevStatus = prevOfferStatuses.get(o.id);
+          if (prevStatus && prevStatus !== o.status) {
+            if (o.status === "accepted") hasAccept = true;
+            if (o.status === "rejected") hasReject = true;
+          }
+        }
+      }
+      if (hasAccept) playAcceptSound();
+      else if (hasReject) playRejectSound();
+    }
+    prevAssignmentsRef.current = assignments;
+  }, [assignments]);
 
   const { data: freelancers, isLoading: freelancersLoading } = useQuery<Freelancer[]>({
     queryKey: ["/api/freelancers"],
@@ -763,12 +919,16 @@ export default function DashboardPage() {
         return f.accounts?.some(a => matchAccts.includes(a));
       });
     }).sort((a, b) => {
+      // Feature 2: Favorites first
+      const aFav = favoritesSet.has(a.resourceCode) ? 1 : 0;
+      const bFav = favoritesSet.has(b.resourceCode) ? 1 : 0;
+      if (bFav !== aFav) return bFav - aFav;
       const sa = freelancerStats?.[a.resourceCode]?.taskCount || 0;
       const sb = freelancerStats?.[b.resourceCode]?.taskCount || 0;
       if (sb !== sa) return sb - sa;
       return a.fullName.localeCompare(b.fullName);
     });
-  }, [freelancers, bulkMode, bulkSources, selectedFreelancers, freelancerStats]);
+  }, [freelancers, bulkMode, bulkSources, selectedFreelancers, freelancerStats, favoritesSet]);
 
   // XLSX export handler
   const [exporting, setExporting] = useState(false);
@@ -927,13 +1087,17 @@ export default function DashboardPage() {
         return true;
       })
       .sort((a, b) => {
+        // Feature 2: Favorites first
+        const aFav = favoritesSet.has(a.resourceCode) ? 1 : 0;
+        const bFav = favoritesSet.has(b.resourceCode) ? 1 : 0;
+        if (bFav !== aFav) return bFav - aFav;
         // Sort by task count desc (most used first), then alphabetical
         const sa = freelancerStats?.[a.resourceCode]?.taskCount || 0;
         const sb = freelancerStats?.[b.resourceCode]?.taskCount || 0;
         if (sb !== sa) return sb - sa;
         return a.fullName.localeCompare(b.fullName);
       });
-  }, [freelancers, selectedTask, freelancerSearch, selectedFreelancers, taskLangPair, freelancerStats]);
+  }, [freelancers, selectedTask, freelancerSearch, selectedFreelancers, taskLangPair, freelancerStats, favoritesSet]);
 
   // Use bulkFilteredFreelancers in bulk mode, filteredFreelancers otherwise
   const displayFreelancers = bulkMode ? bulkFilteredFreelancers : filteredFreelancers;
@@ -1021,6 +1185,35 @@ export default function DashboardPage() {
     },
   });
 
+  // Feature 3: Helper to show undo toast after assignment
+  function showUndoToast(assignmentId: number) {
+    setLastAssignmentId(assignmentId);
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    const { dismiss } = toast({
+      title: "Task assigned",
+      description: (
+        <div className="flex items-center gap-2">
+          <span>Assignment created.</span>
+          <button
+            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-primary/20 text-primary text-xs font-medium hover:bg-primary/30 transition-colors"
+            data-testid="button-undo-assignment"
+            onClick={() => {
+              undoMutation.mutate(assignmentId);
+              dismiss();
+            }}
+          >
+            <Undo2 className="w-3 h-3" />
+            Undo
+          </button>
+        </div>
+      ) as any,
+    });
+    undoTimerRef.current = setTimeout(() => {
+      dismiss();
+      setLastAssignmentId(null);
+    }, 12000);
+  }
+
   // Submit assignment
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -1049,10 +1242,14 @@ export default function DashboardPage() {
       const res = await apiRequest("POST", "/api/assignments", body);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/assignments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-      toast({ title: "Task assigned", description: "Emails sent successfully." });
+      if (data?.assignment?.id) {
+        showUndoToast(data.assignment.id);
+      } else {
+        toast({ title: "Task assigned", description: "Emails sent successfully." });
+      }
       setSelectedTaskKey(null);
       setSelectedFreelancers([]);
       setEditingEmail(false);
@@ -1176,10 +1373,14 @@ export default function DashboardPage() {
       });
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/assignments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-      toast({ title: "Assigned to you" });
+      if (data?.assignment?.id) {
+        showUndoToast(data.assignment.id);
+      } else {
+        toast({ title: "Assigned to you" });
+      }
       setSelectedTaskKey(null);
     },
     onError: (err: any) => {
@@ -1207,10 +1408,14 @@ export default function DashboardPage() {
       });
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/assignments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-      toast({ title: "Task assigned (confirmed)", description: "No email sent." });
+      if (data?.assignment?.id) {
+        showUndoToast(data.assignment.id);
+      } else {
+        toast({ title: "Task assigned (confirmed)", description: "No email sent." });
+      }
       setSelectedTaskKey(null);
       setSelectedFreelancers([]);
       setSkipEmail(false);
@@ -1380,8 +1585,21 @@ export default function DashboardPage() {
           <StatPill label="Assigned" value={stats.assigned} loading={tasksLoading} color="emerald" active={statusFilter === "assigned"} onClick={() => setStatusFilter("assigned")} />
           <StatPill label="Rev Done" value={stats.completed} loading={tasksLoading} color="green" active={statusFilter === "delivered"} onClick={() => setStatusFilter("delivered")} />
           <StatPill label="All" value={stats.total} loading={tasksLoading} color="gray" active={statusFilter === "all"} onClick={() => setStatusFilter("all")} />
+          {/* Feature 1: Sound toggle */}
+          <button
+            onClick={() => {
+              const newVal = !soundMuted;
+              setSoundMuted(newVal);
+              soundMutedRef.current = newVal;
+            }}
+            className="ml-auto flex items-center gap-1 text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors px-1.5 py-1 rounded hover:bg-white/[0.04]"
+            title={soundMuted ? "Unmute notifications" : "Mute notifications"}
+            data-testid="button-sound-toggle"
+          >
+            {soundMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+          </button>
           {lastUpdatedText && (
-            <span className="ml-auto text-[10px] text-muted-foreground/60 tabular-nums" data-testid="text-last-updated">
+            <span className="text-[10px] text-muted-foreground/60 tabular-nums" data-testid="text-last-updated">
               Updated {lastUpdatedText}
             </span>
           )}
@@ -1436,13 +1654,74 @@ export default function DashboardPage() {
               Bulk Complete
             </Button>
             <Button
+              variant="default"
+              size="sm"
+              className="h-7 text-xs bg-purple-600 hover:bg-purple-700 shadow-sm shadow-purple-900/20"
+              onClick={() => { setShowBatchDeadline(true); setShowBulkComplete(false); }}
+              data-testid="button-batch-deadline"
+            >
+              <CalendarClock className="w-3 h-3 mr-1" />
+              Set Deadline
+            </Button>
+            <Button
               variant="outline"
               size="sm"
               className="h-7 text-xs border-white/10"
-              onClick={() => { setCheckedKeys(new Set()); setBulkMode(null); setShowBulkComplete(false); }}
+              onClick={() => { setCheckedKeys(new Set()); setBulkMode(null); setShowBulkComplete(false); setShowBatchDeadline(false); }}
             >
               Clear
             </Button>
+            {/* Feature 4: Batch deadline popover */}
+            {showBatchDeadline && (
+              <div className="absolute top-full left-0 mt-1 z-20 bg-card border border-white/[0.08] rounded-lg shadow-xl shadow-black/30 p-3 w-80">
+                <p className="text-xs font-semibold mb-2">Set Deadline for {checkedKeys.size} tasks</p>
+                <div className="space-y-2">
+                  <input
+                    type="datetime-local"
+                    value={batchDeadlineValue}
+                    onChange={(e) => setBatchDeadlineValue(e.target.value)}
+                    className="w-full h-8 px-2 text-xs rounded-md border border-white/[0.08] bg-background/50 text-foreground focus:ring-1 focus:ring-primary/40 focus:border-primary/40"
+                    data-testid="input-batch-deadline"
+                  />
+                  {batchDeadlineValue && (
+                    <p className="text-[10px] text-muted-foreground">{formatDeadlineDisplay(batchDeadlineValue)}</p>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs w-full border-white/[0.08]"
+                    onClick={() => {
+                      if (!tasks) return;
+                      const checkedTasks = tasks.filter(t => checkedKeys.has(taskKey(t)));
+                      const wwcValues = checkedTasks.map(t => parseFloat((t.wwc || "0").replace(/[^\d.,]/g, "").replace(",", "."))).filter(v => v > 0);
+                      if (wwcValues.length === 0) return;
+                      const avgWwc = wwcValues.reduce((a, b) => a + b, 0) / wwcValues.length;
+                      const suggested = suggestDeadline(avgWwc.toString());
+                      if (suggested) setBatchDeadlineValue(suggested);
+                    }}
+                    data-testid="button-suggest-batch-deadline"
+                  >
+                    <Clock className="w-3 h-3 mr-1" />
+                    Suggest from avg WWC
+                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      className="h-7 text-xs bg-purple-600 hover:bg-purple-700"
+                      disabled={!batchDeadlineValue || batchDeadlineMutation.isPending}
+                      onClick={() => batchDeadlineMutation.mutate()}
+                      data-testid="button-apply-batch-deadline"
+                    >
+                      {batchDeadlineMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+                      Apply
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setShowBatchDeadline(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
             {showBulkComplete && (
               <div className="absolute top-full left-0 mt-1 z-20 bg-card border border-white/[0.08] rounded-lg shadow-xl shadow-black/30 p-3 w-72">
                 <p className="text-xs font-semibold mb-2">Bulk Complete {checkedKeys.size} tasks</p>
@@ -2386,13 +2665,25 @@ export default function DashboardPage() {
                     {displayFreelancers.slice(0, 50).map((f) => {
                       const fStats = freelancerStats?.[f.resourceCode];
                       const fDeliveryStats = freelancerDeliveryStats?.[f.resourceCode];
+                      const isFav = favoritesSet.has(f.resourceCode);
                       return (
                         <div
                           key={f.id}
-                          className="flex items-center gap-2.5 px-3 py-2.5 hover:bg-white/[0.03] cursor-pointer transition-colors"
+                          className={`flex items-center gap-2.5 px-3 py-2.5 hover:bg-white/[0.03] cursor-pointer transition-colors ${isFav ? 'bg-amber-500/[0.04]' : ''}`}
                           onClick={() => addFreelancer(f)}
                           data-testid={`freelancer-${f.resourceCode}`}
                         >
+                          {/* Feature 2: Star icon for favorites */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleFavoriteMutation.mutate(f.resourceCode);
+                            }}
+                            className={`shrink-0 p-0.5 transition-colors ${isFav ? 'text-amber-400 hover:text-amber-300' : 'text-muted-foreground/30 hover:text-amber-400/60'}`}
+                            data-testid={`star-${f.resourceCode}`}
+                          >
+                            <Star className={`w-3.5 h-3.5 ${isFav ? 'fill-current' : ''}`} />
+                          </button>
                           <div className="w-7 h-7 rounded-full bg-gradient-to-br from-primary/20 to-blue-400/10 flex items-center justify-center text-[10px] font-medium text-primary/80 shrink-0 ring-1 ring-white/[0.06]">
                             {f.fullName?.split(" ").map((n) => n[0]).join("").slice(0, 2)}
                           </div>

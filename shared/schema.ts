@@ -145,6 +145,14 @@ export const taskNotes = sqliteTable("task_notes", {
   updatedAt: text("updated_at").notNull(),
 });
 
+// PM favorite freelancers
+export const pmFavorites = sqliteTable("pm_favorites", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  pmEmail: text("pm_email").notNull(),
+  freelancerCode: text("freelancer_code").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
 // Schemas
 export const insertPmUserSchema = createInsertSchema(pmUsers).omit({ id: true });
 export const insertSheetConfigSchema = createInsertSchema(sheetConfigs).omit({ id: true });

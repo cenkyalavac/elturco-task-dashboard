@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import { storage, db } from "./storage";
-import { taskNotes } from "@shared/schema";
+import { taskNotes, pmFavorites } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import bcrypt from "bcryptjs";
@@ -1224,6 +1224,76 @@ const freelancers = (Array.isArray(data) ? data : [])
       const created = db.insert(taskNotes).values({ source, sheet: sheet || "", projectId, pmEmail: user.email, note, createdAt: now, updatedAt: now }).returning().get();
       res.json(created);
     }
+  });
+
+  // ---- PM FAVORITES ----
+  app.get("/api/favorites", requireAuth, (req: Request, res: Response) => {
+    const session = storage.getSession(req.headers.authorization!.replace("Bearer ", ""));
+    if (!session) return res.status(401).json({ error: "Unauthorized" });
+    const user = storage.getAllPmUsers().find(u => u.id === session.pmUserId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    const favs = db.select().from(pmFavorites).where(eq(pmFavorites.pmEmail, user.email)).all();
+    res.json(favs.map(f => f.freelancerCode));
+  });
+
+  app.post("/api/favorites", requireAuth, (req: Request, res: Response) => {
+    const { freelancerCode } = req.body;
+    if (!freelancerCode) return res.status(400).json({ error: "Missing freelancerCode" });
+    const session = storage.getSession(req.headers.authorization!.replace("Bearer ", ""));
+    if (!session) return res.status(401).json({ error: "Unauthorized" });
+    const user = storage.getAllPmUsers().find(u => u.id === session.pmUserId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    const existing = db.select().from(pmFavorites)
+      .where(and(eq(pmFavorites.pmEmail, user.email), eq(pmFavorites.freelancerCode, freelancerCode))).get();
+    if (existing) {
+      // Toggle off
+      db.delete(pmFavorites).where(eq(pmFavorites.id, existing.id)).run();
+      res.json({ favorited: false });
+    } else {
+      // Toggle on
+      db.insert(pmFavorites).values({ pmEmail: user.email, freelancerCode, createdAt: new Date().toISOString() }).run();
+      res.json({ favorited: true });
+    }
+  });
+
+  // ---- BATCH DEADLINE UPDATE ----
+  app.post("/api/tasks/batch-deadline", requireAuth, async (req: Request, res: Response) => {
+    const { tasks: taskList, deadline } = req.body;
+    if (!taskList || !Array.isArray(taskList) || !deadline) {
+      return res.status(400).json({ error: "tasks array and deadline required" });
+    }
+    let written = 0;
+    for (const t of taskList) {
+      try {
+        await safeWriteDeadlineToSheet({ source: t.source, sheet: t.sheet, projectId: t.projectId }, deadline);
+        written++;
+      } catch (e) {
+        console.error(`Batch deadline write failed for ${t.projectId}:`, e);
+      }
+    }
+    res.json({ success: true, written, total: taskList.length });
+  });
+
+  // ---- UNDO ASSIGNMENT (cancel within 10s) ----
+  app.post("/api/assignments/:id/undo", requireAuth, (req: Request, res: Response) => {
+    const assignment = storage.getAssignment(+req.params.id);
+    if (!assignment) return res.status(404).json({ error: "Assignment not found" });
+    // Only allow undo within 15 seconds of creation
+    const createdTime = new Date(assignment.createdAt).getTime();
+    const elapsed = Date.now() - createdTime;
+    if (elapsed > 15000) {
+      return res.status(400).json({ error: "Undo window expired (15 seconds)" });
+    }
+    // Cancel all offers
+    const offers = storage.getOffersByAssignment(assignment.id);
+    const now = new Date().toISOString();
+    for (const offer of offers) {
+      if (offer.status === "pending") {
+        storage.updateOffer(offer.id, { status: "withdrawn", respondedAt: now });
+      }
+    }
+    storage.updateAssignment(assignment.id, { status: "cancelled" });
+    res.json({ success: true, message: "Assignment undone." });
   });
 
   // ---- XLSX EXPORT ----
