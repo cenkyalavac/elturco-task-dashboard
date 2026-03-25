@@ -2144,7 +2144,9 @@ const freelancers = (Array.isArray(data) ? data : [])
       // Sheet-based analytics
       const byAccount: Record<string, { count: number; totalWwc: number }> = {};
       const bySource: Record<string, number> = {};
+      const bySourceSummary: Record<string, { count: number; totalWwc: number; ongoing: number }> = {};
       const byStatus: Record<string, number> = {};
+      let totalWwcSum = 0;
       const byMonth: Record<string, { count: number; wwc: number }> = {};
       const freelancerWwc: Record<string, { name: string; wwc: number; tasks: number; qsScores: number[] }> = {};
 
@@ -2155,6 +2157,13 @@ const freelancers = (Array.isArray(data) ? data : [])
         byAccount[acc].count++;
         const wwc = parseFloat((t.wwc || "0").toString().replace(/[^\d.,]/g, "").replace(",", "."));
         byAccount[acc].totalWwc += wwc;
+        totalWwcSum += wwc;
+
+        // By source (top-level)
+        if (!bySourceSummary[t.source]) bySourceSummary[t.source] = { count: 0, totalWwc: 0, ongoing: 0 };
+        bySourceSummary[t.source].count++;
+        bySourceSummary[t.source].totalWwc += wwc;
+        if (t.delivered === "Ongoing") bySourceSummary[t.source].ongoing++;
 
         // By source
         const src = `${t.source}/${t.sheet}`;
@@ -2163,10 +2172,10 @@ const freelancers = (Array.isArray(data) ? data : [])
         // By delivered status
         byStatus[t.delivered || "Unknown"] = (byStatus[t.delivered || "Unknown"] || 0) + 1;
 
-        // By month (from deadline)
+        // By month (from deadline) — skip unreasonable dates
         if (t.deadline) {
           const d = parseDeadline(t.deadline);
-          if (d) {
+          if (d && d.getFullYear() >= 2020 && d.getFullYear() <= 2027) {
             const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
             if (!byMonth[month]) byMonth[month] = { count: 0, wwc: 0 };
             byMonth[month].count++;
@@ -2271,8 +2280,10 @@ const freelancers = (Array.isArray(data) ? data : [])
         avgResponseTimeMinutes: avgResponseTime,
         // Sheet data
         totalSheetTasks: allSheetTasks.length,
+        totalWwc: Math.round(totalWwcSum),
         byAccount: Object.entries(byAccount).sort(([,a], [,b]) => b.count - a.count),
         bySource: Object.entries(bySource).sort(([,a], [,b]) => b - a),
+        bySourceSummary: Object.entries(bySourceSummary).sort(([,a], [,b]) => b.count - a.count),
         byStatus,
         byMonth: Object.entries(byMonth).sort(([a], [b]) => a.localeCompare(b)),
         topFreelancersByWwc,

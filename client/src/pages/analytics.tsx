@@ -125,8 +125,8 @@ export default function AnalyticsPage() {
     );
   }
 
-  // ── Compute total WWC from byMonth ──
-  const totalWwc = (data.byMonth || []).reduce((sum: number, [, m]: [string, any]) => sum + (m.wwc || 0), 0);
+  // ── Total WWC (server-computed, accurate) ──
+  const totalWwc = data.totalWwc || 0;
 
   // ── Active (ongoing) tasks ──
   const activeTasks = data.byStatus?.Ongoing || data.byStatus?.ongoing || 0;
@@ -156,6 +156,14 @@ export default function AnalyticsPage() {
       count: info.count || 0,
       wwc: info.totalWwc || 0,
     }));
+
+  // ── Source Distribution ──
+  const sourceData = (data.bySourceSummary || []).map(([name, info]: [string, any]) => ({
+    name,
+    count: info.count || 0,
+    wwc: Math.round(info.totalWwc || 0),
+    ongoing: info.ongoing || 0,
+  }));
 
   // ── Dispatch Activity (byDay) ──
   const dayData = (data.byDay || []).map(([date, counts]: [string, any]) => ({
@@ -349,11 +357,11 @@ export default function AnalyticsPage() {
           testId="kpi-active-tasks"
         />
         <KpiCard
-          icon={<Clock className="w-4 h-4" />}
-          label="Avg Response Time"
-          value={data.avgResponseTimeMinutes ? `${data.avgResponseTimeMinutes}m` : "—"}
+          icon={<Users className="w-4 h-4" />}
+          label="Sources"
+          value={sourceData.length}
           color="text-orange-500"
-          testId="kpi-avg-response"
+          testId="kpi-sources"
         />
         <KpiCard
           icon={<TrendingUp className="w-4 h-4" />}
@@ -525,7 +533,38 @@ export default function AnalyticsPage() {
         </Card>
       </div>
 
-      {/* ── Row 4: Dispatch Activity + Assignment Types ── */}
+      {/* ── Row 4: Source Distribution ── */}
+      {sourceData.length > 0 && (
+        <Card className="bg-card border border-white/[0.06]" data-testid="chart-source-distribution">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold text-foreground">Source Distribution</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={Math.max(260, sourceData.length * 36)}>
+              <BarChart data={sourceData} layout="vertical" margin={{ left: 10, right: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                <XAxis type="number" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+                <YAxis
+                  type="category"
+                  dataKey="name"
+                  tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                  width={90}
+                />
+                <Tooltip
+                  contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", fontSize: 12 }}
+                  formatter={(value: any, name: string) => [formatNumber(value as number), name === "count" ? "Tasks" : name === "wwc" ? "WWC" : "Ongoing"]}
+                />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Bar dataKey="count" fill="#3b82f6" name="Tasks" radius={[0, 4, 4, 0]} />
+                <Bar dataKey="ongoing" fill="#10b981" name="Ongoing" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Row 5: Dispatch Activity + Assignment Types (only if data exists) ── */}
+      {(dayData.length > 0 || typeData.length > 0) && (
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Dispatch Activity — AreaChart */}
         <Card className="bg-card border border-white/[0.06] md:col-span-2" data-testid="chart-dispatch-activity">
@@ -596,6 +635,7 @@ export default function AnalyticsPage() {
           </CardContent>
         </Card>
       </div>
+      )}
     </div>
   );
 }
