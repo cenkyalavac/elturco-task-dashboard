@@ -1751,6 +1751,25 @@ const freelancers = (Array.isArray(data) ? data : [])
     res.json(user);
   });
 
+  // Update PM user (admin edit)
+  app.put("/api/pm-users/:id", requireAuth, async (req: Request, res: Response) => {
+    const { name, initial, role, password } = req.body;
+    const id = +req.params.id;
+    const user = storage.getAllPmUsers().find(u => u.id === id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    const updates: any = {};
+    if (name) updates.name = name;
+    if (initial !== undefined) updates.initial = initial;
+    if (role) updates.role = role;
+    if (password && password.length >= 8) {
+      updates.password = await bcrypt.hash(password, 10);
+    }
+    if (Object.keys(updates).length > 0) {
+      storage.updatePmUser(id, updates);
+    }
+    res.json({ success: true });
+  });
+
   // Update PM preferences (default filter, my projects)
   app.post("/api/pm-users/preferences", requireAuth, (req: Request, res: Response) => {
     const { defaultFilter, defaultMyProjects } = req.body;
@@ -1815,6 +1834,22 @@ const freelancers = (Array.isArray(data) ? data : [])
       enabled: 1, createdBy: user?.email || "",
     });
     res.json(rule);
+  });
+
+  app.put("/api/auto-assign-rules/:id", requireAuth, (req: Request, res: Response) => {
+    const { name, source, account, languagePair, role, freelancerCodes, assignmentType, maxWwc, enabled } = req.body;
+    const updates: any = {};
+    if (name !== undefined) updates.name = name;
+    if (source !== undefined) updates.source = source || null;
+    if (account !== undefined) updates.account = account || null;
+    if (languagePair !== undefined) updates.languagePair = languagePair || null;
+    if (role !== undefined) updates.role = role;
+    if (freelancerCodes !== undefined) updates.freelancerCodes = typeof freelancerCodes === "string" ? freelancerCodes : JSON.stringify(freelancerCodes);
+    if (assignmentType !== undefined) updates.assignmentType = assignmentType;
+    if (maxWwc !== undefined) updates.maxWwc = maxWwc || null;
+    if (enabled !== undefined) updates.enabled = enabled ? 1 : 0;
+    storage.updateAutoAssignRule(+req.params.id, updates);
+    res.json({ success: true });
   });
 
   app.delete("/api/auto-assign-rules/:id", requireAuth, (req: Request, res: Response) => {

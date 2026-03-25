@@ -28,6 +28,7 @@ interface PmUser {
   id: number;
   email: string;
   name: string;
+  initial?: string;
   role: string;
 }
 
@@ -365,11 +366,18 @@ function SheetConfigsSection() {
 function PmUsersSection() {
   const { toast } = useToast();
   const [showAdd, setShowAdd] = useState(false);
+  const [editingUserId, setEditingUserId] = useState<number | null>(null);
   const [newEmail, setNewEmail] = useState("");
   const [newName, setNewName] = useState("");
   const [newInitial, setNewInitial] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newRole, setNewRole] = useState("pm");
+
+  // Edit form state
+  const [editName, setEditName] = useState("");
+  const [editInitial, setEditInitial] = useState("");
+  const [editRole, setEditRole] = useState("");
+  const [editPassword, setEditPassword] = useState("");
 
   const { data: users, isLoading } = useQuery<PmUser[]>({
     queryKey: ["/api/pm-users"],
@@ -405,6 +413,36 @@ function PmUsersSection() {
     },
   });
 
+  const editMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const body: Record<string, string> = {
+        name: editName,
+        initial: editInitial,
+        role: editRole,
+      };
+      if (editPassword) body.password = editPassword;
+      const res = await apiRequest("PUT", `/api/pm-users/${id}`, body);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/pm-users"] });
+      toast({ title: "User updated" });
+      setEditingUserId(null);
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  function startEditUser(u: PmUser) {
+    setEditingUserId(u.id);
+    setEditName(u.name);
+    setEditInitial(u.initial || "");
+    setEditRole(u.role);
+    setEditPassword("");
+    setShowAdd(false);
+  }
+
   return (
     <Card className="border border-border">
       <CardHeader className="pb-3">
@@ -413,7 +451,7 @@ function PmUsersSection() {
             <Users className="w-4 h-4 text-muted-foreground" />
             PM Users
           </CardTitle>
-          <Button variant="outline" size="sm" onClick={() => setShowAdd(!showAdd)} data-testid="button-add-user">
+          <Button variant="outline" size="sm" onClick={() => { setShowAdd(!showAdd); setEditingUserId(null); }} data-testid="button-add-user">
             <Plus className="w-3.5 h-3.5 mr-1" />
             Add
           </Button>
@@ -505,21 +543,98 @@ function PmUsersSection() {
                 <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Name</th>
                 <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Initial</th>
                 <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Role</th>
+                <th className="text-right font-medium text-muted-foreground px-3 py-2 text-xs w-20">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {users.map((u) => (
-                <tr key={u.id} className="border-b border-border last:border-0" data-testid={`user-row-${u.id}`}>
-                  <td className="px-3 py-2 text-foreground">{u.email}</td>
-                  <td className="px-3 py-2 text-foreground">{u.name}</td>
-                  <td className="px-3 py-2 text-foreground font-mono text-xs">{(u as any).initial || "—"}</td>
-                  <td className="px-3 py-2">
-                    <Badge variant={u.role === "admin" ? "default" : "secondary"} className="text-xs">
-                      {u.role === "admin" ? "Admin" : "PM"}
-                    </Badge>
-                  </td>
-                </tr>
-              ))}
+              {users.map((u) =>
+                editingUserId === u.id ? (
+                  <tr key={u.id} className="border-b border-border last:border-0 bg-muted/20" data-testid={`user-row-${u.id}`}>
+                    <td className="px-3 py-2 text-foreground text-muted-foreground">{u.email}</td>
+                    <td className="px-3 py-2">
+                      <Input
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        className="h-7 text-sm"
+                        data-testid={`input-edit-user-name-${u.id}`}
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <Input
+                        value={editInitial}
+                        onChange={(e) => setEditInitial(e.target.value.toUpperCase())}
+                        className="h-7 text-sm font-mono"
+                        maxLength={5}
+                        data-testid={`input-edit-user-initial-${u.id}`}
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <Select value={editRole} onValueChange={setEditRole}>
+                        <SelectTrigger className="h-7 text-sm" data-testid={`select-edit-user-role-${u.id}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="pm">PM</SelectItem>
+                          <SelectItem value="admin">Admin</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center justify-end gap-1">
+                        <Input
+                          type="password"
+                          value={editPassword}
+                          onChange={(e) => setEditPassword(e.target.value)}
+                          placeholder="New pw"
+                          className="h-7 text-sm w-20"
+                          data-testid={`input-edit-user-password-${u.id}`}
+                        />
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => editMutation.mutate(u.id)}
+                          disabled={!editName || editMutation.isPending}
+                          className="h-7 w-7 p-0"
+                          data-testid={`button-save-edit-user-${u.id}`}
+                        >
+                          {editMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setEditingUserId(null)}
+                          className="h-7 w-7 p-0 text-muted-foreground"
+                          data-testid={`button-cancel-edit-user-${u.id}`}
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={u.id} className="border-b border-border last:border-0" data-testid={`user-row-${u.id}`}>
+                    <td className="px-3 py-2 text-foreground">{u.email}</td>
+                    <td className="px-3 py-2 text-foreground">{u.name}</td>
+                    <td className="px-3 py-2 text-foreground font-mono text-xs">{u.initial || "—"}</td>
+                    <td className="px-3 py-2">
+                      <Badge variant={u.role === "admin" ? "default" : "secondary"} className="text-xs">
+                        {u.role === "admin" ? "Admin" : "PM"}
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => startEditUser(u)}
+                        className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                        data-testid={`button-edit-user-${u.id}`}
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </Button>
+                    </td>
+                  </tr>
+                )
+              )}
             </tbody>
           </table>
         )}
@@ -740,6 +855,7 @@ function AutoAssignRulesSection() {
   const { toast } = useToast();
   const { user } = useAuth();
   const [showAdd, setShowAdd] = useState(false);
+  const [editingRuleId, setEditingRuleId] = useState<number | null>(null);
   const [newName, setNewName] = useState("");
   const [newSource, setNewSource] = useState("");
   const [newAccount, setNewAccount] = useState("");
@@ -748,6 +864,17 @@ function AutoAssignRulesSection() {
   const [newFreelancerCodes, setNewFreelancerCodes] = useState("");
   const [newAssignmentType, setNewAssignmentType] = useState("sequence");
   const [newMaxWwc, setNewMaxWwc] = useState("");
+
+  // Edit form state
+  const [editRuleName, setEditRuleName] = useState("");
+  const [editRuleSource, setEditRuleSource] = useState("");
+  const [editRuleAccount, setEditRuleAccount] = useState("");
+  const [editRuleLangPair, setEditRuleLangPair] = useState("");
+  const [editRuleRole, setEditRuleRole] = useState("");
+  const [editRuleFreelancerCodes, setEditRuleFreelancerCodes] = useState("");
+  const [editRuleAssignmentType, setEditRuleAssignmentType] = useState("");
+  const [editRuleMaxWwc, setEditRuleMaxWwc] = useState("");
+  const [editRuleEnabled, setEditRuleEnabled] = useState(true);
 
   const { data: rules, isLoading } = useQuery<AutoAssignRule[]>({
     queryKey: ["/api/auto-assign-rules"],
@@ -781,6 +908,32 @@ function AutoAssignRulesSection() {
       setNewFreelancerCodes(""); setNewAssignmentType("sequence");
       setNewMaxWwc("");
       setShowAdd(false);
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const editMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const codes = editRuleFreelancerCodes.split(",").map(c => c.trim()).filter(Boolean);
+      const res = await apiRequest("PUT", `/api/auto-assign-rules/${id}`, {
+        name: editRuleName,
+        source: editRuleSource || null,
+        account: editRuleAccount || null,
+        languagePair: editRuleLangPair || null,
+        role: editRuleRole,
+        freelancerCodes: JSON.stringify(codes),
+        assignmentType: editRuleAssignmentType,
+        maxWwc: editRuleMaxWwc ? parseInt(editRuleMaxWwc) : null,
+        enabled: editRuleEnabled,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auto-assign-rules"] });
+      toast({ title: "Rule updated" });
+      setEditingRuleId(null);
     },
     onError: (err: any) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -832,6 +985,20 @@ function AutoAssignRulesSection() {
     try { return JSON.parse(json); } catch { return []; }
   }
 
+  function startEditRule(rule: AutoAssignRule) {
+    setEditingRuleId(rule.id);
+    setEditRuleName(rule.name);
+    setEditRuleSource(rule.source || "");
+    setEditRuleAccount(rule.account || "");
+    setEditRuleLangPair(rule.languagePair || "");
+    setEditRuleRole(rule.role);
+    setEditRuleFreelancerCodes(parseCodes(rule.freelancerCodes).join(", "));
+    setEditRuleAssignmentType(rule.assignmentType);
+    setEditRuleMaxWwc(rule.maxWwc != null ? String(rule.maxWwc) : "");
+    setEditRuleEnabled(!!rule.enabled);
+    setShowAdd(false);
+  }
+
   return (
     <Card className="border border-border">
       <CardHeader className="pb-3">
@@ -861,7 +1028,7 @@ function AutoAssignRulesSection() {
               {sequenceAdvanceMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Timer className="w-3.5 h-3.5 mr-1" />}
               Check Sequence Timeouts
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setShowAdd(!showAdd)} data-testid="button-add-rule">
+            <Button variant="outline" size="sm" onClick={() => { setShowAdd(!showAdd); setEditingRuleId(null); }} data-testid="button-add-rule">
               <Plus className="w-3.5 h-3.5 mr-1" />
               Add
             </Button>
@@ -958,28 +1125,135 @@ function AutoAssignRulesSection() {
             {rules.map((rule) => {
               const codes = parseCodes(rule.freelancerCodes);
               return (
-                <div key={rule.id} className="flex items-center gap-2 px-3 py-2 border border-border rounded-lg" data-testid={`rule-row-${rule.id}`}>
-                  <span className="text-sm font-medium text-foreground w-40 shrink-0 truncate">{rule.name}</span>
-                  {rule.source && <Badge variant="secondary" className="text-[10px] shrink-0">{rule.source}</Badge>}
-                  {rule.account && <Badge variant="outline" className="text-[10px] shrink-0">{rule.account}</Badge>}
-                  {rule.languagePair && <Badge variant="outline" className="text-[10px] shrink-0">{rule.languagePair}</Badge>}
-                  <Badge className={`text-[10px] shrink-0 ${rule.role === "translator" ? "bg-orange-500/10 text-orange-600 border-orange-500/20" : "bg-blue-500/10 text-blue-600 border-blue-500/20"}`}>
-                    {rule.role === "translator" ? "TR" : "REV"}
-                  </Badge>
-                  <span className="text-[10px] text-muted-foreground font-mono truncate">{codes.join(", ")}</span>
-                  {rule.maxWwc && <Badge variant="outline" className="text-[10px] shrink-0">≤{rule.maxWwc} WWC</Badge>}
-                  <Badge variant={rule.enabled ? "default" : "secondary"} className="text-[10px] shrink-0 ml-auto">
-                    {rule.enabled ? "Active" : "Disabled"}
-                  </Badge>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => deleteMutation.mutate(rule.id)}
-                    className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive shrink-0"
-                    data-testid={`button-delete-rule-${rule.id}`}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
+                <div key={rule.id} className="border border-border rounded-lg" data-testid={`rule-row-${rule.id}`}>
+                  {editingRuleId === rule.id ? (
+                    /* ── Edit mode ── */
+                    <div className="p-3 space-y-3 bg-muted/20">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-xs text-muted-foreground mb-1 block">Rule Name</label>
+                          <Input value={editRuleName} onChange={(e) => setEditRuleName(e.target.value)} className="h-8 text-sm" data-testid={`input-edit-rule-name-${rule.id}`} />
+                        </div>
+                        <div>
+                          <label className="text-xs text-muted-foreground mb-1 block">Source (empty = any)</label>
+                          <Input value={editRuleSource} onChange={(e) => setEditRuleSource(e.target.value)} className="h-8 text-sm" data-testid={`input-edit-rule-source-${rule.id}`} />
+                        </div>
+                        <div>
+                          <label className="text-xs text-muted-foreground mb-1 block">Account (empty = any)</label>
+                          <Input value={editRuleAccount} onChange={(e) => setEditRuleAccount(e.target.value)} className="h-8 text-sm" data-testid={`input-edit-rule-account-${rule.id}`} />
+                        </div>
+                        <div>
+                          <label className="text-xs text-muted-foreground mb-1 block">Language Pair (empty = any)</label>
+                          <Select value={editRuleLangPair || "__any__"} onValueChange={(v) => setEditRuleLangPair(v === "__any__" ? "" : v)}>
+                            <SelectTrigger className="h-8 text-sm" data-testid={`select-edit-rule-lang-${rule.id}`}><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__any__">Any</SelectItem>
+                              {LANGUAGE_PAIRS.map((lp) => <SelectItem key={lp} value={lp}>{lp}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <label className="text-xs text-muted-foreground mb-1 block">Role</label>
+                          <Select value={editRuleRole} onValueChange={setEditRuleRole}>
+                            <SelectTrigger className="h-8 text-sm" data-testid={`select-edit-rule-role-${rule.id}`}><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="translator">Translator</SelectItem>
+                              <SelectItem value="reviewer">Reviewer</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <label className="text-xs text-muted-foreground mb-1 block">Assignment Type</label>
+                          <Select value={editRuleAssignmentType} onValueChange={setEditRuleAssignmentType}>
+                            <SelectTrigger className="h-8 text-sm" data-testid={`select-edit-rule-type-${rule.id}`}><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="direct">Direct</SelectItem>
+                              <SelectItem value="sequence">Sequential</SelectItem>
+                              <SelectItem value="broadcast">Broadcast</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs text-muted-foreground mb-1 block">Freelancer Codes (comma-separated)</label>
+                        <Input
+                          value={editRuleFreelancerCodes}
+                          onChange={(e) => setEditRuleFreelancerCodes(e.target.value)}
+                          className="h-8 text-sm font-mono"
+                          data-testid={`input-edit-rule-codes-${rule.id}`}
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-xs text-muted-foreground mb-1 block">Max WWC (optional)</label>
+                          <Input
+                            type="number"
+                            value={editRuleMaxWwc}
+                            onChange={(e) => setEditRuleMaxWwc(e.target.value)}
+                            className="h-8 text-sm"
+                            data-testid={`input-edit-rule-max-wwc-${rule.id}`}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-muted-foreground mb-1 block">Enabled</label>
+                          <div className="flex items-center h-8">
+                            <input
+                              type="checkbox"
+                              checked={editRuleEnabled}
+                              onChange={(e) => setEditRuleEnabled(e.target.checked)}
+                              className="rounded border-border"
+                              data-testid={`checkbox-edit-rule-enabled-${rule.id}`}
+                            />
+                            <span className="ml-2 text-sm text-foreground">{editRuleEnabled ? "Active" : "Disabled"}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button size="sm" onClick={() => editMutation.mutate(rule.id)} disabled={!editRuleName || !editRuleFreelancerCodes || editMutation.isPending} className="h-7 text-xs" data-testid={`button-save-edit-rule-${rule.id}`}>
+                          {editMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Check className="w-3 h-3 mr-1" />}
+                          Save
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setEditingRuleId(null)} className="h-7 text-xs" data-testid={`button-cancel-edit-rule-${rule.id}`}>
+                          <X className="w-3 h-3 mr-1" />
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* ── Display mode ── */
+                    <div className="flex items-center gap-2 px-3 py-2">
+                      <span className="text-sm font-medium text-foreground w-40 shrink-0 truncate">{rule.name}</span>
+                      {rule.source && <Badge variant="secondary" className="text-[10px] shrink-0">{rule.source}</Badge>}
+                      {rule.account && <Badge variant="outline" className="text-[10px] shrink-0">{rule.account}</Badge>}
+                      {rule.languagePair && <Badge variant="outline" className="text-[10px] shrink-0">{rule.languagePair}</Badge>}
+                      <Badge className={`text-[10px] shrink-0 ${rule.role === "translator" ? "bg-orange-500/10 text-orange-600 border-orange-500/20" : "bg-blue-500/10 text-blue-600 border-blue-500/20"}`}>
+                        {rule.role === "translator" ? "TR" : "REV"}
+                      </Badge>
+                      <span className="text-[10px] text-muted-foreground font-mono truncate">{codes.join(", ")}</span>
+                      {rule.maxWwc && <Badge variant="outline" className="text-[10px] shrink-0">≤{rule.maxWwc} WWC</Badge>}
+                      <Badge variant={rule.enabled ? "default" : "secondary"} className="text-[10px] shrink-0 ml-auto">
+                        {rule.enabled ? "Active" : "Disabled"}
+                      </Badge>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => startEditRule(rule)}
+                        className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground shrink-0"
+                        data-testid={`button-edit-rule-${rule.id}`}
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => deleteMutation.mutate(rule.id)}
+                        className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive shrink-0"
+                        data-testid={`button-delete-rule-${rule.id}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  )}
                 </div>
               );
             })}
