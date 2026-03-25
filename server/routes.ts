@@ -4,12 +4,14 @@ import { storage, db } from "./storage";
 import { taskNotes } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import bcrypt from "bcryptjs";
+import rateLimit from "express-rate-limit";
 
 // ============================================
 // CONFIG
 // ============================================
-const BASE44_API = "https://elts.base44.app/api/apps/694868412332f081649b2833/entities/Freelancer";
-const BASE44_KEY = "bf9b19a625ae4083ba38b8585fb5a78f";
+const BASE44_API = process.env.BASE44_API || "https://elts.base44.app/api/apps/694868412332f081649b2833/entities/Freelancer";
+const BASE44_KEY = process.env.BASE44_KEY || "bf9b19a625ae4083ba38b8585fb5a78f";
 const FROM_EMAIL = process.env.FROM_EMAIL || "ElTurco Projects <projects@eltur.co>";
 const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
 const MAGIC_LINK_EXPIRY_MINUTES = 30;
@@ -450,17 +452,42 @@ function buildMagicLinkEmailHtml(name: string, magicUrl: string): string {
 // ============================================
 export async function registerRoutes(server: Server, app: Express) {
 
+  // ---- RATE LIMITING ----
+  const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 20, // 20 attempts per IP
+    message: { error: "Too many login attempts. Please try again later." },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
+  const offerLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 30, // 30 requests per minute per IP
+    message: { error: "Too many requests. Please slow down." },
+  });
+
   // ---- AUTH ROUTES ----
 
   // Email + password login
-  app.post("/api/auth/login", async (req: Request, res: Response) => {
+  app.post("/api/auth/login", loginLimiter, async (req: Request, res: Response) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: "Email and password are required." });
 
     const emailNorm = email.toLowerCase().trim();
     const pmUser = storage.getPmUserByEmail(emailNorm);
     if (!pmUser) return res.status(401).json({ error: "Invalid email or password." });
-    if (pmUser.password !== password) return res.status(401).json({ error: "Invalid email or password." });
+    // Support both bcrypt hashed and legacy plaintext passwords
+    const isHashed = pmUser.password.startsWith("$2");
+    const passwordMatch = isHashed
+      ? await bcrypt.compare(password, pmUser.password)
+      : pmUser.password === password;
+    if (!passwordMatch) return res.status(401).json({ error: "Invalid email or password." });
+    // Auto-upgrade plaintext password to bcrypt on successful login
+    if (!isHashed) {
+      const hashed = await bcrypt.hash(password, 10);
+      storage.updatePmUser(pmUser.id, { password: hashed });
+    }
 
     const sessionToken = generateToken();
     const expiresAt = new Date(Date.now() + SESSION_EXPIRY_HOURS * 3600 * 1000).toISOString();
@@ -853,7 +880,9 @@ const freelancers = (Array.isArray(data) ? data : [])
   // ---- OFFER RESPONSE (PUBLIC - no auth needed) ----
 
   // Get offer details for freelancer view
-  app.get("/api/offers/:token", async (req: Request, res: Response) => {
+  app.get("/api/offers/:token", offerLimiter, async (req: Request, res: Response) => {
+    // Validate token format (64-char hex) to prevent enumeration
+    if (!/^[a-f0-9]{64}$/.test(req.params.token)) return res.status(404).json({ error: "Offer not found." });
     const offer = storage.getOfferByToken(req.params.token);
     if (!offer) return res.status(404).json({ error: "Offer not found." });
 
@@ -886,7 +915,8 @@ const freelancers = (Array.isArray(data) ? data : [])
   });
 
   // Accept offer
-  app.post("/api/offers/:token/accept", async (req: Request, res: Response) => {
+  app.post("/api/offers/:token/accept", offerLimiter, async (req: Request, res: Response) => {
+    if (!/^[a-f0-9]{64}$/.test(req.params.token)) return res.status(404).json({ error: "Offer not found." });
     const offer = storage.getOfferByToken(req.params.token);
     if (!offer) return res.status(404).json({ error: "Offer not found." });
     if (offer.status !== "pending") {
@@ -937,7 +967,8 @@ const freelancers = (Array.isArray(data) ? data : [])
   });
 
   // Reject offer
-  app.post("/api/offers/:token/reject", async (req: Request, res: Response) => {
+  app.post("/api/offers/:token/reject", offerLimiter, async (req: Request, res: Response) => {
+    if (!/^[a-f0-9]{64}$/.test(req.params.token)) return res.status(404).json({ error: "Offer not found." });
     const offer = storage.getOfferByToken(req.params.token);
     if (!offer) return res.status(404).json({ error: "Offer not found." });
     if (offer.status !== "pending") {
@@ -1004,7 +1035,8 @@ const freelancers = (Array.isArray(data) ? data : [])
   });
 
   // Mark task as completed by freelancer
-  app.post("/api/offers/:token/complete", async (req: Request, res: Response) => {
+  app.post("/api/offers/:token/complete", offerLimiter, async (req: Request, res: Response) => {
+    if (!/^[a-f0-9]{64}$/.test(req.params.token)) return res.status(404).json({ error: "Offer not found." });
     const offer = storage.getOfferByToken(req.params.token);
     if (!offer) return res.status(404).json({ error: "Offer not found." });
     if (offer.status !== "accepted") {
@@ -1382,12 +1414,14 @@ const freelancers = (Array.isArray(data) ? data : [])
     res.json(storage.getAllPmUsers());
   });
 
-  app.post("/api/pm-users", requireAuth, (req: Request, res: Response) => {
+  app.post("/api/pm-users", requireAuth, async (req: Request, res: Response) => {
     const { email, name, initial, password, role } = req.body;
     if (!email || !name || !password) return res.status(400).json({ error: "Email, name, and password required" });
+    if (password.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
     const existing = storage.getPmUserByEmail(email.toLowerCase().trim());
     if (existing) return res.status(400).json({ error: "This email is already registered." });
-    const user = storage.createPmUser({ email: email.toLowerCase().trim(), name, initial: initial || "", password, role: role || "pm" });
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = storage.createPmUser({ email: email.toLowerCase().trim(), name, initial: initial || "", password: hashedPassword, role: role || "pm" });
     res.json(user);
   });
 
