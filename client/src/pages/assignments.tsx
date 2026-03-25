@@ -1,13 +1,14 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
 import {
-  Search, CheckCircle2, Clock, XCircle, Send, X,
+  Search, CheckCircle2, Clock, XCircle, Send, X, Ban, Loader2,
 } from "lucide-react";
 
 // ── Types ──
@@ -60,6 +61,7 @@ const TYPE_MAP: Record<string, string> = {
 // ── Component ──
 
 export default function AssignmentsPage() {
+  const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -70,6 +72,34 @@ export default function AssignmentsPage() {
     queryFn: async () => {
       const res = await apiRequest("GET", "/api/assignments");
       return res.json();
+    },
+  });
+
+  // Withdraw a single pending offer
+  const withdrawOfferMutation = useMutation({
+    mutationFn: async (offerId: number) => {
+      await apiRequest("POST", `/api/offers/${offerId}/withdraw`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/assignments"] });
+      toast({ title: "Offer withdrawn" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // Cancel entire assignment + withdraw all pending offers
+  const cancelAssignmentMutation = useMutation({
+    mutationFn: async (assignmentId: number) => {
+      await apiRequest("POST", `/api/assignments/${assignmentId}/cancel`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/assignments"] });
+      toast({ title: "Assignment cancelled" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
     },
   });
 
@@ -257,6 +287,18 @@ export default function AssignmentsPage() {
                       {o.sequenceOrder !== null && o.sequenceOrder !== undefined && (
                         <span className="text-[10px] text-muted-foreground">#{o.sequenceOrder + 1}</span>
                       )}
+                      {o.status === "pending" && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-5 text-[10px] px-1.5 text-muted-foreground hover:text-destructive ml-auto shrink-0"
+                          disabled={withdrawOfferMutation.isPending}
+                          onClick={() => withdrawOfferMutation.mutate(o.id)}
+                        >
+                          {withdrawOfferMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Ban className="w-3 h-3 mr-0.5" />}
+                          Withdraw
+                        </Button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -264,6 +306,22 @@ export default function AssignmentsPage() {
                 <p className="text-xs text-muted-foreground">No offers yet.</p>
               )}
             </div>
+
+            {/* Cancel Assignment button — only for non-completed, non-cancelled */}
+            {selected.status !== "completed" && selected.status !== "cancelled" && (
+              <div className="p-4 border-t border-border">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full h-8 text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
+                  disabled={cancelAssignmentMutation.isPending}
+                  onClick={() => cancelAssignmentMutation.mutate(selected.id)}
+                >
+                  {cancelAssignmentMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <XCircle className="w-3 h-3 mr-1" />}
+                  Cancel Assignment
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>
