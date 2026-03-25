@@ -3,9 +3,5 @@ node_modules
 *.db
 *.db-shm
 *.db-wal
-screenshot-*
-client/
-server/
-script/
-*.png
-*.jpg
+screenshot-*.png
+screenshot-*.jpg
