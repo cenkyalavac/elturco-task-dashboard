@@ -650,16 +650,20 @@ const freelancers = (Array.isArray(data) ? data : [])
       if (!byApiId.has(c.sheetDbId)) byApiId.set(c.sheetDbId, []);
       byApiId.get(c.sheetDbId)!.push(c);
     }
-    const promises: Promise<void>[] = [];
+    // Batch parallel fetches (max 6 concurrent to avoid SheetDB rate limits)
+    const FETCH_CONCURRENCY = 6;
+    const fetchJobs: (() => Promise<void>)[] = [];
     byApiId.forEach((cfgs, apiId) => {
       for (const cfg of cfgs) {
-        promises.push(
+        fetchJobs.push(() =>
           fetchSheetTasks(apiId, cfg.sheet, cfg.sheet, cfg.source)
             .then(rows => { allTasks.push(...rows); })
         );
       }
     });
-    await Promise.all(promises);
+    for (let i = 0; i < fetchJobs.length; i += FETCH_CONCURRENCY) {
+      await Promise.all(fetchJobs.slice(i, i + FETCH_CONCURRENCY).map(fn => fn()));
+    }
     setCache("allTasks", allTasks);
     return allTasks;
   }
@@ -1402,7 +1406,8 @@ const freelancers = (Array.isArray(data) ? data : [])
       res.setHeader("Content-Disposition", `attachment; filename=dispatch-export-${new Date().toISOString().slice(0,10)}.xlsx`);
       res.send(buf);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      console.error("XLSX export error:", e.message);
+      res.status(500).json({ error: "Export failed" });
     }
   });
 
@@ -1768,7 +1773,7 @@ const freelancers = (Array.isArray(data) ? data : [])
   // ---- PM MANAGEMENT ----
 
   app.get("/api/pm-users", requireAuth, (_req: Request, res: Response) => {
-    res.json(storage.getAllPmUsers());
+    res.json(storage.getAllPmUsers().map(u => ({ ...u, password: undefined })));
   });
 
   app.post("/api/pm-users", requireAuth, async (req: Request, res: Response) => {
@@ -2060,7 +2065,8 @@ const freelancers = (Array.isArray(data) ? data : [])
         accounts: [...accounts].sort(),
       });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      console.error("Analytics filters error:", e.message);
+      res.status(500).json({ error: "Failed to fetch filter options" });
     }
   });
 
@@ -2223,7 +2229,8 @@ const freelancers = (Array.isArray(data) ? data : [])
         topFreelancersByWwc,
       });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      console.error("Analytics error:", e.message);
+      res.status(500).json({ error: "Failed to compute analytics" });
     }
   });
 }

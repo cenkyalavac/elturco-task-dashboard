@@ -615,7 +615,7 @@ export default function DashboardPage() {
   });
 
   // Queries
-  const wantDelivered = statusFilter === "delivered";
+  const wantDelivered = statusFilter === "delivered" || statusFilter === "all";
   const { data: tasks, isLoading: tasksLoading } = useQuery<Task[]>({
     queryKey: ["/api/tasks", wantDelivered],
     queryFn: async () => {
@@ -820,13 +820,12 @@ export default function DashboardPage() {
     return [...new Set((sheetConfigs as SheetConfig[]).map(c => c.languagePair))].sort();
   }, [sheetConfigs]);
 
-  // Filter + sort tasks
-  const filteredTasks = useMemo(() => {
+  // Base filtered tasks — applies source/account/myProjects/lang filters but NOT status/search
+  const baseFilteredTasks = useMemo(() => {
     if (!tasks) return [];
-    const filtered = tasks.filter((t) => {
+    return tasks.filter((t) => {
       if (sourceFilter !== "all" && t.source !== sourceFilter) return false;
       if (accountFilter !== "all" && t.account !== accountFilter) return false;
-      // My Projects filter: only show tasks from sheets assigned to this PM
       if (myProjectsOnly && sheetConfigs && user) {
         const config = (sheetConfigs as SheetConfig[]).find(c => c.source === t.source && c.sheet === t.sheet);
         if (config?.assignedPms) {
@@ -836,13 +835,17 @@ export default function DashboardPage() {
           } catch {}
         }
       }
-
-      // Language pair filter - match task's source+sheet against sheetConfigs
       if (langFilter !== "all" && sheetConfigs) {
         const config = (sheetConfigs as SheetConfig[]).find(c => c.source === t.source && c.sheet === t.sheet);
         if (!config || config.languagePair !== langFilter) return false;
       }
+      return true;
+    });
+  }, [tasks, sourceFilter, accountFilter, langFilter, sheetConfigs, myProjectsOnly, user]);
 
+  // Filter + sort tasks (status/search/sort on top of baseFilteredTasks)
+  const filteredTasks = useMemo(() => {
+    const filtered = baseFilteredTasks.filter((t) => {
       const nTR = needsTranslator(t);
       const nREV = needsReviewer(t);
       const isUnassigned = nTR || nREV;
@@ -858,7 +861,6 @@ export default function DashboardPage() {
       if (statusFilter === "all" && isTerminal) return false;
       if (statusFilter === "delivered" && t.delivered !== "Delivered") return false;
       if (statusFilter === "rev_done" && (!isRevCompleted(t) || isTerminal)) return false;
-      // Overdue filter — exclude terminal statuses
       if (statusFilter === "overdue") {
         const d = parseDeadline(t.deadline);
         if (!d || d >= new Date() || isRevCompleted(t) || isTerminal) return false;
@@ -924,7 +926,7 @@ export default function DashboardPage() {
       }
       return sortDir === "desc" ? -cmp : cmp;
     });
-  }, [tasks, sourceFilter, accountFilter, langFilter, statusFilter, searchQuery, sheetConfigs, myProjectsOnly, user, sortCol, sortDir]);
+  }, [baseFilteredTasks, statusFilter, searchQuery, sortCol, sortDir]);
 
   // T2.8: Grouped tasks computation
   const groupedTasks = useMemo(() => {
@@ -984,10 +986,10 @@ export default function DashboardPage() {
     setDropIdx(null);
   }
 
-  // Stats
+  // Stats — computed from baseFilteredTasks so counts match visible filter context
   const stats = useMemo(() => {
-    if (!tasks) return { total: 0, ongoing: 0, needsTR: 0, needsREV: 0, assigned: 0, completed: 0, pastDeadline: 0 };
-    const nonDelivered = tasks.filter((t) => t.delivered !== "Delivered" && t.delivered !== "Cancelled" && t.delivered !== "On Hold");
+    if (!baseFilteredTasks.length) return { total: 0, ongoing: 0, needsTR: 0, needsREV: 0, assigned: 0, completed: 0, pastDeadline: 0 };
+    const nonDelivered = baseFilteredTasks.filter((t) => t.delivered !== "Delivered" && t.delivered !== "Cancelled" && t.delivered !== "On Hold");
     const ongoing = nonDelivered.filter(t => !isRevCompleted(t)).length;
     const nTR = nonDelivered.filter(needsTranslator).length;
     const nREV = nonDelivered.filter(needsReviewer).length;
@@ -1005,7 +1007,7 @@ export default function DashboardPage() {
       completed: completedCount,
       pastDeadline,
     };
-  }, [tasks, assignments]);
+  }, [baseFilteredTasks, assignments]);
 
   // Selected task
   const selectedTask = useMemo(() => {
