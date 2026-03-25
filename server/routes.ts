@@ -14,6 +14,7 @@ const BASE44_API = process.env.BASE44_API || "https://elts.base44.app/api/apps/6
 const BASE44_KEY = process.env.BASE44_KEY || "bf9b19a625ae4083ba38b8585fb5a78f";
 const FROM_EMAIL = process.env.FROM_EMAIL || "ElTurco Projects <projects@eltur.co>";
 const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
+const SHEETDB_API_KEY = process.env.SHEETDB_API_KEY || "";
 const MAGIC_LINK_EXPIRY_MINUTES = 30;
 const SESSION_EXPIRY_HOURS = 72;
 
@@ -197,10 +198,16 @@ function requireAuth(req: Request, res: Response, next: NextFunction) {
 // ============================================
 // TASK FETCHING FROM SHEETDB
 // ============================================
+function sheetDbHeaders(): Record<string, string> {
+  const h: Record<string, string> = { "Content-Type": "application/json" };
+  if (SHEETDB_API_KEY) h["Authorization"] = `Bearer ${SHEETDB_API_KEY}`;
+  return h;
+}
+
 async function fetchSheetTasks(apiId: string, tabName: string, sheetLabel: string, source: string): Promise<any[]> {
   const url = `https://sheetdb.io/api/v1/${apiId}?sheet=${encodeURIComponent(tabName)}`;
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { headers: sheetDbHeaders() });
     if (!res.ok) return [];
     const data = await res.json();
     if (!Array.isArray(data)) return [];
@@ -1169,7 +1176,7 @@ const freelancers = (Array.isArray(data) ? data : [])
 
       // First, READ the current value to check if it's empty or XX
       const readUrl = `https://sheetdb.io/api/v1/${apiId}/search?${encodeURIComponent(idCol)}=${encodeURIComponent(projectId)}&sheet=${encodeURIComponent(sheet)}`;
-      const readRes = await fetch(readUrl);
+      const readRes = await fetch(readUrl, { headers: sheetDbHeaders() });
       if (!readRes.ok) return;
       const rows = await readRes.json();
       if (!Array.isArray(rows) || rows.length === 0) return;
@@ -1186,7 +1193,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       const writeUrl = `https://sheetdb.io/api/v1/${apiId}/${encodeURIComponent(idCol)}/${encodeURIComponent(projectId)}?sheet=${encodeURIComponent(sheet)}`;
       await fetch(writeUrl, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: sheetDbHeaders(),
         body: JSON.stringify({ data: { [targetCol]: freelancerCode } }),
       });
       console.log(`Sheet write OK: ${targetCol}=${freelancerCode} for project ${projectId}`);
@@ -1228,7 +1235,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       const writeUrl = `https://sheetdb.io/api/v1/${apiId}/${encodeURIComponent(idCol)}/${encodeURIComponent(projectId)}?sheet=${encodeURIComponent(sheet)}`;
       await fetch(writeUrl, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: sheetDbHeaders(),
         body: JSON.stringify({ data: { [targetCol]: value } }),
       });
       console.log(`Sheet status write OK: ${targetCol}=${value} for project ${projectId}`);
@@ -1258,7 +1265,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       const writeUrl = `https://sheetdb.io/api/v1/${apiId}/${encodeURIComponent(idCol)}/${encodeURIComponent(projectId)}?sheet=${encodeURIComponent(sheet)}`;
       await fetch(writeUrl, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: sheetDbHeaders(),
         body: JSON.stringify({ data: { [deadlineCol]: deadlineValue } }),
       });
       console.log(`Sheet deadline write OK: ${deadlineCol}=${deadlineValue} for project ${projectId}`);
@@ -1415,7 +1422,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       const writeUrl = `https://sheetdb.io/api/v1/${apiId}/${encodeURIComponent(idCol)}/${encodeURIComponent(projectId)}?sheet=${encodeURIComponent(sheet)}`;
       await fetch(writeUrl, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: sheetDbHeaders(),
         body: JSON.stringify({ data: { [qsCol]: qsValue } }),
       });
       console.log(`Sheet QS write OK: QS=${qsValue} for project ${projectId}`);
