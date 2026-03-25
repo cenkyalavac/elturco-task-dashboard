@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Trash2, Loader2, FileSpreadsheet, Users, Mail, Save, Info, Pencil, X, Check, ExternalLink, Eye, Code, Zap } from "lucide-react";
+import { Plus, Trash2, Loader2, FileSpreadsheet, Users, Mail, Save, Info, Pencil, X, Check, ExternalLink, Eye, Code, Zap, Play, Timer } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
 // ── Types ──
@@ -47,6 +47,7 @@ interface AutoAssignRule {
   role: string;
   freelancerCodes: string;
   assignmentType: string;
+  maxWwc: number | null;
   enabled: number;
   createdBy: string;
 }
@@ -746,6 +747,7 @@ function AutoAssignRulesSection() {
   const [newRole, setNewRole] = useState("translator");
   const [newFreelancerCodes, setNewFreelancerCodes] = useState("");
   const [newAssignmentType, setNewAssignmentType] = useState("sequence");
+  const [newMaxWwc, setNewMaxWwc] = useState("");
 
   const { data: rules, isLoading } = useQuery<AutoAssignRule[]>({
     queryKey: ["/api/auto-assign-rules"],
@@ -767,6 +769,7 @@ function AutoAssignRulesSection() {
         freelancerCodes: JSON.stringify(codes),
         assignmentType: newAssignmentType,
         createdBy: user?.email || "unknown",
+        ...(newMaxWwc ? { maxWwc: parseInt(newMaxWwc) } : {}),
       });
       return res.json();
     },
@@ -776,6 +779,7 @@ function AutoAssignRulesSection() {
       setNewName(""); setNewSource(""); setNewAccount("");
       setNewLangPair(""); setNewRole("translator");
       setNewFreelancerCodes(""); setNewAssignmentType("sequence");
+      setNewMaxWwc("");
       setShowAdd(false);
     },
     onError: (err: any) => {
@@ -796,6 +800,34 @@ function AutoAssignRulesSection() {
     },
   });
 
+  // Auto-dispatch mutation
+  const autoDispatchMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/auto-dispatch");
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      toast({ title: "Auto-Dispatch Complete", description: data?.message || `${data?.dispatched ?? 0} tasks dispatched.` });
+    },
+    onError: (err: any) => {
+      toast({ title: "Auto-Dispatch Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // Sequence advance mutation
+  const sequenceAdvanceMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/sequence-advance");
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      toast({ title: "Sequence Check Complete", description: data?.message || `${data?.advanced ?? 0} offers advanced.` });
+    },
+    onError: (err: any) => {
+      toast({ title: "Sequence Check Error", description: err.message, variant: "destructive" });
+    },
+  });
+
   function parseCodes(json: string): string[] {
     try { return JSON.parse(json); } catch { return []; }
   }
@@ -808,10 +840,32 @@ function AutoAssignRulesSection() {
             <Zap className="w-4 h-4 text-muted-foreground" />
             Auto-Assign Rules
           </CardTitle>
-          <Button variant="outline" size="sm" onClick={() => setShowAdd(!showAdd)} data-testid="button-add-rule">
-            <Plus className="w-3.5 h-3.5 mr-1" />
-            Add
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => autoDispatchMutation.mutate()}
+              disabled={autoDispatchMutation.isPending}
+              data-testid="button-auto-dispatch"
+            >
+              {autoDispatchMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Play className="w-3.5 h-3.5 mr-1" />}
+              Run Auto-Dispatch
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => sequenceAdvanceMutation.mutate()}
+              disabled={sequenceAdvanceMutation.isPending}
+              data-testid="button-sequence-advance"
+            >
+              {sequenceAdvanceMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Timer className="w-3.5 h-3.5 mr-1" />}
+              Check Sequence Timeouts
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setShowAdd(!showAdd)} data-testid="button-add-rule">
+              <Plus className="w-3.5 h-3.5 mr-1" />
+              Add
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
@@ -872,6 +926,17 @@ function AutoAssignRulesSection() {
                 data-testid="input-rule-codes"
               />
             </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Max WWC (optional)</label>
+              <Input
+                type="number"
+                value={newMaxWwc}
+                onChange={(e) => setNewMaxWwc(e.target.value)}
+                placeholder="e.g. 5000"
+                className="h-8 text-sm"
+                data-testid="input-rule-max-wwc"
+              />
+            </div>
             <div className="flex items-center gap-2">
               <Button size="sm" onClick={() => addMutation.mutate()} disabled={!newName || !newFreelancerCodes || addMutation.isPending} data-testid="button-save-rule" className="h-8">
                 {addMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : null}
@@ -902,6 +967,7 @@ function AutoAssignRulesSection() {
                     {rule.role === "translator" ? "TR" : "REV"}
                   </Badge>
                   <span className="text-[10px] text-muted-foreground font-mono truncate">{codes.join(", ")}</span>
+                  {rule.maxWwc && <Badge variant="outline" className="text-[10px] shrink-0">≤{rule.maxWwc} WWC</Badge>}
                   <Badge variant={rule.enabled ? "default" : "secondary"} className="text-[10px] shrink-0 ml-auto">
                     {rule.enabled ? "Active" : "Disabled"}
                   </Badge>

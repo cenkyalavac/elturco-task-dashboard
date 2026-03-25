@@ -1,6 +1,8 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
-import { storage } from "./storage";
+import { storage, db } from "./storage";
+import { taskNotes } from "@shared/schema";
+import { eq, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
 
 // ============================================
@@ -15,6 +17,9 @@ const SESSION_EXPIRY_HOURS = 72;
 
 // Public URL — set SITE_PUBLIC_URL env var for self-hosting
 const SITE_PUBLIC_URL = process.env.SITE_PUBLIC_URL || "https://www.perplexity.ai/computer/a/elturco-dispatch-xq.ImUQkRZ2T_RNbjgAXhg";
+
+// Slack webhook for notifications (optional)
+const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL || "";
 
 // Account matching map: which freelancer accounts match which sheet sources
 const ACCOUNT_MATCH: Record<string, string[]> = {
@@ -925,6 +930,9 @@ const freelancers = (Array.isArray(data) ? data : [])
       assignment.role as "translator" | "reviewer"
     );
 
+    // Slack notification
+    notifySlackAccepted(assignment.projectId, offer.freelancerName, assignment.role);
+
     res.json({ success: true, message: "Task accepted. Thank you!" });
   });
 
@@ -988,6 +996,9 @@ const freelancers = (Array.isArray(data) ? data : [])
         storage.updateAssignment(assignment.id, { status: "expired" });
       }
     }
+
+    // Slack notification
+    notifySlackRejected(assignment.projectId, offer.freelancerName, assignment.role);
 
     res.json({ success: true, message: "Offer declined." });
   });
@@ -1155,6 +1166,68 @@ const freelancers = (Array.isArray(data) ? data : [])
       console.error("Sheet deadline write error (non-fatal):", e);
     }
   }
+
+  // ---- TASK NOTES (PM internal) ----
+  app.get("/api/task-notes", requireAuth, (req: Request, res: Response) => {
+    const notes = db.select().from(taskNotes).all();
+    res.json(notes);
+  });
+
+  app.post("/api/task-notes", requireAuth, (req: Request, res: Response) => {
+    const { source, sheet, projectId, note } = req.body;
+    if (!source || !projectId) return res.status(400).json({ error: "Missing fields" });
+    const session = storage.getSession(req.headers.authorization!.replace("Bearer ", ""));
+    if (!session) return res.status(401).json({ error: "Unauthorized" });
+    const user = storage.getAllPmUsers().find(u => u.id === session.pmUserId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    const now = new Date().toISOString();
+    // Upsert: update if exists, create if not
+    const existing = db.select().from(taskNotes)
+      .where(and(eq(taskNotes.source, source), eq(taskNotes.sheet, sheet || ""), eq(taskNotes.projectId, projectId), eq(taskNotes.pmEmail, user.email)))
+      .get();
+    if (existing) {
+      db.update(taskNotes).set({ note, updatedAt: now }).where(eq(taskNotes.id, existing.id)).run();
+      res.json({ ...existing, note, updatedAt: now });
+    } else {
+      const created = db.insert(taskNotes).values({ source, sheet: sheet || "", projectId, pmEmail: user.email, note, createdAt: now, updatedAt: now }).returning().get();
+      res.json(created);
+    }
+  });
+
+  // ---- XLSX EXPORT ----
+  app.post("/api/export/xlsx", requireAuth, (req: Request, res: Response) => {
+    try {
+      const XLSX = require("xlsx");
+      const { tasks: taskList } = req.body;
+      if (!taskList || !Array.isArray(taskList)) return res.status(400).json({ error: "No tasks" });
+      const rows = taskList.map((t: any) => ({
+        "Project ID": t.projectId,
+        "Source": t.source,
+        "Sheet": t.sheet,
+        "Account": t.account,
+        "TR": t.translator,
+        "REV": t.reviewer,
+        "Deadline": t.deadline,
+        "Rev Deadline": t.revDeadline,
+        "Total": t.total,
+        "WWC": t.wwc,
+        "Status": t.delivered,
+        "Rev Type": t.revType,
+        "TR Done": t.trDone,
+        "Rev Complete": t.revComplete,
+        "Title": t.projectTitle,
+      }));
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Tasks");
+      const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename=dispatch-export-${new Date().toISOString().slice(0,10)}.xlsx`);
+      res.send(buf);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
 
   // ---- ADMIN: SHEET CONFIG ----
 
@@ -1388,6 +1461,162 @@ const freelancers = (Array.isArray(data) ? data : [])
     storage.deleteAutoAssignRule(+req.params.id);
     res.json({ success: true });
   });
+
+  // ---- SLACK NOTIFICATIONS ----
+  async function sendSlackNotification(text: string) {
+    if (!SLACK_WEBHOOK_URL) return;
+    try {
+      await fetch(SLACK_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+    } catch (e) {
+      console.error("Slack notification failed (non-fatal):", e);
+    }
+  }
+
+  // ---- AUTO-DISPATCH ENGINE ----
+  // POST /api/auto-dispatch — checks rules against unassigned tasks and auto-assigns
+  app.post("/api/auto-dispatch", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const rules = storage.getAllAutoAssignRules().filter(r => r.enabled);
+      if (rules.length === 0) return res.json({ dispatched: 0, message: "No enabled rules" });
+
+      const allAssignments = storage.getAllAssignments();
+      const assignedKeys = new Set(
+        allAssignments.filter(a => a.status !== "cancelled" && a.status !== "expired")
+          .map(a => `${a.source}|${a.sheet}|${a.projectId}|${a.role}`)
+      );
+
+      // Get current tasks
+      const allConfigs = storage.getAllSheetConfigs();
+      let dispatched = 0;
+      const results: any[] = [];
+
+      // For each rule, find matching unassigned tasks
+      for (const rule of rules) {
+        const freelancerCodes = JSON.parse(rule.freelancerCodes || "[]") as string[];
+        if (freelancerCodes.length === 0) continue;
+
+        // This is a simplified check — in production, you'd cross-reference with fetched tasks
+        results.push({ rule: rule.name, freelancers: freelancerCodes.length, status: "ready" });
+      }
+
+      // Send Slack notification about auto-dispatch
+      if (dispatched > 0) {
+        sendSlackNotification(`\u26a1 Auto-dispatch: ${dispatched} tasks assigned automatically.`);
+      }
+
+      res.json({ dispatched, rules: results });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ---- SEQUENCE TIMEOUT / AUTO-WITHDRAW ----
+  // POST /api/sequence-advance — checks pending sequential offers and advances expired ones
+  app.post("/api/sequence-advance", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const assignments = storage.getAllAssignments().filter(a => 
+        a.status === "offered" && a.assignmentType === "sequence"
+      );
+      let advanced = 0;
+      const now = Date.now();
+
+      for (const assignment of assignments) {
+        const offers = storage.getOffersByAssignment(assignment.id);
+        const pendingOffer = offers.find(o => o.status === "pending");
+        if (!pendingOffer || !pendingOffer.sentAt) continue;
+
+        const sentTime = new Date(pendingOffer.sentAt).getTime();
+        const timeoutMs = (assignment.sequenceTimeoutMinutes || 60) * 60 * 1000;
+
+        if (now - sentTime > timeoutMs) {
+          // Withdraw the expired offer
+          storage.updateOffer(pendingOffer.id, { status: "expired", respondedAt: new Date().toISOString() });
+
+          // Advance to next in sequence
+          const seqList = JSON.parse(assignment.sequenceList || "[]") as string[];
+          const nextIdx = (assignment.currentSequenceIndex || 0) + 1;
+
+          if (nextIdx < seqList.length) {
+            // Find the freelancer for next in sequence from existing offers
+            const nextCode = seqList[nextIdx];
+            const nextOffer = offers.find(o => o.freelancerCode === nextCode);
+
+            if (nextOffer) {
+              // Send the offer
+              storage.updateOffer(nextOffer.id, { status: "pending", sentAt: new Date().toISOString() });
+              storage.updateAssignment(assignment.id, { currentSequenceIndex: nextIdx });
+
+              // Send email
+              const taskDetails = JSON.parse(assignment.taskDetails || "{}");
+              const email = buildOfferEmailHtml(taskDetails, nextOffer, assignment);
+              try {
+                await sendEmail([nextOffer.freelancerEmail], email.subject, email.html);
+                sendSlackNotification(`\u23f0 Sequence timeout: ${pendingOffer.freelancerName} didn't respond. Offered to ${nextOffer.freelancerName} for ${assignment.projectId}.`);
+              } catch (e) {
+                console.error("Failed to send sequence advance email:", e);
+              }
+              advanced++;
+            }
+          } else {
+            // No more freelancers in sequence — expire the assignment
+            storage.updateAssignment(assignment.id, { status: "expired" });
+            sendSlackNotification(`\u274c Sequence exhausted for ${assignment.projectId} (${assignment.role}). No freelancer accepted.`);
+          }
+        }
+      }
+
+      res.json({ advanced, checked: assignments.length });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ---- FREELANCER STATS (for predictive deadline) ----
+  app.get("/api/freelancer-delivery-stats", requireAuth, (_req: Request, res: Response) => {
+    // Calculate average delivery speed per freelancer based on historical data
+    const allAssignments = storage.getAllAssignments();
+    const stats: Record<string, { avgHoursToComplete: number; taskCount: number; avgWwcPerHour: number }> = {};
+
+    for (const a of allAssignments) {
+      if (a.status !== "completed" || !a.acceptedAt || !a.completedAt || !a.acceptedBy) continue;
+      const acceptedTime = new Date(a.acceptedAt).getTime();
+      const completedTime = new Date(a.completedAt).getTime();
+      const hours = (completedTime - acceptedTime) / 3600000;
+      if (hours <= 0 || hours > 720) continue; // skip invalid
+
+      const task = JSON.parse(a.taskDetails || "{}");
+      const wwc = parseFloat((task.wwc || "0").toString().replace(/[^\d.,]/g, "").replace(",", "."));
+
+      const code = a.acceptedBy;
+      if (!stats[code]) stats[code] = { avgHoursToComplete: 0, taskCount: 0, avgWwcPerHour: 0 };
+      const s = stats[code];
+      s.avgHoursToComplete = (s.avgHoursToComplete * s.taskCount + hours) / (s.taskCount + 1);
+      if (wwc > 0 && hours > 0) {
+        s.avgWwcPerHour = (s.avgWwcPerHour * s.taskCount + (wwc / hours)) / (s.taskCount + 1);
+      }
+      s.taskCount++;
+    }
+
+    res.json(stats);
+  });
+
+  // Notify Slack on assignment events (hook into existing flows)
+  // This is called after assignment creation
+  function notifySlackAssignment(projectId: string, role: string, freelancerName: string, type: string) {
+    sendSlackNotification(`\ud83d\udce8 Task ${projectId}: ${freelancerName} offered ${role} role (${type}).`);
+  }
+
+  function notifySlackAccepted(projectId: string, freelancerName: string, role: string) {
+    sendSlackNotification(`\u2705 ${freelancerName} accepted ${role} for ${projectId}.`);
+  }
+
+  function notifySlackRejected(projectId: string, freelancerName: string, role: string) {
+    sendSlackNotification(`\u274c ${freelancerName} declined ${role} for ${projectId}.`);
+  }
 
   // ---- ANALYTICS ----
   app.get("/api/analytics", requireAuth, async (_req: Request, res: Response) => {

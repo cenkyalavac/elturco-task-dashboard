@@ -1,3 +1,4 @@
+import { useState, useEffect, createContext, useContext } from "react";
 import { Switch, Route, Router, Redirect, useLocation, Link } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
 import { queryClient } from "./lib/queryClient";
@@ -14,7 +15,11 @@ import AssignmentsPage from "@/pages/assignments";
 import RespondPage from "@/pages/respond";
 import AnalyticsPage from "@/pages/analytics";
 import NotFound from "@/pages/not-found";
-import { LogOut, BarChart3 } from "lucide-react";
+import { LogOut, BarChart3, Sun, Moon } from "lucide-react";
+
+// Theme context
+const ThemeContext = createContext<{ theme: "dark" | "light"; toggleTheme: () => void }>({ theme: "dark", toggleTheme: () => {} });
+export function useTheme() { return useContext(ThemeContext); }
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { isAuthenticated } = useAuth();
@@ -67,9 +72,11 @@ function AppLayout() {
           <NavLink href="/admin" label="Admin" />
         </nav>
 
-        {/* Right: User + logout */}
+        {/* Right: User + theme toggle + logout */}
         <div className="ml-auto flex items-center gap-3">
           <span className="text-xs text-white/40 font-medium" data-testid="text-nav-email">{displayEmail}</span>
+          <div className="w-px h-4 bg-white/[0.08]" />
+          <ThemeToggleButton />
           <div className="w-px h-4 bg-white/[0.08]" />
           <button
             onClick={logout}
@@ -109,19 +116,49 @@ function AppRouter() {
   );
 }
 
-function App() {
+function ThemeToggleButton() {
+  const { theme, toggleTheme } = useTheme();
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <AuthProvider>
-          <Toaster />
-          <Router hook={useHashLocation}>
-            <AppRouter />
-          </Router>
-          <PerplexityAttribution />
-        </AuthProvider>
-      </TooltipProvider>
-    </QueryClientProvider>
+    <button
+      onClick={toggleTheme}
+      data-testid="button-theme-toggle"
+      className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs text-white/40 hover:text-white hover:bg-white/[0.06] transition-all duration-150"
+      title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+    >
+      {theme === "dark" ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+    </button>
+  );
+}
+
+function App() {
+  const [theme, setTheme] = useState<"dark" | "light">(() =>
+    window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
+  );
+
+  useEffect(() => {
+    if (theme === "dark") {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  }, [theme]);
+
+  const toggleTheme = () => setTheme((prev) => (prev === "dark" ? "light" : "dark"));
+
+  return (
+    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <AuthProvider>
+            <Toaster />
+            <Router hook={useHashLocation}>
+              <AppRouter />
+            </Router>
+            <PerplexityAttribution />
+          </AuthProvider>
+        </TooltipProvider>
+      </QueryClientProvider>
+    </ThemeContext.Provider>
   );
 }
 

@@ -1,6 +1,6 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef, Fragment } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient, getPublicApiBase } from "@/lib/queryClient";
+import { apiRequest, queryClient, getPublicApiBase, getAuthToken } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,24 @@ import {
   Search, Send, Loader2, X, ChevronUp, ChevronDown, ChevronRight,
   CheckCircle2, Pencil, Save, Eye, Code, ListOrdered, Trash2,
   Ban, Clock, XCircle, UserCheck, CheckSquare,
+  FileSpreadsheet, ArrowUpDown, StickyNote, GripVertical, Mail, Filter,
 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { useIsMobile } from "@/hooks/use-mobile";
+
+// ── Helpers: time ago ──
+function timeAgo(date: Date): string {
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (seconds < 10) return "just now";
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ago`;
+}
+
+// API_BASE for direct fetch calls (XLSX export)
+const API_BASE = "__PORT_5000__".startsWith("__") ? "" : "__PORT_5000__";
 
 // ── Types ──
 
@@ -121,6 +138,11 @@ interface SequencePreset {
 interface FreelancerStats {
   taskCount: number;
   avgQs: number | null;
+}
+
+interface FreelancerDeliveryStats {
+  avgWwcPerHour: number;
+  totalDeliveries: number;
 }
 
 // ── Constants ──
@@ -333,6 +355,32 @@ export default function DashboardPage() {
   const [bulkCompleteMode, setBulkCompleteMode] = useState<"yes" | "minutes">("yes");
   const [bulkCompleteMinutes, setBulkCompleteMinutes] = useState("");
 
+  // Auto-refresh: last updated tracking
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [lastUpdatedText, setLastUpdatedText] = useState("");
+
+  // Column sorting state
+  const [sortCol, setSortCol] = useState<string>("deadline");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  // T2.8: Task grouping
+  const [groupBy, setGroupBy] = useState<"none" | "account" | "source" | "deadline">("none");
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+  // T2.1: Drag-and-drop state
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [dropIdx, setDropIdx] = useState<number | null>(null);
+
+  // T2.6: Email preview modal
+  const [showEmailPreviewModal, setShowEmailPreviewModal] = useState(false);
+
+  // T2.7: Mobile filter toggle
+  const isMobile = useIsMobile();
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+
+  // Search input ref for keyboard shortcut
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
   // Queries
   const { data: tasks, isLoading: tasksLoading } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
@@ -341,6 +389,7 @@ export default function DashboardPage() {
       return res.json();
     },
     staleTime: 60000,
+    refetchInterval: 60000,
   });
 
   const { data: assignments } = useQuery<Assignment[]>({
@@ -396,6 +445,72 @@ export default function DashboardPage() {
     },
     staleTime: 300000,
   });
+
+  const { data: freelancerDeliveryStats } = useQuery<Record<string, FreelancerDeliveryStats>>({
+    queryKey: ["/api/freelancer-delivery-stats"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/freelancer-delivery-stats");
+      return res.json();
+    },
+    staleTime: 300000,
+  });
+
+  // Task notes query
+  const { data: taskNotes } = useQuery<{ source: string; sheet: string; projectId: string; note: string }[]>({
+    queryKey: ["/api/task-notes"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/task-notes");
+      return res.json();
+    },
+    staleTime: 60000,
+  });
+
+  // Notes map for quick lookup
+  const notesMap = useMemo(() => {
+    const map = new Map<string, string>();
+    if (taskNotes) {
+      for (const n of taskNotes) {
+        map.set(`${n.source}|${n.sheet}|${n.projectId}`, n.note);
+      }
+    }
+    return map;
+  }, [taskNotes]);
+
+  // Task note editing state
+  const [editingNote, setEditingNote] = useState("");
+  const [noteExpanded, setNoteExpanded] = useState(false);
+
+  // Save note mutation
+  const saveNoteMutation = useMutation({
+    mutationFn: async ({ source, sheet, projectId, note }: { source: string; sheet: string; projectId: string; note: string }) => {
+      const res = await apiRequest("POST", "/api/task-notes", { source, sheet, projectId, note });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/task-notes"] });
+      toast({ title: "Note saved" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error saving note", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // Track when tasks data changes (was fetched)
+  useEffect(() => {
+    if (tasks) {
+      setLastUpdated(new Date());
+    }
+  }, [tasks]);
+
+  // Refresh "Updated X ago" text every 10s
+  useEffect(() => {
+    function tick() {
+      if (lastUpdated) setLastUpdatedText(timeAgo(lastUpdated));
+    }
+    tick();
+    const iv = setInterval(tick, 10000);
+    return () => clearInterval(iv);
+  }, [lastUpdated]);
 
   // Assigned project IDs set
   const assignedProjectIds = useMemo(() => {
@@ -454,7 +569,12 @@ export default function DashboardPage() {
       if (statusFilter === "unassigned" && !isUnassigned) return false;
       if (statusFilter === "assigned" && (isUnassigned || t.delivered === "Delivered")) return false;
       if (statusFilter === "delivered" && t.delivered !== "Delivered") return false;
-      if (["delivered", "all", "ongoing", "needs_tr", "needs_rev", "unassigned", "assigned"].indexOf(statusFilter) === -1 && t.delivered === "Delivered") return false;
+      // Overdue filter
+      if (statusFilter === "overdue") {
+        const d = parseDeadline(t.deadline);
+        if (!d || d >= new Date() || isRevCompleted(t)) return false;
+      }
+      if (["delivered", "all", "ongoing", "needs_tr", "needs_rev", "unassigned", "assigned", "overdue"].indexOf(statusFilter) === -1 && t.delivered === "Delivered") return false;
 
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
@@ -464,24 +584,129 @@ export default function DashboardPage() {
       return true;
     });
 
+    // Sorting
+    const parseNumeric = (v: string) => {
+      if (!v) return 0;
+      return parseFloat(v.replace(/[^\d.,-]/g, "").replace(/\./g, "").replace(",", ".")) || 0;
+    };
+
     return filtered.sort((a, b) => {
-      const da = parseDeadline(a.deadline);
-      const db = parseDeadline(b.deadline);
-      if (!da && !db) return 0;
-      if (!da) return 1;
-      if (!db) return -1;
-      return da.getTime() - db.getTime();
+      let cmp = 0;
+      switch (sortCol) {
+        case "projectId":
+          cmp = (a.projectId || "").localeCompare(b.projectId || "");
+          break;
+        case "account":
+          cmp = (a.account || "").localeCompare(b.account || "");
+          break;
+        case "deadline": {
+          const da = parseDeadline(a.deadline);
+          const db = parseDeadline(b.deadline);
+          if (!da && !db) cmp = 0;
+          else if (!da) cmp = 1;
+          else if (!db) cmp = -1;
+          else cmp = da.getTime() - db.getTime();
+          break;
+        }
+        case "total":
+          cmp = parseNumeric(a.total) - parseNumeric(b.total);
+          break;
+        case "wwc":
+          cmp = parseNumeric(a.wwc) - parseNumeric(b.wwc);
+          break;
+        case "status": {
+          const statusOrder = (t: Task) => {
+            if (needsTranslator(t)) return 0;
+            if (needsReviewer(t)) return 1;
+            if (t.delivered === "Delivered") return 3;
+            return 2;
+          };
+          cmp = statusOrder(a) - statusOrder(b);
+          break;
+        }
+        default: {
+          const da = parseDeadline(a.deadline);
+          const db = parseDeadline(b.deadline);
+          if (!da && !db) cmp = 0;
+          else if (!da) cmp = 1;
+          else if (!db) cmp = -1;
+          else cmp = da.getTime() - db.getTime();
+        }
+      }
+      return sortDir === "desc" ? -cmp : cmp;
     });
-  }, [tasks, sourceFilter, accountFilter, langFilter, statusFilter, searchQuery, sheetConfigs, myProjectsOnly, user]);
+  }, [tasks, sourceFilter, accountFilter, langFilter, statusFilter, searchQuery, sheetConfigs, myProjectsOnly, user, sortCol, sortDir]);
+
+  // T2.8: Grouped tasks computation
+  const groupedTasks = useMemo(() => {
+    if (groupBy === "none") return null;
+    const groups = new Map<string, Task[]>();
+    for (const t of filteredTasks) {
+      let key: string;
+      if (groupBy === "account") key = t.account || "(No Account)";
+      else if (groupBy === "source") key = `${t.source}/${t.sheet}`;
+      else {
+        // deadline: group by date only
+        const d = parseDeadline(t.deadline);
+        if (!d) key = "(No Deadline)";
+        else {
+          const pad = (n: number) => n.toString().padStart(2, "0");
+          const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+          key = `${months[d.getMonth()]} ${pad(d.getDate())}`;
+        }
+      }
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(t);
+    }
+    return Array.from(groups.entries()).map(([name, tasks]) => ({ name, tasks }));
+  }, [filteredTasks, groupBy]);
+
+  function toggleGroupCollapse(name: string) {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }
+
+  // T2.1: Drag-and-drop handlers for freelancer chips
+  function handleDragStart(idx: number) {
+    setDragIdx(idx);
+  }
+  function handleDragOver(e: React.DragEvent, idx: number) {
+    e.preventDefault();
+    setDropIdx(idx);
+  }
+  function handleDrop(idx: number) {
+    if (dragIdx !== null && dragIdx !== idx) {
+      setSelectedFreelancers(prev => {
+        const arr = [...prev];
+        const [item] = arr.splice(dragIdx, 1);
+        arr.splice(idx, 0, item);
+        return arr;
+      });
+    }
+    setDragIdx(null);
+    setDropIdx(null);
+  }
+  function handleDragEnd() {
+    setDragIdx(null);
+    setDropIdx(null);
+  }
 
   // Stats
   const stats = useMemo(() => {
-    if (!tasks) return { total: 0, ongoing: 0, needsTR: 0, needsREV: 0, assigned: 0, completed: 0 };
+    if (!tasks) return { total: 0, ongoing: 0, needsTR: 0, needsREV: 0, assigned: 0, completed: 0, pastDeadline: 0 };
     const nonDelivered = tasks.filter((t) => t.delivered !== "Delivered");
     const ongoing = nonDelivered.filter(t => !isRevCompleted(t)).length;
     const nTR = nonDelivered.filter(needsTranslator).length;
     const nREV = nonDelivered.filter(needsReviewer).length;
     const completedCount = nonDelivered.filter(t => isRevCompleted(t)).length;
+    const pastDeadline = nonDelivered.filter(t => {
+      const d = parseDeadline(t.deadline);
+      return d && d < new Date() && !isRevCompleted(t);
+    }).length;
     return {
       total: nonDelivered.length,
       ongoing,
@@ -489,6 +714,7 @@ export default function DashboardPage() {
       needsREV: nREV,
       assigned: ongoing - nTR - nREV,
       completed: completedCount,
+      pastDeadline,
     };
   }, [tasks, assignments]);
 
@@ -544,6 +770,36 @@ export default function DashboardPage() {
     });
   }, [freelancers, bulkMode, bulkSources, selectedFreelancers, freelancerStats]);
 
+  // XLSX export handler
+  const [exporting, setExporting] = useState(false);
+  async function handleExportXlsx() {
+    try {
+      setExporting(true);
+      const authToken = getAuthToken();
+      const res = await fetch(`${API_BASE}/api/export/xlsx`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(authToken ? { "Authorization": `Bearer ${authToken}` } : {}),
+        },
+        body: JSON.stringify({ tasks: filteredTasks }),
+      });
+      if (!res.ok) throw new Error(`Export failed: ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "dispatch-export.xlsx";
+      a.click();
+      URL.revokeObjectURL(url);
+      toast({ title: "Export complete", description: `${filteredTasks.length} tasks exported.` });
+    } catch (err: any) {
+      toast({ title: "Export failed", description: err.message, variant: "destructive" });
+    } finally {
+      setExporting(false);
+    }
+  }
+
   // Task select handler
   function selectTask(t: Task) {
     const key = taskKey(t);
@@ -566,6 +822,9 @@ export default function DashboardPage() {
     const newRole = needsTranslator(t) ? "translator" : "reviewer";
     setRole(newRole);
     setAssignmentType("sequence");
+    // Load existing note for this task
+    setEditingNote(notesMap.get(key) || "");
+    setNoteExpanded(false);
   }
 
   // Checkbox handling
@@ -589,20 +848,59 @@ export default function DashboardPage() {
   // Keyboard shortcuts
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
+      const active = document.activeElement;
+      const isTyping = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || (active as HTMLElement).isContentEditable);
+
       if (e.key === "Escape") {
         setSelectedTaskKey(null);
         setBulkMode(null);
+        if (active instanceof HTMLElement) active.blur();
       }
+
+      // Ctrl+F / Cmd+F: focus search input
+      if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        return;
+      }
+
       if ((e.ctrlKey || e.metaKey) && e.key === "a" && !e.shiftKey) {
-        const active = document.activeElement;
-        if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) return;
+        if (isTyping) return;
         e.preventDefault();
         setCheckedKeys(new Set(filteredTasks.map(taskKey)));
+      }
+
+      // Arrow keys + Enter: navigate tasks
+      if (isTyping) return;
+
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        if (filteredTasks.length === 0) return;
+        const currentIdx = selectedTaskKey ? filteredTasks.findIndex(t => taskKey(t) === selectedTaskKey) : -1;
+        let nextIdx: number;
+        if (e.key === "ArrowDown") {
+          nextIdx = currentIdx < filteredTasks.length - 1 ? currentIdx + 1 : 0;
+        } else {
+          nextIdx = currentIdx > 0 ? currentIdx - 1 : filteredTasks.length - 1;
+        }
+        const nextTask = filteredTasks[nextIdx];
+        if (nextTask) {
+          selectTask(nextTask);
+          // Scroll the row into view
+          const row = document.querySelector(`[data-testid="row-task-${nextIdx}"]`);
+          row?.scrollIntoView({ block: "nearest" });
+        }
+      }
+
+      if (e.key === "Enter") {
+        if (selectedTaskKey && !filteredTasks.find(t => taskKey(t) === selectedTaskKey)) return;
+        // If task is selected via keyboard but panel not yet open, just confirm selection
+        // (selectTask already opens it)
       }
     }
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [filteredTasks]);
+  }, [filteredTasks, selectedTaskKey]);
 
   // Freelancer filtering (single task mode)
   const filteredFreelancers = useMemo(() => {
@@ -1004,28 +1302,98 @@ export default function DashboardPage() {
     return presets.filter(p => p.role === r);
   }, [presets, role, bulkMode]);
 
+  // Render a single task row (shared between flat and grouped views)
+  function renderTaskRow(task: Task, key: string, globalIdx: number, localIdx: number) {
+    const isSelected = key === selectedTaskKey;
+    const isChecked = checkedKeys.has(key);
+    const nTR = needsTranslator(task);
+    const nREV = needsReviewer(task);
+    const isEven = localIdx % 2 === 0;
+    return (
+      <tr
+        key={`${key}-${globalIdx}`}
+        className={`border-b border-white/[0.03] cursor-pointer transition-all duration-100 ${
+          isSelected
+            ? "bg-primary/[0.08] border-l-2 border-l-primary"
+            : isChecked
+            ? "bg-blue-500/[0.06]"
+            : isEven
+            ? "bg-transparent hover:bg-white/[0.03]"
+            : "bg-white/[0.015] hover:bg-white/[0.04]"
+        }`}
+        onClick={() => selectTask(task)}
+        data-testid={`row-task-${globalIdx}`}
+      >
+        <td className="w-10 px-2 py-2" onClick={(e) => e.stopPropagation()}>
+          <Checkbox
+            checked={isChecked}
+            onCheckedChange={() => toggleCheck(key)}
+          />
+        </td>
+        <td className="px-2 py-2 font-medium text-foreground whitespace-nowrap text-xs">
+          <span className="inline-flex items-center gap-1">
+            {task.projectId}
+            {notesMap.has(key) && notesMap.get(key) && (
+              <StickyNote className="w-3 h-3 text-amber-400/70" />
+            )}
+          </span>
+        </td>
+        <td className="px-2 py-2 hidden md:table-cell">
+          <Badge variant="secondary" className="text-[10px] font-normal px-1.5 py-0 bg-white/[0.04] border border-white/[0.06]">
+            {task.source}/{task.sheet}
+          </Badge>
+        </td>
+        <td className="px-2 py-2 text-muted-foreground text-xs truncate max-w-[120px]">{task.account}</td>
+        <td className="px-2 py-2 text-xs hidden md:table-cell">
+          {nTR ? <span className="text-muted-foreground/30">—</span> : <span className="text-foreground">{task.translator}</span>}
+        </td>
+        <td className="px-2 py-2 text-xs hidden md:table-cell">
+          {task.translator && !isXX(task.translator)
+            ? (nREV ? <span className="text-muted-foreground/30">—</span> : <span className="text-foreground">{task.reviewer}</span>)
+            : <span className="text-muted-foreground/30">—</span>}
+        </td>
+        <td className={`px-2 py-2 text-xs whitespace-nowrap ${deadlineClass(task.deadline)}`}>
+          {task.deadline || "—"}
+        </td>
+        <td className="px-2 py-2 text-xs tabular-nums text-right text-muted-foreground">{task.total}</td>
+        <td className="px-2 py-2 text-xs tabular-nums text-right text-muted-foreground">{task.wwc}</td>
+        <td className="px-2 py-2">
+          {nTR && <StatusBadge type="needs-tr" />}
+          {nREV && <StatusBadge type="needs-rev" />}
+          {!nTR && !nREV && task.delivered === "Delivered" && <StatusBadge type="delivered" />}
+          {!nTR && !nREV && task.delivered !== "Delivered" && <StatusBadge type="assigned" />}
+        </td>
+      </tr>
+    );
+  }
+
   return (
     <div className="h-full flex flex-col">
       {/* Stats bar — premium glassmorphism stat pills */}
       <div className="border-b border-white/[0.06] bg-gradient-to-r from-card via-card to-card/80 px-4 py-2">
-        <div className="flex items-center gap-1.5 text-xs">
+        <div className="flex items-center gap-1.5 text-xs flex-wrap">
           <StatPill label="Ongoing" value={stats.ongoing} loading={tasksLoading} color="blue" active={statusFilter === "ongoing"} onClick={() => setStatusFilter("ongoing")} />
           <StatPill label="Needs TR" value={stats.needsTR} loading={tasksLoading} color="orange" active={statusFilter === "needs_tr"} onClick={() => setStatusFilter("needs_tr")} />
           <StatPill label="Needs REV" value={stats.needsREV} loading={tasksLoading} color="cyan" active={statusFilter === "needs_rev"} onClick={() => setStatusFilter("needs_rev")} />
           <StatPill label="Unassigned" value={stats.needsTR + stats.needsREV} loading={tasksLoading} color="red" active={statusFilter === "unassigned"} onClick={() => setStatusFilter("unassigned")} />
+          <StatPill label="Overdue" value={stats.pastDeadline} loading={tasksLoading} color="red" active={statusFilter === "overdue"} onClick={() => setStatusFilter("overdue")} />
           <StatPill label="Assigned" value={stats.assigned} loading={tasksLoading} color="emerald" active={statusFilter === "assigned"} onClick={() => setStatusFilter("assigned")} />
           <StatPill label="Rev Done" value={stats.completed} loading={tasksLoading} color="green" active={statusFilter === "delivered"} onClick={() => setStatusFilter("delivered")} />
           <StatPill label="All" value={stats.total} loading={tasksLoading} color="gray" active={statusFilter === "all"} onClick={() => setStatusFilter("all")} />
+          {lastUpdatedText && (
+            <span className="ml-auto text-[10px] text-muted-foreground/60 tabular-nums" data-testid="text-last-updated">
+              Updated {lastUpdatedText}
+            </span>
+          )}
         </div>
       </div>
 
-      {/* Filters + bulk actions — integrated filter bar */}
-      <div className="border-b border-white/[0.06] bg-card/50 backdrop-blur-sm px-4 py-2 flex items-center gap-3 relative">
-        {hasChecked ? (
-          <>
+      {/* T2.9: Sticky bulk operations toolbar */}
+      {hasChecked && (
+        <div className="sticky top-0 z-30 border-b border-amber-500/20 bg-amber-500/[0.05] backdrop-blur-sm px-4 py-2 flex items-center gap-3 relative shadow-sm shadow-black/10" data-testid="toolbar-bulk">
             <Badge variant="secondary" className="text-xs gap-1 bg-primary/10 text-primary border border-primary/20">
               <CheckCircle2 className="w-3 h-3" />
-              {checkedKeys.size} selected
+              {checkedKeys.size} tasks selected
             </Badge>
             <Button
               variant="default"
@@ -1039,7 +1407,7 @@ export default function DashboardPage() {
               }}
               data-testid="button-bulk-tr"
             >
-              Bulk Assign TR
+              Bulk TR
               <ChevronRight className="w-3 h-3 ml-1" />
             </Button>
             <Button
@@ -1054,7 +1422,7 @@ export default function DashboardPage() {
               }}
               data-testid="button-bulk-rev"
             >
-              Bulk Assign REV
+              Bulk REV
               <ChevronRight className="w-3 h-3 ml-1" />
             </Button>
             <Button
@@ -1115,85 +1483,132 @@ export default function DashboardPage() {
                 </div>
               </div>
             )}
-          </>
-        ) : (
-          <>
-            <div className="relative flex-1 max-w-md">
+        </div>
+      )}
+
+      {/* Filters — integrated filter bar with T2.7 responsive + T2.8 Group By */}
+      {!hasChecked && (
+        <div className="border-b border-white/[0.06] bg-card/50 backdrop-blur-sm px-4 py-2">
+          {/* Mobile: compact filter row with toggle */}
+          <div className="flex items-center gap-2 md:gap-3 flex-wrap">
+            <div className="relative flex-1 min-w-[140px] max-w-md">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
-                placeholder="Search by project ID, account, translator..."
+                ref={searchInputRef}
+                placeholder={isMobile ? "Search..." : "Search by project ID, account, translator..."}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10 h-8 text-sm bg-background/50 border-white/[0.08]"
                 data-testid="input-search"
               />
             </div>
-            <Select value={sourceFilter} onValueChange={setSourceFilter}>
-              <SelectTrigger className="w-32 h-8 text-sm bg-background/50 border-white/[0.08]" data-testid="select-source">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Sources</SelectItem>
-                <SelectItem value="Amazon">Amazon</SelectItem>
-                <SelectItem value="AppleCare">AppleCare</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={accountFilter} onValueChange={setAccountFilter}>
-              <SelectTrigger className="w-40 h-8 text-sm bg-background/50 border-white/[0.08]" data-testid="select-account">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Accounts</SelectItem>
-                {uniqueAccounts.map((acct) => (
-                  <SelectItem key={acct} value={acct}>{acct}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={langFilter} onValueChange={setLangFilter}>
-              <SelectTrigger className="w-28 h-8 text-sm bg-background/50 border-white/[0.08]" data-testid="select-lang">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Langs</SelectItem>
-                {uniqueLangPairs.map(lp => (
-                  <SelectItem key={lp} value={lp}>{lp}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <button
-              onClick={() => setMyProjectsOnly(!myProjectsOnly)}
-              className={`h-8 px-3 text-xs rounded-md border transition-all duration-150 ${
-                myProjectsOnly
-                  ? "bg-primary/15 text-primary border-primary/30 shadow-sm shadow-primary/10"
-                  : "bg-background/30 text-muted-foreground border-white/[0.08] hover:bg-white/[0.04] hover:border-white/[0.12]"
-              }`}
-              data-testid="toggle-my-projects"
-            >
-              My Projects
-            </button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
-              onClick={() => saveDefaultsMutation.mutate()}
-              disabled={saveDefaultsMutation.isPending}
-              title="Save current status filter and My Projects toggle as your default view"
-              data-testid="button-save-defaults"
-            >
-              {saveDefaultsMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-              <span className="ml-1 hidden sm:inline">Save as Default</span>
-            </Button>
+            {/* Mobile: filter toggle button */}
+            {isMobile && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-2 text-xs border-white/[0.08]"
+                onClick={() => setMobileFiltersOpen(!mobileFiltersOpen)}
+                data-testid="button-mobile-filters"
+              >
+                <Filter className="w-3.5 h-3.5" />
+              </Button>
+            )}
+            {/* Desktop filter controls (always visible) / Mobile (collapsible) */}
+            {(!isMobile || mobileFiltersOpen) && (
+              <>
+                <Select value={sourceFilter} onValueChange={setSourceFilter}>
+                  <SelectTrigger className="w-32 h-8 text-sm bg-background/50 border-white/[0.08]" data-testid="select-source">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Sources</SelectItem>
+                    <SelectItem value="Amazon">Amazon</SelectItem>
+                    <SelectItem value="AppleCare">AppleCare</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={accountFilter} onValueChange={setAccountFilter}>
+                  <SelectTrigger className="w-40 h-8 text-sm bg-background/50 border-white/[0.08]" data-testid="select-account">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Accounts</SelectItem>
+                    {uniqueAccounts.map((acct) => (
+                      <SelectItem key={acct} value={acct}>{acct}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={langFilter} onValueChange={setLangFilter}>
+                  <SelectTrigger className="w-28 h-8 text-sm bg-background/50 border-white/[0.08]" data-testid="select-lang">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Langs</SelectItem>
+                    {uniqueLangPairs.map(lp => (
+                      <SelectItem key={lp} value={lp}>{lp}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {/* T2.8: Group By dropdown */}
+                <Select value={groupBy} onValueChange={(v) => { setGroupBy(v as any); setCollapsedGroups(new Set()); }}>
+                  <SelectTrigger className="w-32 h-8 text-sm bg-background/50 border-white/[0.08]" data-testid="select-group-by">
+                    <SelectValue placeholder="Group by" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No Grouping</SelectItem>
+                    <SelectItem value="account">Account</SelectItem>
+                    <SelectItem value="source">Source</SelectItem>
+                    <SelectItem value="deadline">Deadline Date</SelectItem>
+                  </SelectContent>
+                </Select>
+                <button
+                  onClick={() => setMyProjectsOnly(!myProjectsOnly)}
+                  className={`h-8 px-3 text-xs rounded-md border transition-all duration-150 ${
+                    myProjectsOnly
+                      ? "bg-primary/15 text-primary border-primary/30 shadow-sm shadow-primary/10"
+                      : "bg-background/30 text-muted-foreground border-white/[0.08] hover:bg-white/[0.04] hover:border-white/[0.12]"
+                  }`}
+                  data-testid="toggle-my-projects"
+                >
+                  My Projects
+                </button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
+                  onClick={() => saveDefaultsMutation.mutate()}
+                  disabled={saveDefaultsMutation.isPending}
+                  title="Save current status filter and My Projects toggle as your default view"
+                  data-testid="button-save-defaults"
+                >
+                  {saveDefaultsMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                  <span className="ml-1 hidden sm:inline">Save as Default</span>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
+                  onClick={handleExportXlsx}
+                  disabled={exporting || filteredTasks.length === 0}
+                  title="Export filtered tasks to XLSX"
+                  data-testid="button-export-xlsx"
+                >
+                  {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileSpreadsheet className="w-3.5 h-3.5" />}
+                  <span className="ml-1 hidden sm:inline">Export</span>
+                </Button>
+              </>
+            )}
             <span className="text-xs text-muted-foreground ml-auto tabular-nums">
               {filteredTasks.length} tasks
             </span>
-          </>
-        )}
-      </div>
+          </div>
+        </div>
+      )}
 
       {/* Split panel */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className={`flex-1 flex overflow-hidden ${isMobile ? 'flex-col' : ''}`}>
         {/* Left: Task table */}
-        <div className="flex-1 min-w-0 overflow-auto">
+        <div className={`flex-1 min-w-0 overflow-auto ${isMobile && (selectedTask || bulkMode) ? 'hidden' : ''}`}>
           {tasksLoading ? (
             <div className="p-4 space-y-2">
               {[...Array(12)].map((_, i) => <Skeleton key={i} className="h-9 w-full rounded" />)}
@@ -1203,7 +1618,8 @@ export default function DashboardPage() {
               No tasks found
             </div>
           ) : (
-            <table className="w-full text-sm" data-testid="table-tasks">
+            <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[700px]" data-testid="table-tasks">
               <thead className="sticky top-0 bg-card/95 backdrop-blur-md z-10 border-b border-white/[0.06]">
                 <tr>
                   <th className="w-10 px-2 py-2.5">
@@ -1213,88 +1629,72 @@ export default function DashboardPage() {
                       data-testid="checkbox-all"
                     />
                   </th>
-                  <th className="text-left font-medium text-muted-foreground px-2 py-2.5 text-[11px] uppercase tracking-wider">Project ID</th>
-                  <th className="text-left font-medium text-muted-foreground px-2 py-2.5 text-[11px] uppercase tracking-wider">Source</th>
-                  <th className="text-left font-medium text-muted-foreground px-2 py-2.5 text-[11px] uppercase tracking-wider">Account</th>
-                  <th className="text-left font-medium text-muted-foreground px-2 py-2.5 text-[11px] uppercase tracking-wider">TR</th>
-                  <th className="text-left font-medium text-muted-foreground px-2 py-2.5 text-[11px] uppercase tracking-wider">REV</th>
-                  <th className="text-left font-medium text-muted-foreground px-2 py-2.5 text-[11px] uppercase tracking-wider">Deadline</th>
-                  <th className="text-right font-medium text-muted-foreground px-2 py-2.5 text-[11px] uppercase tracking-wider">Total</th>
-                  <th className="text-right font-medium text-muted-foreground px-2 py-2.5 text-[11px] uppercase tracking-wider">WWC</th>
-                  <th className="text-left font-medium text-muted-foreground px-2 py-2.5 text-[11px] uppercase tracking-wider">Status</th>
+                  <SortableHeader col="projectId" label="Project ID" sortCol={sortCol} sortDir={sortDir} setSortCol={setSortCol} setSortDir={setSortDir} />
+                  <th className="text-left font-medium text-muted-foreground px-2 py-2.5 text-[11px] uppercase tracking-wider hidden md:table-cell">Source</th>
+                  <SortableHeader col="account" label="Account" sortCol={sortCol} sortDir={sortDir} setSortCol={setSortCol} setSortDir={setSortDir} />
+                  <th className="text-left font-medium text-muted-foreground px-2 py-2.5 text-[11px] uppercase tracking-wider hidden md:table-cell">TR</th>
+                  <th className="text-left font-medium text-muted-foreground px-2 py-2.5 text-[11px] uppercase tracking-wider hidden md:table-cell">REV</th>
+                  <SortableHeader col="deadline" label="Deadline" sortCol={sortCol} sortDir={sortDir} setSortCol={setSortCol} setSortDir={setSortDir} />
+                  <SortableHeader col="total" label="Total" sortCol={sortCol} sortDir={sortDir} setSortCol={setSortCol} setSortDir={setSortDir} align="right" />
+                  <SortableHeader col="wwc" label="WWC" sortCol={sortCol} sortDir={sortDir} setSortCol={setSortCol} setSortDir={setSortDir} align="right" />
+                  <SortableHeader col="status" label="Status" sortCol={sortCol} sortDir={sortDir} setSortCol={setSortCol} setSortDir={setSortDir} />
                 </tr>
               </thead>
               <tbody>
-                {filteredTasks.slice(0, 300).map((task, idx) => {
-                  const key = taskKey(task);
-                  const isSelected = key === selectedTaskKey;
-                  const isChecked = checkedKeys.has(key);
-                  const nTR = needsTranslator(task);
-                  const nREV = needsReviewer(task);
-                  const isEven = idx % 2 === 0;
-                  return (
-                    <tr
-                      key={`${key}-${idx}`}
-                      className={`border-b border-white/[0.03] cursor-pointer transition-all duration-100 ${
-                        isSelected
-                          ? "bg-primary/[0.08] border-l-2 border-l-primary"
-                          : isChecked
-                          ? "bg-blue-500/[0.06]"
-                          : isEven
-                          ? "bg-transparent hover:bg-white/[0.03]"
-                          : "bg-white/[0.015] hover:bg-white/[0.04]"
-                      }`}
-                      onClick={() => selectTask(task)}
-                      data-testid={`row-task-${idx}`}
-                    >
-                      <td className="w-10 px-2 py-2" onClick={(e) => e.stopPropagation()}>
-                        <Checkbox
-                          checked={isChecked}
-                          onCheckedChange={() => toggleCheck(key)}
-                        />
-                      </td>
-                      <td className="px-2 py-2 font-medium text-foreground whitespace-nowrap text-xs">{task.projectId}</td>
-                      <td className="px-2 py-2">
-                        <Badge variant="secondary" className="text-[10px] font-normal px-1.5 py-0 bg-white/[0.04] border border-white/[0.06]">
-                          {task.source}/{task.sheet}
-                        </Badge>
-                      </td>
-                      <td className="px-2 py-2 text-muted-foreground text-xs truncate max-w-[120px]">{task.account}</td>
-                      <td className="px-2 py-2 text-xs">
-                        {nTR ? <span className="text-muted-foreground/30">—</span> : <span className="text-foreground">{task.translator}</span>}
-                      </td>
-                      <td className="px-2 py-2 text-xs">
-                        {task.translator && !isXX(task.translator)
-                          ? (nREV ? <span className="text-muted-foreground/30">—</span> : <span className="text-foreground">{task.reviewer}</span>)
-                          : <span className="text-muted-foreground/30">—</span>}
-                      </td>
-                      <td className={`px-2 py-2 text-xs whitespace-nowrap ${deadlineClass(task.deadline)}`}>
-                        {task.deadline || "—"}
-                      </td>
-                      <td className="px-2 py-2 text-xs tabular-nums text-right text-muted-foreground">{task.total}</td>
-                      <td className="px-2 py-2 text-xs tabular-nums text-right text-muted-foreground">{task.wwc}</td>
-                      <td className="px-2 py-2">
-                        {nTR && <StatusBadge type="needs-tr" />}
-                        {nREV && <StatusBadge type="needs-rev" />}
-                        {!nTR && !nREV && task.delivered === "Delivered" && <StatusBadge type="delivered" />}
-                        {!nTR && !nREV && task.delivered !== "Delivered" && <StatusBadge type="assigned" />}
-                      </td>
-                    </tr>
-                  );
-                })}
+                {groupedTasks ? (
+                  /* T2.8: Grouped rendering */
+                  groupedTasks.map((group) => {
+                    const isCollapsed = collapsedGroups.has(group.name);
+                    return (
+                      <Fragment key={`group-${group.name}`}>
+                        <tr
+                          className="bg-white/[0.03] border-b border-white/[0.06] cursor-pointer hover:bg-white/[0.05] transition-colors"
+                          onClick={() => toggleGroupCollapse(group.name)}
+                          data-testid={`group-header-${group.name}`}
+                        >
+                          <td colSpan={10} className="px-3 py-2">
+                            <div className="flex items-center gap-2">
+                              <ChevronRight className={`w-3.5 h-3.5 text-muted-foreground transition-transform duration-150 ${isCollapsed ? '' : 'rotate-90'}`} />
+                              <span className="text-xs font-semibold text-foreground">{group.name}</span>
+                              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-white/[0.04] border border-white/[0.06]">
+                                {group.tasks.length}
+                              </Badge>
+                            </div>
+                          </td>
+                        </tr>
+                        {!isCollapsed && group.tasks.map((task, idx) => {
+                          const key = taskKey(task);
+                          const globalIdx = filteredTasks.indexOf(task);
+                          return renderTaskRow(task, key, globalIdx, idx);
+                        })}
+                      </Fragment>
+                    );
+                  })
+                ) : (
+                  /* Flat list (no grouping) */
+                  filteredTasks.slice(0, 300).map((task, idx) => {
+                    const key = taskKey(task);
+                    return renderTaskRow(task, key, idx, idx);
+                  })
+                )}
               </tbody>
             </table>
+            </div>
           )}
-          {filteredTasks.length > 300 && (
+          {filteredTasks.length > 300 && !groupedTasks && (
             <div className="text-center py-2 text-xs text-muted-foreground border-t border-white/[0.06]">
               Showing first 300 of {filteredTasks.length} results
             </div>
           )}
         </div>
 
-        {/* Right: Slide-over detail + assign panel */}
+        {/* Right: Slide-over detail + assign panel (T2.7: full-screen on mobile) */}
         {(selectedTask || bulkMode) && (
-          <div className="w-[480px] shrink-0 border-l border-white/[0.06] bg-card/80 backdrop-blur-sm flex flex-col h-full animate-slide-in-right">
+          <div className={`${
+            isMobile
+              ? 'fixed inset-0 z-40 bg-card flex flex-col'
+              : 'w-[480px] shrink-0 border-l border-white/[0.06] bg-card/80 backdrop-blur-sm flex flex-col h-full animate-slide-in-right'
+          }`}>
             {/* Single scroll container for everything */}
             <div className="flex-1 overflow-y-auto">
             {/* Task details header */}
@@ -1388,6 +1788,50 @@ export default function DashboardPage() {
                       </div>
                     )}
 
+                    {/* PM Internal Notes */}
+                    <div className="mt-3">
+                      <button
+                        onClick={() => setNoteExpanded(!noteExpanded)}
+                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                        data-testid="button-toggle-notes"
+                      >
+                        <ChevronRight className={`w-3 h-3 transition-transform duration-150 ${noteExpanded ? "rotate-90" : ""}`} />
+                        <StickyNote className="w-3 h-3" />
+                        PM Notes
+                        {editingNote && <span className="text-amber-400/70 ml-1">•</span>}
+                      </button>
+                      {noteExpanded && (
+                        <div className="mt-1.5 pl-4 space-y-1.5">
+                          <Textarea
+                            value={editingNote}
+                            onChange={(e) => setEditingNote(e.target.value)}
+                            placeholder="Add internal notes for this task..."
+                            className="text-xs min-h-[60px] bg-background/50 border-white/[0.08]"
+                            data-testid="textarea-pm-note"
+                          />
+                          <Button
+                            size="sm"
+                            className="h-6 text-[10px] px-2"
+                            disabled={saveNoteMutation.isPending}
+                            onClick={() => {
+                              if (selectedTask) {
+                                saveNoteMutation.mutate({
+                                  source: selectedTask.source,
+                                  sheet: selectedTask.sheet,
+                                  projectId: selectedTask.projectId,
+                                  note: editingNote,
+                                });
+                              }
+                            }}
+                            data-testid="button-save-note"
+                          >
+                            {saveNoteMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3 mr-0.5" />}
+                            Save Note
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+
                     {/* Project Complete button */}
                     {canComplete && (
                       <div className="mt-3">
@@ -1472,6 +1916,50 @@ export default function DashboardPage() {
                 </>
               ) : null}
             </div>
+
+            {/* T2.2: Assignment History Timeline */}
+            {selectedTask && taskAssignments.length > 0 && (
+              <div className="p-4 border-b border-white/[0.06]">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">Assignment Timeline</p>
+                <div className="relative pl-4">
+                  {/* Connecting line */}
+                  <div className="absolute left-[7px] top-1 bottom-1 w-[2px] bg-white/[0.08]" />
+                  {taskAssignments.flatMap(asgn =>
+                    (asgn.offers || []).sort((a, b) => (a.sequenceOrder ?? 999) - (b.sequenceOrder ?? 999)).map(offer => ({
+                      ...offer,
+                      role: asgn.role,
+                      assignmentType: asgn.assignmentType,
+                    }))
+                  ).map((offer, i) => {
+                    const statusColors: Record<string, string> = {
+                      accepted: "bg-green-400 shadow-green-400/30",
+                      rejected: "bg-red-400 shadow-red-400/30",
+                      withdrawn: "bg-red-400 shadow-red-400/30",
+                      pending: "bg-amber-400 shadow-amber-400/30",
+                      offered: "bg-amber-400 shadow-amber-400/30",
+                      completed: "bg-blue-400 shadow-blue-400/30",
+                    };
+                    const dotColor = statusColors[offer.status] || "bg-gray-400";
+                    return (
+                      <div key={`tl-${offer.id}-${i}`} className="relative flex items-start gap-3 mb-3 last:mb-0" data-testid={`timeline-item-${offer.id}`}>
+                        <div className={`w-3 h-3 rounded-full ${dotColor} shadow-sm shrink-0 mt-0.5 ring-2 ring-card`} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-xs font-medium text-foreground">
+                              Offered {offer.role === "translator" ? "TR" : "REV"} to {offer.freelancerName}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground">({offer.freelancerCode})</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <OfferStatusBadge status={offer.status} />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Status view OR assignment controls */}
             {isFullyAssigned && selectedTask && !bulkMode ? (
@@ -1755,7 +2243,21 @@ export default function DashboardPage() {
                   )}
                   <div className="flex flex-wrap gap-1">
                     {selectedFreelancers.map((f, idx) => (
-                      <div key={f.id} className="flex items-center gap-1 bg-white/[0.04] border border-white/[0.06] rounded-md px-2 py-0.5 text-xs" data-testid={`chip-${f.resourceCode}`}>
+                      <div
+                        key={f.id}
+                        draggable={assignmentType === "sequence" && selectedFreelancers.length > 1}
+                        onDragStart={() => handleDragStart(idx)}
+                        onDragOver={(e) => handleDragOver(e, idx)}
+                        onDrop={() => handleDrop(idx)}
+                        onDragEnd={handleDragEnd}
+                        className={`flex items-center gap-1 bg-white/[0.04] border rounded-md px-2 py-0.5 text-xs transition-all ${
+                          dragIdx === idx ? 'opacity-40 border-white/[0.06]' : dropIdx === idx && dragIdx !== null ? 'border-blue-400 border-l-2' : 'border-white/[0.06]'
+                        } ${assignmentType === "sequence" && selectedFreelancers.length > 1 ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                        data-testid={`chip-${f.resourceCode}`}
+                      >
+                        {assignmentType === "sequence" && selectedFreelancers.length > 1 && (
+                          <GripVertical className="w-3 h-3 text-muted-foreground/50 shrink-0" />
+                        )}
                         {assignmentType === "sequence" && (
                           <span className="text-muted-foreground font-medium">{idx + 1}.</span>
                         )}
@@ -1763,10 +2265,10 @@ export default function DashboardPage() {
                         <span className="text-muted-foreground">{f.resourceCode}</span>
                         {assignmentType === "sequence" && selectedFreelancers.length > 1 && (
                           <>
-                            <button onClick={() => moveFreelancer(idx, "up")} disabled={idx === 0} className="text-muted-foreground hover:text-foreground disabled:opacity-30 p-0">
+                            <button onClick={(e) => { e.stopPropagation(); moveFreelancer(idx, "up"); }} disabled={idx === 0} className="text-muted-foreground hover:text-foreground disabled:opacity-30 p-0">
                               <ChevronUp className="w-3 h-3" />
                             </button>
-                            <button onClick={() => moveFreelancer(idx, "down")} disabled={idx === selectedFreelancers.length - 1} className="text-muted-foreground hover:text-foreground disabled:opacity-30 p-0">
+                            <button onClick={(e) => { e.stopPropagation(); moveFreelancer(idx, "down"); }} disabled={idx === selectedFreelancers.length - 1} className="text-muted-foreground hover:text-foreground disabled:opacity-30 p-0">
                               <ChevronDown className="w-3 h-3" />
                             </button>
                           </>
@@ -1883,6 +2385,7 @@ export default function DashboardPage() {
                   <div className="divide-y divide-white/[0.03]">
                     {displayFreelancers.slice(0, 50).map((f) => {
                       const fStats = freelancerStats?.[f.resourceCode];
+                      const fDeliveryStats = freelancerDeliveryStats?.[f.resourceCode];
                       return (
                         <div
                           key={f.id}
@@ -1897,6 +2400,11 @@ export default function DashboardPage() {
                             <div className="flex items-center gap-1.5">
                               <span className="text-xs font-medium text-foreground truncate">{f.fullName}</span>
                               <span className="text-[10px] text-muted-foreground">{f.resourceCode}</span>
+                              {fDeliveryStats && fDeliveryStats.avgWwcPerHour > 0 && (
+                                <span className="text-[9px] px-1.5 py-0 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 tabular-nums" data-testid={`speed-badge-${f.resourceCode}`}>
+                                  ~{Math.round(fDeliveryStats.avgWwcPerHour)} w/h
+                                </span>
+                              )}
                             </div>
                             <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                               <span>{f.languagePairs?.slice(0, 3).map((lp: any) => typeof lp === "string" ? lp : `${lp.source_language}>${lp.target_language}`).join(", ")}</span>
@@ -1932,7 +2440,38 @@ export default function DashboardPage() {
 
             {/* Assign button — pinned at bottom, outside scroll */}
             {!(isFullyAssigned && selectedTask && !bulkMode) && (
-              <div className="p-3 border-t border-white/[0.06] bg-card shrink-0">
+              <div className="p-3 border-t border-white/[0.06] bg-card shrink-0 space-y-2">
+                {/* Predicted delivery estimate */}
+                {selectedTask && !bulkMode && selectedFreelancers.length > 0 && (() => {
+                  const firstFreelancer = selectedFreelancers[0];
+                  const dStats = freelancerDeliveryStats?.[firstFreelancer.resourceCode];
+                  if (!dStats || dStats.avgWwcPerHour <= 0) return null;
+                  const wwcNum = parseFloat((selectedTask.wwc || "0").replace(/[^\d.,]/g, "").replace(",", "."));
+                  if (!wwcNum || wwcNum <= 0) return null;
+                  const hoursNeeded = wwcNum / dStats.avgWwcPerHour;
+                  const display = hoursNeeded < 1
+                    ? `~${Math.round(hoursNeeded * 60)}min`
+                    : `~${Math.round(hoursNeeded * 10) / 10}h`;
+                  return (
+                    <div className="text-xs text-emerald-400/80 flex items-center gap-1.5 px-1" data-testid="text-predicted-delivery">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Est. {display} to complete <span className="text-muted-foreground">({Math.round(dStats.avgWwcPerHour)} w/h × {wwcNum.toLocaleString()} WWC)</span></span>
+                    </div>
+                  );
+                })()}
+                {/* T2.6: Preview button */}
+                {selectedTask && !bulkMode && !skipEmail && selectedFreelancers.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full h-7 text-xs border-white/[0.08] text-muted-foreground hover:text-foreground"
+                    onClick={() => setShowEmailPreviewModal(true)}
+                    data-testid="button-email-preview"
+                  >
+                    <Eye className="w-3.5 h-3.5 mr-1.5" />
+                    Preview Email
+                  </Button>
+                )}
                 {bulkMode ? (
                   <Button
                     className="w-full shadow-lg shadow-primary/20"
@@ -1999,8 +2538,99 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+
+      {/* T2.6: Email Preview Modal */}
+      <Dialog open={showEmailPreviewModal} onOpenChange={setShowEmailPreviewModal}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col" data-testid="dialog-email-preview">
+          <DialogHeader>
+            <DialogTitle className="text-sm flex items-center gap-2">
+              <Mail className="w-4 h-4" />
+              Email Preview
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Preview the assignment email before sending
+            </DialogDescription>
+          </DialogHeader>
+          {selectedTask && (
+            <div className="flex-1 overflow-y-auto space-y-3">
+              {/* Recipients */}
+              <div className="space-y-1">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Recipients</p>
+                <div className="flex flex-wrap gap-1">
+                  {selectedFreelancers.map(f => (
+                    <Badge key={f.id} variant="secondary" className="text-xs bg-white/[0.04] border border-white/[0.06]">
+                      {f.fullName} &lt;{f.email}&gt;
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+              {/* Subject */}
+              <div className="space-y-1">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Subject</p>
+                <p className="text-sm font-medium text-foreground bg-white/[0.02] border border-white/[0.06] rounded-md px-3 py-2" data-testid="text-email-subject">
+                  {replacePreviewVars(customSubject || currentTemplate?.subject || "Assignment Offer")}
+                </p>
+              </div>
+              {/* Body */}
+              <div className="space-y-1">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Body</p>
+                <div
+                  className="bg-white text-black rounded-md p-4 text-sm max-h-[40vh] overflow-y-auto border border-white/[0.06]"
+                  data-testid="text-email-body"
+                >
+                  {(() => {
+                    const body = customBody || currentTemplate?.body || generateDefaultEmailBody(selectedTask, role, sampleVars);
+                    const rendered = replacePreviewVars(body);
+                    return <div dangerouslySetInnerHTML={{ __html: rendered }} />;
+                  })()}
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="flex gap-2 pt-2 border-t border-white/[0.06]">
+            <Button variant="outline" size="sm" onClick={() => setShowEmailPreviewModal(false)} data-testid="button-preview-cancel">
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={selectedFreelancers.length === 0 || createMutation.isPending}
+              onClick={() => {
+                setShowEmailPreviewModal(false);
+                createMutation.mutate();
+              }}
+              data-testid="button-preview-send"
+            >
+              {createMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Send className="w-3.5 h-3.5 mr-1" />}
+              Send
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
+}
+
+// Helper: generate default email body for preview when no template is loaded
+function generateDefaultEmailBody(task: Task, role: string, vars: Record<string, string>): string {
+  return `
+    <table style="width:100%;border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px;">
+      <tr>
+        <td style="padding:16px;">
+          <p>Dear {{freelancerName}},</p>
+          <p>We would like to offer you a <strong>${role === "translator" ? "Translation" : "Review"}</strong> assignment:</p>
+          <table style="width:100%;border:1px solid #e0e0e0;border-collapse:collapse;margin:12px 0;">
+            <tr><td style="padding:8px;border:1px solid #e0e0e0;font-weight:bold;">Account</td><td style="padding:8px;border:1px solid #e0e0e0;">{{account}}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #e0e0e0;font-weight:bold;">Project</td><td style="padding:8px;border:1px solid #e0e0e0;">{{projectId}}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #e0e0e0;font-weight:bold;">Source/Sheet</td><td style="padding:8px;border:1px solid #e0e0e0;">{{source}} / {{sheet}}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #e0e0e0;font-weight:bold;">Deadline</td><td style="padding:8px;border:1px solid #e0e0e0;">{{deadline}}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #e0e0e0;font-weight:bold;">Total Words</td><td style="padding:8px;border:1px solid #e0e0e0;">{{total}}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #e0e0e0;font-weight:bold;">WWC</td><td style="padding:8px;border:1px solid #e0e0e0;">{{wwc}}</td></tr>
+          </table>
+          <p>Please accept or decline this assignment.</p>
+        </td>
+      </tr>
+    </table>
+  `;
 }
 
 // ── Sub-components ──
@@ -2104,6 +2734,41 @@ function OfferStatusBadge({ status }: { status: string }) {
       {icons[status] || null}
       {status.charAt(0).toUpperCase() + status.slice(1)}
     </Badge>
+  );
+}
+
+function SortableHeader({ col, label, sortCol, sortDir, setSortCol, setSortDir, align }: {
+  col: string;
+  label: string;
+  sortCol: string;
+  sortDir: "asc" | "desc";
+  setSortCol: (col: string) => void;
+  setSortDir: (fn: (prev: "asc" | "desc") => "asc" | "desc") => void;
+  align?: "left" | "right";
+}) {
+  const isActive = sortCol === col;
+  return (
+    <th
+      className={`${align === "right" ? "text-right" : "text-left"} font-medium text-muted-foreground px-2 py-2.5 text-[11px] uppercase tracking-wider cursor-pointer select-none hover:text-foreground transition-colors group`}
+      onClick={() => {
+        if (sortCol === col) {
+          setSortDir((prev: "asc" | "desc") => prev === "asc" ? "desc" : "asc");
+        } else {
+          setSortCol(col);
+          setSortDir(() => "asc");
+        }
+      }}
+      data-testid={`sort-${col}`}
+    >
+      <span className="inline-flex items-center gap-0.5">
+        {label}
+        {isActive ? (
+          sortDir === "asc" ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+        ) : (
+          <ArrowUpDown className="w-3 h-3 opacity-0 group-hover:opacity-40 transition-opacity" />
+        )}
+      </span>
+    </th>
   );
 }
 

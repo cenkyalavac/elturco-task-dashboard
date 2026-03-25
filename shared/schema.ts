@@ -117,6 +117,7 @@ export const autoAssignRules = sqliteTable("auto_assign_rules", {
   role: text("role").notNull(), // "translator" | "reviewer"
   freelancerCodes: text("freelancer_codes").notNull(), // JSON array
   assignmentType: text("assignment_type").notNull().default("sequence"),
+  maxWwc: integer("max_wwc"), // Only apply if WWC <= this (null = any)
   enabled: integer("enabled").notNull().default(1),
   createdBy: text("created_by").notNull(),
 });
@@ -130,6 +131,18 @@ export const sheetConfigs = sqliteTable("sheet_configs", {
   sheetDbId: text("sheetdb_id"),    // SheetDB API ID (e.g. "mukq6ww3ssuk0")
   googleSheetUrl: text("google_sheet_url"), // Original Google Sheet URL for reference
   assignedPms: text("assigned_pms"), // JSON array of PM emails, e.g. ["cenk@eltur.co"]. null = visible to all.
+});
+
+// PM internal notes on tasks (stored in DB, not sheet)
+export const taskNotes = sqliteTable("task_notes", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  source: text("source").notNull(),
+  sheet: text("sheet").notNull(),
+  projectId: text("project_id").notNull(),
+  pmEmail: text("pm_email").notNull(),
+  note: text("note").notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
 });
 
 // Schemas
