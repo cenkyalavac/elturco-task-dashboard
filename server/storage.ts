@@ -15,6 +15,87 @@ import {
 const DB_PATH = process.env.DB_PATH || "data.db";
 const sqlite = new Database(DB_PATH);
 sqlite.pragma("journal_mode = WAL");
+
+// Auto-create tables if they don't exist (for fresh deployments)
+sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS pm_users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    initial TEXT DEFAULT '',
+    password TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL DEFAULT 'pm',
+    default_filter TEXT DEFAULT 'ongoing',
+    default_my_projects INTEGER DEFAULT 0
+  );
+  CREATE TABLE IF NOT EXISTS auth_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token TEXT NOT NULL UNIQUE,
+    email TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used INTEGER NOT NULL DEFAULT 0,
+    client_base_url TEXT
+  );
+  CREATE TABLE IF NOT EXISTS sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token TEXT NOT NULL UNIQUE,
+    pm_user_id INTEGER NOT NULL,
+    expires_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS assignments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL, sheet TEXT NOT NULL, project_id TEXT NOT NULL, account TEXT NOT NULL,
+    task_details TEXT NOT NULL, assignment_type TEXT NOT NULL, role TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    assigned_by INTEGER NOT NULL, accepted_by TEXT, accepted_by_name TEXT, accepted_by_email TEXT,
+    sequence_list TEXT, current_sequence_index INTEGER DEFAULT 0, sequence_timeout_minutes INTEGER DEFAULT 60,
+    broadcast_list TEXT, auto_assign_reviewer INTEGER DEFAULT 0,
+    reviewer_assignment_type TEXT, reviewer_sequence_list TEXT, review_type TEXT,
+    created_at TEXT NOT NULL, offered_at TEXT, accepted_at TEXT, completed_at TEXT,
+    linked_reviewer_assignment_id INTEGER
+  );
+  CREATE TABLE IF NOT EXISTS offers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    assignment_id INTEGER NOT NULL, freelancer_code TEXT NOT NULL,
+    freelancer_name TEXT NOT NULL, freelancer_email TEXT NOT NULL,
+    token TEXT NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'pending',
+    sent_at TEXT NOT NULL, responded_at TEXT, sequence_order INTEGER,
+    client_base_url TEXT
+  );
+  CREATE TABLE IF NOT EXISTS email_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT NOT NULL UNIQUE, subject TEXT NOT NULL, body TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS sequence_presets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL, pm_email TEXT NOT NULL, role TEXT NOT NULL,
+    freelancer_codes TEXT NOT NULL, assignment_type TEXT NOT NULL DEFAULT 'sequence'
+  );
+  CREATE TABLE IF NOT EXISTS auto_assign_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL, source TEXT, account TEXT, language_pair TEXT,
+    role TEXT NOT NULL, freelancer_codes TEXT NOT NULL,
+    assignment_type TEXT NOT NULL DEFAULT 'sequence',
+    max_wwc INTEGER, enabled INTEGER NOT NULL DEFAULT 1, created_by TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS sheet_configs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL, sheet TEXT NOT NULL,
+    language_pair TEXT NOT NULL DEFAULT 'EN>TR',
+    sheetdb_id TEXT, google_sheet_url TEXT, assigned_pms TEXT
+  );
+  CREATE TABLE IF NOT EXISTS task_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL, sheet TEXT NOT NULL, project_id TEXT NOT NULL,
+    pm_email TEXT NOT NULL, note TEXT NOT NULL,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS pm_favorites (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pm_email TEXT NOT NULL, freelancer_code TEXT NOT NULL, created_at TEXT NOT NULL
+  );
+`);
+
 export const db = drizzle(sqlite);
 
 export interface IStorage {
