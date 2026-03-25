@@ -7,7 +7,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { getAuthToken, getCurrentUser } from "@/lib/queryClient";
-import { PerplexityAttribution } from "@/components/PerplexityAttribution";
+
 import LoginPage from "@/pages/login";
 import DashboardPage from "@/pages/dashboard";
 import AdminPage from "@/pages/admin";
@@ -154,7 +154,7 @@ function App() {
             <Router hook={useHashLocation}>
               <AppRouter />
             </Router>
-            <PerplexityAttribution />
+
           </AuthProvider>
         </TooltipProvider>
       </QueryClientProvider>
