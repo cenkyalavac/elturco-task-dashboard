@@ -36,6 +36,15 @@ interface Freelancer {
 const ACCOUNT_MATCH: Record<string, string[]> = {
   Amazon: ["Amazon", "Amazon SeCM", "Amazon PWS"],
   AppleCare: ["Apple"],
+  "L-Google": ["Google"],
+  WhatsApp: ["Whatsapp"],
+  TikTok: ["TikTok"],
+  Facebook: ["Facebook"],
+  Inditex: ["Across"],
+};
+
+const SPECIALIZATION_MATCH: Record<string, string[]> = {
+  Games: ["Game", "Gaming", "Game Localization", "Gaming Localization", "Gaming Translation", "Games Localization Specialist", "Video Games", "Video Game Localisation", "Videogame Localization", "Game Industry"],
 };
 
 export default function AssignPage() {
@@ -102,7 +111,10 @@ export default function AssignPage() {
         // Status filter - show both Approved and Red Flag for testing
         if (!showAllStatuses && f.status !== "Approved") return false;
         // Account filter (bypass when searching by name/code)
-        const matchesAccount = matchAccounts.length === 0 || f.accounts?.some(a => matchAccounts.includes(a));
+        const matchesAccount = matchAccounts.length === 0 || f.accounts?.some((a: string) => matchAccounts.includes(a));
+        // Check specialization match (for Games etc.)
+        const specMatch = SPECIALIZATION_MATCH[source] || [];
+        const matchesSpec = specMatch.length > 0 && f.specializations?.some((s: string) => specMatch.includes(s));
         // Search
         if (freelancerSearch) {
           const q = freelancerSearch.toLowerCase();
@@ -111,8 +123,8 @@ export default function AssignPage() {
           // If searching, show results even if they don't match account filter
           return matchesSearch;
         }
-        // When not searching, apply account filter
-        if (!matchesAccount) return false;
+        // When not searching, apply account/specialization filter
+        if (!matchesAccount && !matchesSpec) return false;
         return true;
       })
       .sort((a, b) => {

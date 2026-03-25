@@ -177,6 +177,16 @@ type EltsAvailabilityData = Record<string, EltsAvailabilityDay[]>;
 const ACCOUNT_MATCH: Record<string, string[]> = {
   Amazon: ["Amazon", "Amazon SeCM", "Amazon PWS"],
   AppleCare: ["Apple"],
+  "L-Google": ["Google"],
+  WhatsApp: ["Whatsapp"],
+  TikTok: ["TikTok"],
+  Facebook: ["Facebook"],
+  Inditex: ["Across"],
+};
+
+// Specialization-based matching: filter by freelancer specialization instead of account
+const SPECIALIZATION_MATCH: Record<string, string[]> = {
+  Games: ["Game", "Gaming", "Game Localization", "Gaming Localization", "Gaming Translation", "Games Localization Specialist", "Video Games", "Video Game Localisation", "Videogame Localization", "Game Industry"],
 };
 
 // Test freelancer codes that bypass account/language filters
@@ -1038,8 +1048,11 @@ export default function DashboardPage() {
       if (selectedIds.has(f.id)) return false;
       return bulkSources.every(source => {
         const matchAccts = ACCOUNT_MATCH[source] || [];
-        if (matchAccts.length === 0) return true;
-        return f.accounts?.some(a => matchAccts.includes(a));
+        const specMatch = SPECIALIZATION_MATCH[source] || [];
+        if (matchAccts.length === 0 && specMatch.length === 0) return true;
+        const acctOk = matchAccts.length > 0 && f.accounts?.some((a: string) => matchAccts.includes(a));
+        const specOk = specMatch.length > 0 && f.specializations?.some((s: string) => specMatch.includes(s));
+        return acctOk || specOk;
       });
     }).sort((a, b) => {
       // Unavailable freelancers sort to bottom
@@ -1200,8 +1213,11 @@ export default function DashboardPage() {
         if (selectedIds.has(f.id)) return false;
         // Bypass account/language filters for test freelancers
         if (!BYPASS_FILTER_CODES.includes(f.resourceCode)) {
-          const matchesAccount = matchAccounts.length === 0 || f.accounts?.some((a) => matchAccounts.includes(a));
-          if (!matchesAccount) return false;
+          // Check account match OR specialization match (for Games etc.)
+          const matchesAccount = matchAccounts.length === 0 || f.accounts?.some((a: string) => matchAccounts.includes(a));
+          const specMatch = SPECIALIZATION_MATCH[selectedTask.source] || [];
+          const matchesSpec = specMatch.length > 0 && f.specializations?.some((s: string) => specMatch.includes(s));
+          if (!matchesAccount && !matchesSpec) return false;
           if (taskLangPair && taskLangPair !== "Multi" && f.languagePairs?.length > 0) {
             if (!f.languagePairs.includes(taskLangPair)) return false;
           }
@@ -2789,7 +2805,7 @@ export default function DashboardPage() {
                   </div>
                   {selectedTask && taskLangPair && (
                     <p className="text-[10px] text-muted-foreground mt-1">
-                      Filtering: {taskLangPair} {matchAccountsHelper(selectedTask) && `· ${ACCOUNT_MATCH[selectedTask.source]?.join(", ")}`}
+                      Filtering: {taskLangPair} {ACCOUNT_MATCH[selectedTask.source] && `· ${ACCOUNT_MATCH[selectedTask.source]?.join(", ")}`}{SPECIALIZATION_MATCH[selectedTask.source] && ` · Spec: ${SPECIALIZATION_MATCH[selectedTask.source]?.[0]}...`}
                     </p>
                   )}
                 </div>
@@ -3490,5 +3506,5 @@ function SortableHeader({ col, label, sortCol, sortDir, setSortCol, setSortDir, 
 
 function matchAccountsHelper(task: Task | null): boolean {
   if (!task) return false;
-  return !!ACCOUNT_MATCH[task.source];
+  return !!ACCOUNT_MATCH[task.source] || !!SPECIALIZATION_MATCH[task.source];
 }

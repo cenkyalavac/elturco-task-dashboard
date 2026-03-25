@@ -27,6 +27,16 @@ const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL || "";
 const ACCOUNT_MATCH: Record<string, string[]> = {
   "Amazon": ["Amazon", "Amazon SeCM", "Amazon PWS"],
   "AppleCare": ["Apple"],
+  "L-Google": ["Google"],
+  "WhatsApp": ["Whatsapp"],
+  "TikTok": ["TikTok"],
+  "Facebook": ["Facebook"],
+  "Inditex": ["Across"],
+};
+
+// Specialization-based matching: when source doesn't map to an account, filter by specialization
+const SPECIALIZATION_MATCH: Record<string, string[]> = {
+  "Games": ["Game", "Gaming", "Game Localization", "Gaming Localization", "Gaming Translation", "Games Localization Specialist", "Video Games", "Video Game Localisation", "Videogame Localization", "Game Industry"],
 };
 
 // ============================================
@@ -211,25 +221,25 @@ async function fetchSheetTasks(apiId: string, tabName: string, sheetLabel: strin
       revDeadline: extractRevDeadline(row, sheetLabel),
       // CAT analysis breakdown (all using resilient getCol)
       catCounts: {
-        ice: getCol(row, "ICE", "Ice", "ICE Match/101", "101%") || "0",
-        rep: getCol(row, "Rep", "REP", "Reps") || "0",
-        match100: getCol(row, "100%", "100") || "0",
-        fuzzy95: getCol(row, "95-99%", "95-99", "99-95%") || "0",
-        fuzzy85: getCol(row, "85-94%", "85-94", "94-85%") || "0",
-        fuzzy75: getCol(row, "75-84%", "75-84", "84-75%") || "0",
-        noMatch: getCol(row, "No Match", "NM", "74-0%") || "0",
+        ice: getCol(row, "ICE", "Ice", "ICE Match/101", "101%", "ICE/Context Match", "CM") || "0",
+        rep: getCol(row, "Rep", "REP", "Reps", "Repetitions", "100%/Rep") || "0",
+        match100: getCol(row, "100%", "100", "100% Match", "100% match review") || "0",
+        fuzzy95: getCol(row, "95-99%", "95-99", "99-95%", "95% Match", "95% - 99%") || "0",
+        fuzzy85: getCol(row, "85-94%", "85-94", "94-85%", "85% Match", "85% - 94%") || "0",
+        fuzzy75: getCol(row, "75-84%", "75-84", "84-75%", "75% Match", "75% - 84%", "50-74%", "50% - 74%") || "0",
+        noMatch: getCol(row, "No Match", "NM", "74-0%", "NoMatch", "New", "New Words") || "0",
         mt: getCol(row, "MT") || "0",
       },
       // Notes & metadata
-      hoNote: getCol(row, "HO Note", "HO Notes", "HO Note // Q&A SHEET"),
-      trHbNote: getCol(row, "TR HB Note", "TR HB Notes", "TR\nHB Note"),
-      revHbNote: getCol(row, "Rev HB Note", "Rev HB Notes", "Rev\nHB Note"),
+      hoNote: getCol(row, "HO Note", "HO Notes", "HO Note // Q&A SHEET", "HO", "NOTE", "Comment"),
+      trHbNote: getCol(row, "TR HB Note", "TR HB Notes", "TR\nHB Note", "TR Note", "Tra Note\n(Double-click to expand)", "Note for REV"),
+      revHbNote: getCol(row, "Rev HB Note", "Rev HB Notes", "Rev\nHB Note", "Rev Note", "Rev. Note", "Rev HB Note", "HB Note"),
       instructions: getCol(row, "Instructions", "Instruction"),
       lqi: getCol(row, "LQI", "LQI?", "LQI ?"),
-      qs: getCol(row, "QS"),
-      projectTitle: getCol(row, "Project Title", "Title", "Project"),
-      atmsId: getCol(row, "ATMS ID", "ATMS_ID"),
-      symfonieLink: getCol(row, "Symfonie", "Symfonie link", "Symfonie Link"),
+      qs: getCol(row, "QS", "QS (Num)"),
+      projectTitle: getCol(row, "Project Title", "Title", "Project", "Project Name", "Job Name", "Task Name", "Project Name in XTM"),
+      atmsId: getCol(row, "ATMS ID", "ATMS_ID", "APS Code"),
+      symfonieLink: getCol(row, "Symfonie", "Symfonie link", "Symfonie Link", "SYM Link", "TP URL", "URL", "Link"),
       symfonieId: getCol(row, "Symfonie ID", "SymfonieID"),
     })).filter((t: any) => t.projectId);
   } catch (e) {
@@ -241,24 +251,24 @@ async function fetchSheetTasks(apiId: string, tabName: string, sheetLabel: strin
 // If a PM renames "ATMS ID" to "ATMS_ID" or adds/removes spaces, it still works.
 function extractProjectId(row: any, sheet: string): string {
   if (sheet === "TPT") return getCol(row, "ATMS ID", "ATMS_ID", "ID");
-  return getCol(row, "Project ID", "ProjectID", "ID");
+  return getCol(row, "Project ID", "ProjectID", "ID", "Project code", "Job ID", "Job Code", "Task Name");
 }
 function extractAccount(row: any, sheet: string): string {
   if (sheet === "AFT") return getCol(row, "m", "Account") || "Amazon AFT";
   if (sheet === "DPX") return getCol(row, "Account") || "Amazon DPX";
-  return getCol(row, "Account", "Division");
+  return getCol(row, "Account", "Division", "Product", "Client", "Organization");
 }
 function extractTranslator(row: any, sheet: string): string {
-  return getCol(row, "TR ", "TR");
+  return getCol(row, "TR ", "TR", "Translator", "Tra", "TER");
 }
 function extractReviewer(row: any, sheet: string): string {
-  return getCol(row, "Rev", "REV");
+  return getCol(row, "Rev", "REV", "Reviewer", "Rev.");
 }
 function extractTrDone(row: any, sheet: string): string {
-  return getCol(row, "TR\nDone?", "TR Done?", "TR Dlvr", "TR Dlvr?", "TR Dlv?");
+  return getCol(row, "TR\nDone?", "TR Done?", "TR Dlvr", "TR Dlvr?", "TR Dlv?", "TR Delivered?", "TR delivered?", "TR Compl?", "TR Divr?", "Tra Dlv?");
 }
 function extractDelivered(row: any): string {
-  const v = getCol(row, "Delivered?", "Delivered").toLowerCase().trim();
+  const v = getCol(row, "Delivered?", "Delivered", "Dlvr?", "Divr?", "Comp?").toLowerCase().trim();
   if (v === "yes" || v === "y") return "Delivered";
   if (v === "cancelled" || v === "canceled") return "Cancelled";
   if (v === "on hold" || v === "onhold" || v === "on-hold") return "On Hold";
@@ -278,23 +288,37 @@ function parseDeadline(d: string): Date | null {
 }
 
 function extractDeadline(row: any, sheet: string): string {
-  return getCol(row, "TR\nDeadline", "TR Deadline");
+  // Try TR-specific deadline first; only fall back to generic "Deadline" if no Rev Deadline exists
+  const trSpecific = getCol(row, "TR\nDeadline", "TR Deadline");
+  if (trSpecific) return trSpecific;
+  // For sheets that use a single "Deadline" column (e.g. Facebook Offline, Games)
+  // only use it as TR deadline if there's no separate rev deadline column
+  const genericDl = getCol(row, "Deadline");
+  const revDl = getCol(row, "Rev. Deadline", "Rev Deadline", "Rev.\nDeadline", "Client Deadline", "Client\nDeadline");
+  if (genericDl && !revDl) return genericDl;
+  return genericDl || "";
 }
 function extractRevDeadline(row: any, sheet: string): string {
   if (sheet === "TPT") return getCol(row, "Client\nDeadline", "Client Deadline");
-  return getCol(row, "Deadline", "Rev Deadline");
+  // Try rev-specific deadline columns first
+  const revSpecific = getCol(row, "Rev Deadline", "Rev. Deadline", "Rev.\nDeadline", "Client Deadline", "Client\nDeadline");
+  if (revSpecific) return revSpecific;
+  // Fall back to generic "Deadline" only if there's a separate TR Deadline (so "Deadline" is the rev one)
+  const trSpecific = getCol(row, "TR\nDeadline", "TR Deadline");
+  if (trSpecific) return getCol(row, "Deadline") || "";
+  return "";
 }
 function extractTotal(row: any, sheet: string): string {
-  return getCol(row, "Total", "TWC") || "0";
+  return getCol(row, "Total", "TWC", "TOTAL", "WC", "Total WC") || "0";
 }
 function extractWWC(row: any, sheet: string): string {
-  return getCol(row, "TR WWC", "WWC") || "0";
+  return getCol(row, "TR WWC", "WWC", "Client WWC") || "0";
 }
 function extractRevComplete(row: any, sheet: string): string {
-  return getCol(row, "Rev\nDone?", "Rev Done?", "Rev Complete? (in minutes)", "Rev Complete?", "Time Spent\n(in minutes)", "Time Spent (in minutes)");
+  return getCol(row, "Rev\nDone?", "Rev Done?", "Rev Complete? (in minutes)", "Rev Complete?", "Time Spent\n(in minutes)", "Time Spent (in minutes)", "Rev Completed? (in minutes)", "Rev Compl?", "Rev Dlvr?", "Rev delivered?", "Rev Divr?", "Rev. Dlv?", "Time Spent", "Rev Time (min.)", "Time spent", "Rev QA");
 }
 function extractRevType(row: any): string {
-  return getCol(row, "Rev Type", "Rev\nType", "Review Type");
+  return getCol(row, "Rev Type", "Rev\nType", "Review Type", "REV Type", "Rev type");
 }
 
 // ============================================
