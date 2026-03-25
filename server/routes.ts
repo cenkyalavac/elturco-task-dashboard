@@ -614,7 +614,11 @@ const freelancers = (Array.isArray(data) ? data : [])
       });
       await Promise.all(promises);
 
-      res.json(allTasks);
+      // Filter out delivered tasks by default (saves ~13MB of payload)
+      // Pass ?includeDelivered=true to get everything
+      const includeDelivered = req.query.includeDelivered === "true";
+      const filtered = includeDelivered ? allTasks : allTasks.filter((t: any) => t.delivered !== "Delivered");
+      res.json(filtered);
     } catch (e: any) {
       res.status(500).json({ error: "Failed to fetch task data: " + e.message });
     }

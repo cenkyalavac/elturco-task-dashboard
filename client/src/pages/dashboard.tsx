@@ -596,10 +596,12 @@ export default function DashboardPage() {
   });
 
   // Queries
+  const wantDelivered = statusFilter === "delivered";
   const { data: tasks, isLoading: tasksLoading } = useQuery<Task[]>({
-    queryKey: ["/api/tasks"],
+    queryKey: ["/api/tasks", wantDelivered],
     queryFn: async () => {
-      const res = await apiRequest("GET", "/api/tasks");
+      const url = wantDelivered ? "/api/tasks?includeDelivered=true" : "/api/tasks";
+      const res = await apiRequest("GET", url);
       return res.json();
     },
     staleTime: 60000,
