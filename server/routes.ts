@@ -463,6 +463,20 @@ function buildMagicLinkEmailHtml(name: string, magicUrl: string): string {
 // ============================================
 // REGISTER ROUTES
 // ============================================
+// ============================================
+// SERVER-SIDE CACHE for expensive external API calls
+// ============================================
+interface CacheEntry<T> { data: T; timestamp: number; }
+const cache: Record<string, CacheEntry<any>> = {};
+function getCached<T>(key: string, ttlMs: number): T | null {
+  const entry = cache[key];
+  if (entry && Date.now() - entry.timestamp < ttlMs) return entry.data as T;
+  return null;
+}
+function setCache<T>(key: string, data: T): void {
+  cache[key] = { data, timestamp: Date.now() };
+}
+
 export async function registerRoutes(server: Server, app: Express) {
 
   // ---- RATE LIMITING ----
@@ -554,6 +568,10 @@ export async function registerRoutes(server: Server, app: Express) {
 
   app.get("/api/freelancers", requireAuth, async (_req: Request, res: Response) => {
     try {
+      // Cache freelancers for 5 minutes (rarely changes)
+      const cachedFl = getCached<any[]>("freelancers", 300000);
+      if (cachedFl) return res.json(cachedFl);
+
       const response = await fetch(BASE44_API, {
         headers: { "Content-Type": "application/json", "api_key": BASE44_KEY },
       });
@@ -579,6 +597,7 @@ const freelancers = (Array.isArray(data) ? data : [])
         canDoLqa: f.can_do_lqa,
         specializations: f.specializations || [],
       }));
+      setCache("freelancers", freelancers);
       res.json(freelancers);
     } catch (e: any) {
       res.status(500).json({ error: "Failed to fetch freelancer data: " + e.message });
@@ -587,9 +606,38 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   // ---- TASK ROUTES (SheetDB) ----
 
+  // Shared task fetch function with 2-minute cache
+  async function getAllTasksCached(): Promise<any[]> {
+    const cached = getCached<any[]>("allTasks", 120000); // 2 min
+    if (cached) return cached;
+
+    const configs = storage.getAllSheetConfigs();
+    const allTasks: any[] = [];
+    const byApiId = new Map<string, typeof configs>();
+    for (const c of configs) {
+      if (!c.sheetDbId) continue;
+      if (!byApiId.has(c.sheetDbId)) byApiId.set(c.sheetDbId, []);
+      byApiId.get(c.sheetDbId)!.push(c);
+    }
+    const promises: Promise<void>[] = [];
+    byApiId.forEach((cfgs, apiId) => {
+      for (const cfg of cfgs) {
+        promises.push(
+          fetchSheetTasks(apiId, cfg.sheet, cfg.sheet, cfg.source)
+            .then(rows => { allTasks.push(...rows); })
+        );
+      }
+    });
+    await Promise.all(promises);
+    setCache("allTasks", allTasks);
+    return allTasks;
+  }
+
   app.get("/api/tasks", requireAuth, async (req: Request, res: Response) => {
     try {
-      const configs = storage.getAllSheetConfigs();
+      const allTasks = await getAllTasksCached();
+
+      // PM-specific filtering
       const pmEmail = (() => {
         const session = storage.getSession(req.headers.authorization!.replace("Bearer ", ""));
         if (!session) return null;
@@ -597,40 +645,18 @@ const freelancers = (Array.isArray(data) ? data : [])
         const user = allUsers.find(u => u.id === session.pmUserId);
         return user?.email || null;
       })();
+      const configs = storage.getAllSheetConfigs();
+      const visibleSheets = new Set(
+        configs.filter(c => {
+          if (!c.assignedPms) return true;
+          try { return (JSON.parse(c.assignedPms) as string[]).includes(pmEmail || ""); } catch { return true; }
+        }).map(c => `${c.source}|${c.sheet}`)
+      );
+      const pmTasks = allTasks.filter((t: any) => visibleSheets.has(`${t.source}|${t.sheet}`));
 
-      // Filter configs by PM assignment (null assignedPms = visible to all)
-      const visibleConfigs = configs.filter(c => {
-        if (!c.assignedPms) return true;
-        try {
-          const pms = JSON.parse(c.assignedPms) as string[];
-          return pms.includes(pmEmail || "");
-        } catch { return true; }
-      });
-
-      const allTasks: any[] = [];
-      // Group configs by sheetDbId to minimize API calls
-      const byApiId = new Map<string, typeof visibleConfigs>();
-      for (const c of visibleConfigs) {
-        if (!c.sheetDbId) continue;
-        if (!byApiId.has(c.sheetDbId)) byApiId.set(c.sheetDbId, []);
-        byApiId.get(c.sheetDbId)!.push(c);
-      }
-
-      const promises: Promise<void>[] = [];
-      byApiId.forEach((cfgs, apiId) => {
-        for (const cfg of cfgs) {
-          promises.push(
-            fetchSheetTasks(apiId, cfg.sheet, cfg.sheet, cfg.source)
-              .then(rows => { allTasks.push(...rows); })
-          );
-        }
-      });
-      await Promise.all(promises);
-
-      // Filter out delivered tasks by default (saves ~13MB of payload)
-      // Pass ?includeDelivered=true to get everything
+      // Filter out delivered tasks by default
       const includeDelivered = req.query.includeDelivered === "true";
-      const filtered = includeDelivered ? allTasks : allTasks.filter((t: any) => t.delivered !== "Delivered");
+      const filtered = includeDelivered ? pmTasks : pmTasks.filter((t: any) => t.delivered !== "Delivered");
       res.json(filtered);
     } catch (e: any) {
       res.status(500).json({ error: "Failed to fetch task data: " + e.message });
@@ -1406,6 +1432,7 @@ const freelancers = (Array.isArray(data) ? data : [])
           headers: { "Content-Type": "application/json", "api_key": BASE44_KEY },
           body: JSON.stringify({ status, hours_available: hours || 0, notes: notes || "" }),
         });
+        delete cache["eltsAvailability"]; // Invalidate cache
         res.json({ success: true, action: "updated", id: existing.id });
       } else {
         // Create
@@ -1415,6 +1442,7 @@ const freelancers = (Array.isArray(data) ? data : [])
           body: JSON.stringify({ freelancer_id: fl.id, date, status, hours_available: hours || 0, notes: notes || "" }),
         });
         const created = await createRes.json();
+        delete cache["eltsAvailability"]; // Invalidate cache
         res.json({ success: true, action: "created", id: created.id });
       }
     } catch (e: any) {
@@ -1538,6 +1566,9 @@ const freelancers = (Array.isArray(data) ? data : [])
   // ---- ELTS QUALITY SCORES (account-based from QualityReport entity) ----
   app.get("/api/elts/quality", requireAuth, async (_req: Request, res: Response) => {
     try {
+      // Cache ELTS quality for 5 minutes
+      const cachedQ = getCached<any>("eltsQuality", 300000);
+      if (cachedQ) return res.json(cachedQ);
       // Fetch QualityReports from ELTS
       const qrRes = await fetch(
         BASE44_API.replace("/entities/Freelancer", "/entities/QualityReport"),
@@ -1597,6 +1628,7 @@ const freelancers = (Array.isArray(data) ? data : [])
           };
         }
       }
+      setCache("eltsQuality", output);
       res.json(output);
     } catch (e: any) {
       console.error("ELTS quality fetch error:", e.message);
@@ -1607,6 +1639,9 @@ const freelancers = (Array.isArray(data) ? data : [])
   // ---- ELTS AVAILABILITY (from Availability entity) ----
   app.get("/api/elts/availability", requireAuth, async (_req: Request, res: Response) => {
     try {
+      // Cache availability for 3 minutes
+      const cachedAv = getCached<any>("eltsAvailability", 180000);
+      if (cachedAv) return res.json(cachedAv);
       // Fetch Availability records
       const avRes = await fetch(
         BASE44_API.replace("/entities/Freelancer", "/entities/Availability"),
@@ -1645,6 +1680,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       for (const code of Object.keys(result)) {
         result[code].sort((a: any, b: any) => a.date.localeCompare(b.date));
       }
+      setCache("eltsAvailability", result);
       res.json(result);
     } catch (e: any) {
       console.error("ELTS availability fetch error:", e.message);
@@ -1656,24 +1692,7 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   app.get("/api/freelancer-stats", requireAuth, async (_req: Request, res: Response) => {
     try {
-      const configs = storage.getAllSheetConfigs();
-      const allTasks: any[] = [];
-      const promises: Promise<void>[] = [];
-      const byApiId = new Map<string, any[]>();
-      for (const c of configs) {
-        if (!c.sheetDbId) continue;
-        if (!byApiId.has(c.sheetDbId)) byApiId.set(c.sheetDbId, []);
-        byApiId.get(c.sheetDbId)!.push(c);
-      }
-      byApiId.forEach((cfgs, apiId) => {
-        for (const cfg of cfgs) {
-          promises.push(
-            fetchSheetTasks(apiId, cfg.sheet, cfg.sheet, cfg.source)
-              .then(rows => { allTasks.push(...rows); })
-          );
-        }
-      });
-      await Promise.all(promises);
+      const allTasks = await getAllTasksCached(); // Uses shared 2-min cache
 
       const trStats: Record<string, { qsScores: number[]; count: number }> = {};
       const revStats: Record<string, { count: number }> = {};
@@ -1959,36 +1978,10 @@ const freelancers = (Array.isArray(data) ? data : [])
     sendSlackNotification(`\u274c ${freelancerName} declined ${role} for ${projectId}.`);
   }
 
-  // ---- ANALYTICS (with sheet data cache) ----
-  let sheetAnalyticsCache: { data: any; timestamp: number } | null = null;
-  const ANALYTICS_CACHE_MS = 5 * 60 * 1000; // 5 minutes
-
+  // ---- ANALYTICS (uses shared task cache) ----
   app.get("/api/analytics", requireAuth, async (_req: Request, res: Response) => {
     try {
-      // Fetch sheet tasks with cache
-      let allSheetTasks: any[] = [];
-      if (sheetAnalyticsCache && Date.now() - sheetAnalyticsCache.timestamp < ANALYTICS_CACHE_MS) {
-        allSheetTasks = sheetAnalyticsCache.data;
-      } else {
-        const configs = storage.getAllSheetConfigs();
-        const byApiId = new Map<string, typeof configs>();
-        for (const c of configs) {
-          if (!c.sheetDbId) continue;
-          if (!byApiId.has(c.sheetDbId)) byApiId.set(c.sheetDbId, []);
-          byApiId.get(c.sheetDbId)!.push(c);
-        }
-        const promises: Promise<void>[] = [];
-        byApiId.forEach((cfgs, apiId) => {
-          for (const cfg of cfgs) {
-            promises.push(
-              fetchSheetTasks(apiId, cfg.sheet, cfg.sheet, cfg.source)
-                .then(rows => { allSheetTasks.push(...rows); })
-            );
-          }
-        });
-        await Promise.all(promises);
-        sheetAnalyticsCache = { data: allSheetTasks, timestamp: Date.now() };
-      }
+      const allSheetTasks = await getAllTasksCached();
 
       // Sheet-based analytics
       const byAccount: Record<string, { count: number; totalWwc: number }> = {};
@@ -2060,10 +2053,10 @@ const freelancers = (Array.isArray(data) ? data : [])
         byType[a.assignmentType] = (byType[a.assignmentType] || 0) + 1;
       }
 
-      // By status
-      const byStatus: Record<string, number> = {};
+      // By assignment status (dispatch)
+      const byAssignmentStatus: Record<string, number> = {};
       for (const a of allAssignments) {
-        byStatus[a.status] = (byStatus[a.status] || 0) + 1;
+        byAssignmentStatus[a.status] = (byAssignmentStatus[a.status] || 0) + 1;
       }
 
       // Top freelancers by accepted tasks
