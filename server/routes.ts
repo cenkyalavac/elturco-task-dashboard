@@ -248,7 +248,16 @@ async function fetchSheetTasks(apiId: string, tabName: string, sheetLabel: strin
       atmsId: getCol(row, "ATMS ID", "ATMS_ID", "APS Code"),
       symfonieLink: getCol(row, "Symfonie", "Symfonie link", "Symfonie Link", "SYM Link", "TP URL", "URL", "Link"),
       symfonieId: getCol(row, "Symfonie ID", "SymfonieID"),
-    })).filter((t: any) => t.projectId);
+    })).filter((t: any) => t.projectId).map((t: any) => {
+      // If TR Done or Rev Complete says Cancelled/On Hold, override delivered status
+      const trLower = (t.trDone || "").trim().toLowerCase();
+      const revLower = (t.revComplete || "").trim().toLowerCase();
+      const cancelledValues = ["cancelled", "canceled", "on hold", "onhold", "on-hold"];
+      if (t.delivered === "Ongoing" && (cancelledValues.includes(trLower) || cancelledValues.includes(revLower))) {
+        t.delivered = trLower.includes("hold") || revLower.includes("hold") ? "On Hold" : "Cancelled";
+      }
+      return t;
+    });
   } catch (e) {
     return [];
   }
@@ -1158,9 +1167,24 @@ const freelancers = (Array.isArray(data) ? data : [])
   // ---- SAFE SHEET WRITE-BACK ----
   // Only writes to empty or "XX" cells. Never overwrites existing initials.
 
+  // Dynamically resolve column name from actual sheet keys
+  function findCol(rowKeys: string[], ...candidates: string[]): string | null {
+    // Exact match first
+    for (const c of candidates) {
+      if (rowKeys.includes(c)) return c;
+    }
+    // Normalized fuzzy match
+    const normalize = (s: string) => s.replace(/[\s\n\r]+/g, "").toLowerCase().replace(/[^a-z0-9%]/g, "");
+    const normalizedMap = new Map(rowKeys.map(k => [normalize(k), k]));
+    for (const c of candidates) {
+      const match = normalizedMap.get(normalize(c));
+      if (match) return match;
+    }
+    return null;
+  }
+
   async function safeWriteToSheet(assignment: any, freelancerCode: string, columnType: "translator" | "reviewer") {
     try {
-      // Find the SheetDB API ID from config
       const configs = storage.getAllSheetConfigs();
       const config = configs.find(c => c.source === assignment.source && c.sheet === assignment.sheet);
       if (!config?.sheetDbId) return;
@@ -1169,16 +1193,25 @@ const freelancers = (Array.isArray(data) ? data : [])
       const sheet = assignment.sheet;
       const projectId = assignment.projectId;
 
-      // Determine column names based on sheet type
-      const idCol = sheet === "TPT" ? "ATMS ID" 
-        : (sheet === "Assignments" || sheet === "RU Assignments" || sheet === "AR Assignments") ? "ID" 
-        : "Project ID";
-      
-      const trCol = sheet === "TPT" ? "TR" : "TR ";
-      const revCol = sheet === "TPT" ? "REV" : "Rev";
-      const targetCol = columnType === "translator" ? trCol : revCol;
+      // 1. Fetch one row to discover actual column names
+      const sampleUrl = `https://sheetdb.io/api/v1/${apiId}?sheet=${encodeURIComponent(sheet)}&limit=1`;
+      const sampleRes = await fetch(sampleUrl, { headers: sheetDbHeaders() });
+      if (!sampleRes.ok) return;
+      const sampleRows = await sampleRes.json();
+      if (!Array.isArray(sampleRows) || sampleRows.length === 0) return;
+      const keys = Object.keys(sampleRows[0]);
 
-      // First, READ the current value to check if it's empty or XX
+      // 2. Resolve ID column dynamically
+      const idCol = findCol(keys, "Project ID", "ProjectID", "ID", "ATMS ID", "Project code", "Job ID", "Job Code", "Task Name");
+      if (!idCol) { console.log(`Sheet write SKIP: no ID column found for ${sheet}`); return; }
+
+      // 3. Resolve TR/REV column dynamically
+      const trCol = findCol(keys, "TR ", "TR", "Translator", "Tra", "TER");
+      const revCol = findCol(keys, "Rev", "REV", "Reviewer", "Rev.");
+      const targetCol = columnType === "translator" ? trCol : revCol;
+      if (!targetCol) { console.log(`Sheet write SKIP: no ${columnType} column found for ${sheet}`); return; }
+
+      // 4. Search for the specific row
       const readUrl = `https://sheetdb.io/api/v1/${apiId}/search?${encodeURIComponent(idCol)}=${encodeURIComponent(projectId)}&sheet=${encodeURIComponent(sheet)}`;
       const readRes = await fetch(readUrl, { headers: sheetDbHeaders() });
       if (!readRes.ok) return;
@@ -1193,20 +1226,20 @@ const freelancers = (Array.isArray(data) ? data : [])
         return;
       }
 
-      // Safe to write
+      // 5. Write the value
       const writeUrl = `https://sheetdb.io/api/v1/${apiId}/${encodeURIComponent(idCol)}/${encodeURIComponent(projectId)}?sheet=${encodeURIComponent(sheet)}`;
       await fetch(writeUrl, {
         method: "PATCH",
         headers: sheetDbHeaders(),
         body: JSON.stringify({ data: { [targetCol]: freelancerCode } }),
       });
-      console.log(`Sheet write OK: ${targetCol}=${freelancerCode} for project ${projectId}`);
+      console.log(`Sheet write OK: ${targetCol}=${freelancerCode} for project ${projectId} (idCol=${idCol})`);
     } catch (e) {
       console.error("Sheet write error (non-fatal):", e);
     }
   }
 
-  // Write status values (TR Done, Rev Complete) to sheet
+  // Write status values (TR Done, Rev Complete) to sheet — dynamic column resolution
   async function safeWriteStatusToSheet(assignment: any, columnType: "trDone" | "revComplete", value: string) {
     try {
       const configs = storage.getAllSheetConfigs();
@@ -1217,25 +1250,24 @@ const freelancers = (Array.isArray(data) ? data : [])
       const sheet = assignment.sheet;
       const projectId = assignment.projectId;
 
-      // Determine ID column
-      const idCol = sheet === "TPT" ? "ATMS ID" 
-        : (sheet === "Assignments" || sheet === "RU Assignments" || sheet === "AR Assignments") ? "ID" 
-        : "Project ID";
+      // Fetch sample row to discover columns
+      const sampleRes = await fetch(`https://sheetdb.io/api/v1/${apiId}?sheet=${encodeURIComponent(sheet)}&limit=1`, { headers: sheetDbHeaders() });
+      if (!sampleRes.ok) return;
+      const sampleRows = await sampleRes.json();
+      if (!Array.isArray(sampleRows) || sampleRows.length === 0) return;
+      const keys = Object.keys(sampleRows[0]);
 
-      // Determine target column based on sheet type
-      let targetCol: string;
+      const idCol = findCol(keys, "Project ID", "ProjectID", "ID", "ATMS ID", "Project code", "Job ID", "Job Code", "Task Name");
+      if (!idCol) return;
+
+      let targetCol: string | null;
       if (columnType === "trDone") {
-        if (sheet === "TPT") targetCol = "TR\nDone?";
-        else if (sheet === "Assignments" || sheet === "RU Assignments" || sheet === "AR Assignments") targetCol = "TR Dlvr?";
-        else targetCol = "TR Dlvr";
+        targetCol = findCol(keys, "TR\nDone?", "TR Done?", "TR Dlvr", "TR Dlvr?", "TR Dlv?", "TR Delivered?", "TR delivered?", "TR Compl?", "Tra Dlv?");
       } else {
-        // revComplete
-        if (sheet === "TPT") targetCol = "Time Spent\n(in minutes)";
-        else if (sheet === "Assignments" || sheet === "RU Assignments" || sheet === "AR Assignments") targetCol = "Rev Complete?";
-        else targetCol = "Rev Complete? (in minutes)";
+        targetCol = findCol(keys, "Rev\nDone?", "Rev Done?", "Rev Complete? (in minutes)", "Rev Complete?", "Rev Completed? (in minutes)", "Rev Compl?", "Time Spent\n(in minutes)", "Time Spent (in minutes)", "Time Spent", "Rev Time (min.)", "Rev. Dlv?", "Rev QA");
       }
+      if (!targetCol) { console.log(`Sheet status write SKIP: no ${columnType} column found for ${sheet}`); return; }
 
-      // Write the value
       const writeUrl = `https://sheetdb.io/api/v1/${apiId}/${encodeURIComponent(idCol)}/${encodeURIComponent(projectId)}?sheet=${encodeURIComponent(sheet)}`;
       await fetch(writeUrl, {
         method: "PATCH",
@@ -1248,7 +1280,7 @@ const freelancers = (Array.isArray(data) ? data : [])
     }
   }
 
-  // Write TR Deadline to sheet
+  // Write TR Deadline to sheet — dynamic column resolution
   async function safeWriteDeadlineToSheet(assignment: any, deadlineValue: string) {
     try {
       const configs = storage.getAllSheetConfigs();
@@ -1259,12 +1291,17 @@ const freelancers = (Array.isArray(data) ? data : [])
       const sheet = assignment.sheet;
       const projectId = assignment.projectId;
 
-      const idCol = sheet === "TPT" ? "ATMS ID" 
-        : (sheet === "Assignments" || sheet === "RU Assignments" || sheet === "AR Assignments") ? "ID" 
-        : "Project ID";
+      const sampleRes = await fetch(`https://sheetdb.io/api/v1/${apiId}?sheet=${encodeURIComponent(sheet)}&limit=1`, { headers: sheetDbHeaders() });
+      if (!sampleRes.ok) return;
+      const sampleRows = await sampleRes.json();
+      if (!Array.isArray(sampleRows) || sampleRows.length === 0) return;
+      const keys = Object.keys(sampleRows[0]);
 
-      // TR Deadline column name varies by sheet
-      const deadlineCol = sheet === "TPT" ? "TR\nDeadline" : "TR Deadline";
+      const idCol = findCol(keys, "Project ID", "ProjectID", "ID", "ATMS ID", "Project code", "Job ID", "Job Code", "Task Name");
+      if (!idCol) return;
+
+      const deadlineCol = findCol(keys, "TR\nDeadline", "TR Deadline", "Deadline");
+      if (!deadlineCol) return;
 
       const writeUrl = `https://sheetdb.io/api/v1/${apiId}/${encodeURIComponent(idCol)}/${encodeURIComponent(projectId)}?sheet=${encodeURIComponent(sheet)}`;
       await fetch(writeUrl, {
@@ -1420,17 +1457,24 @@ const freelancers = (Array.isArray(data) ? data : [])
       const apiId = config.sheetDbId;
       const sheet = assignment.sheet;
       const projectId = assignment.projectId;
-      const idCol = sheet === "TPT" ? "ATMS ID" 
-        : (sheet === "Assignments" || sheet === "RU Assignments" || sheet === "AR Assignments") ? "ID" 
-        : "Project ID";
-      const qsCol = "QS";
+
+      const sampleRes = await fetch(`https://sheetdb.io/api/v1/${apiId}?sheet=${encodeURIComponent(sheet)}&limit=1`, { headers: sheetDbHeaders() });
+      if (!sampleRes.ok) return;
+      const sampleRows = await sampleRes.json();
+      if (!Array.isArray(sampleRows) || sampleRows.length === 0) return;
+      const keys = Object.keys(sampleRows[0]);
+
+      const idCol = findCol(keys, "Project ID", "ProjectID", "ID", "ATMS ID", "Project code", "Job ID", "Job Code", "Task Name");
+      if (!idCol) return;
+      const qsCol = findCol(keys, "QS", "QS (Num)") || "QS";
+
       const writeUrl = `https://sheetdb.io/api/v1/${apiId}/${encodeURIComponent(idCol)}/${encodeURIComponent(projectId)}?sheet=${encodeURIComponent(sheet)}`;
       await fetch(writeUrl, {
         method: "PATCH",
         headers: sheetDbHeaders(),
         body: JSON.stringify({ data: { [qsCol]: qsValue } }),
       });
-      console.log(`Sheet QS write OK: QS=${qsValue} for project ${projectId}`);
+      console.log(`Sheet QS write OK: ${qsCol}=${qsValue} for project ${projectId}`);
     } catch (e) {
       console.error("Sheet QS write error (non-fatal):", e);
     }

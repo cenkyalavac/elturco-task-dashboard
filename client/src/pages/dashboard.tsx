@@ -198,9 +198,20 @@ function isXX(v: string): boolean {
   return v.trim().toUpperCase() === "XX";
 }
 
+function isCancelledValue(v: string): boolean {
+  const lv = v.trim().toLowerCase();
+  return lv === "cancelled" || lv === "canceled" || lv === "on hold" || lv === "onhold" || lv === "on-hold";
+}
+
+// A task is "effectively cancelled" if ANY delivery-related column says cancelled/on hold
+function isEffectivelyCancelled(t: Task): boolean {
+  return isCancelledValue(t.trDone || "") || isCancelledValue(t.revComplete || "");
+}
+
 function isRevCompleted(t: Task): boolean {
   const v = (t.revComplete || "").trim().toLowerCase();
   if (!v) return false;
+  if (isCancelledValue(v)) return false; // cancelled is NOT completed
   if (v === "yes" || v === "y") return true;
   if (/^\d+/.test(v)) return true;
   return false;
@@ -209,17 +220,20 @@ function isRevCompleted(t: Task): boolean {
 function isTrDone(t: Task): boolean {
   const v = (t.trDone || "").trim().toLowerCase();
   if (!v) return false;
+  if (isCancelledValue(v)) return false; // cancelled is NOT done
   if (v === "yes" || v === "y") return true;
   return false;
 }
 
 function needsTranslator(t: Task): boolean {
+  if (isEffectivelyCancelled(t)) return false; // cancelled tasks don't "need" anyone
   if (isRevCompleted(t)) return false;
   if (isTrDone(t)) return false;
   return !t.translator || t.translator.trim() === "" || isXX(t.translator);
 }
 
 function needsReviewer(t: Task): boolean {
+  if (isEffectivelyCancelled(t)) return false; // cancelled tasks don't "need" anyone
   if (isRevCompleted(t)) return false;
   if (!t.translator || t.translator.trim() === "" || isXX(t.translator)) return false;
   return !t.reviewer || t.reviewer.trim() === "" || isXX(t.reviewer);
@@ -852,7 +866,7 @@ export default function DashboardPage() {
 
       const revDone = isRevCompleted(t);
 
-      const isTerminal = t.delivered === "Delivered" || t.delivered === "Cancelled" || t.delivered === "On Hold";
+      const isTerminal = t.delivered === "Delivered" || t.delivered === "Cancelled" || t.delivered === "On Hold" || isEffectivelyCancelled(t);
       if (statusFilter === "ongoing" && (revDone || isTerminal)) return false;
       if (statusFilter === "needs_tr" && !nTR) return false;
       if (statusFilter === "needs_rev" && !nREV) return false;
@@ -989,7 +1003,7 @@ export default function DashboardPage() {
   // Stats — computed from baseFilteredTasks so counts match visible filter context
   const stats = useMemo(() => {
     if (!baseFilteredTasks.length) return { total: 0, ongoing: 0, needsTR: 0, needsREV: 0, assigned: 0, completed: 0, pastDeadline: 0 };
-    const nonDelivered = baseFilteredTasks.filter((t) => t.delivered !== "Delivered" && t.delivered !== "Cancelled" && t.delivered !== "On Hold");
+    const nonDelivered = baseFilteredTasks.filter((t) => t.delivered !== "Delivered" && t.delivered !== "Cancelled" && t.delivered !== "On Hold" && !isEffectivelyCancelled(t));
     const ongoing = nonDelivered.filter(t => !isRevCompleted(t)).length;
     const nTR = nonDelivered.filter(needsTranslator).length;
     const nREV = nonDelivered.filter(needsReviewer).length;
