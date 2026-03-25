@@ -146,6 +146,32 @@ interface FreelancerDeliveryStats {
   totalDeliveries: number;
 }
 
+// ── ELTS Quality + Availability types ──
+
+interface EltsAccountQuality {
+  qs: number | null;
+  lqa: number | null;
+  count: number;
+}
+
+interface EltsFreelancerQuality {
+  generalQs: number | null;
+  generalLqa: number | null;
+  totalReports: number;
+  accounts: Record<string, EltsAccountQuality>;
+}
+
+type EltsQualityData = Record<string, EltsFreelancerQuality>;
+
+interface EltsAvailabilityDay {
+  date: string;
+  status: string;
+  hours: number;
+  notes: string;
+}
+
+type EltsAvailabilityData = Record<string, EltsAvailabilityDay[]>;
+
 // ── Constants ──
 
 const ACCOUNT_MATCH: Record<string, string[]> = {
@@ -345,6 +371,69 @@ function playRejectSound() {
 
     setTimeout(() => ctx.close(), 500);
   } catch {}
+}
+
+// ── ELTS helpers ──
+
+function getQsBadgeColor(qs: number): string {
+  if (qs >= 4.5) return "bg-emerald-500/15 text-emerald-400 border-emerald-500/25";
+  if (qs >= 4.0) return "bg-blue-500/15 text-blue-400 border-blue-500/25";
+  if (qs >= 3.5) return "bg-amber-500/15 text-amber-400 border-amber-500/25";
+  return "bg-red-500/15 text-red-400 border-red-500/25";
+}
+
+function getTodayStr(): string {
+  const d = new Date();
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function getAvailabilityToday(days: EltsAvailabilityDay[] | undefined): EltsAvailabilityDay | null {
+  if (!days) return null;
+  const today = getTodayStr();
+  return days.find(d => d.date === today) || null;
+}
+
+function getUpcomingUnavailable(days: EltsAvailabilityDay[] | undefined): { start: string; end: string } | null {
+  if (!days) return null;
+  const today = getTodayStr();
+  // Look at next 3 days after today
+  const todayDate = new Date(today);
+  const upcoming: string[] = [];
+  for (let i = 1; i <= 3; i++) {
+    const d = new Date(todayDate);
+    d.setDate(d.getDate() + i);
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    const ds = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const match = days.find(day => day.date === ds);
+    if (match && match.status === "unavailable") {
+      upcoming.push(ds);
+    }
+  }
+  if (upcoming.length === 0) return null;
+  // Format as "Mar 26" or "Mar 26-28"
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const first = new Date(upcoming[0]);
+  const last = new Date(upcoming[upcoming.length - 1]);
+  const startStr = `${months[first.getMonth()]} ${first.getDate()}`;
+  if (upcoming.length === 1) return { start: startStr, end: startStr };
+  const endStr = first.getMonth() === last.getMonth()
+    ? `${last.getDate()}`
+    : `${months[last.getMonth()]} ${last.getDate()}`;
+  return { start: startStr, end: endStr };
+}
+
+function formatAvailabilityTooltip(days: EltsAvailabilityDay[] | undefined): string {
+  if (!days || days.length === 0) return "";
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return days.slice(0, 7).map(d => {
+    const dt = new Date(d.date);
+    const label = `${months[dt.getMonth()]} ${dt.getDate()}`;
+    const statusLabel = d.status === "unavailable" ? "\u274C Unavailable"
+      : d.status === "partially_available" ? `\u26A0\uFE0F ${d.hours}h`
+      : "\u2705 Available";
+    return `${label}: ${statusLabel}${d.notes ? ` (${d.notes})` : ""}`;
+  }).join("\n");
 }
 
 // ── Component ──
@@ -606,6 +695,26 @@ export default function DashboardPage() {
     queryKey: ["/api/freelancer-delivery-stats"],
     queryFn: async () => {
       const res = await apiRequest("GET", "/api/freelancer-delivery-stats");
+      return res.json();
+    },
+    staleTime: 300000,
+  });
+
+  // ELTS Quality scores
+  const { data: eltsQuality } = useQuery<EltsQualityData>({
+    queryKey: ["/api/elts/quality"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/elts/quality");
+      return res.json();
+    },
+    staleTime: 300000,
+  });
+
+  // ELTS Availability
+  const { data: eltsAvailability } = useQuery<EltsAvailabilityData>({
+    queryKey: ["/api/elts/availability"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/elts/availability");
       return res.json();
     },
     staleTime: 300000,
@@ -919,6 +1028,10 @@ export default function DashboardPage() {
         return f.accounts?.some(a => matchAccts.includes(a));
       });
     }).sort((a, b) => {
+      // Unavailable freelancers sort to bottom
+      const aUnavail = getAvailabilityToday(eltsAvailability?.[a.resourceCode])?.status === "unavailable" ? 1 : 0;
+      const bUnavail = getAvailabilityToday(eltsAvailability?.[b.resourceCode])?.status === "unavailable" ? 1 : 0;
+      if (aUnavail !== bUnavail) return aUnavail - bUnavail;
       // Feature 2: Favorites first
       const aFav = favoritesSet.has(a.resourceCode) ? 1 : 0;
       const bFav = favoritesSet.has(b.resourceCode) ? 1 : 0;
@@ -928,7 +1041,7 @@ export default function DashboardPage() {
       if (sb !== sa) return sb - sa;
       return a.fullName.localeCompare(b.fullName);
     });
-  }, [freelancers, bulkMode, bulkSources, selectedFreelancers, freelancerStats, favoritesSet]);
+  }, [freelancers, bulkMode, bulkSources, selectedFreelancers, freelancerStats, favoritesSet, eltsAvailability]);
 
   // XLSX export handler
   const [exporting, setExporting] = useState(false);
@@ -1087,6 +1200,10 @@ export default function DashboardPage() {
         return true;
       })
       .sort((a, b) => {
+        // Unavailable freelancers sort to bottom
+        const aUnavail = getAvailabilityToday(eltsAvailability?.[a.resourceCode])?.status === "unavailable" ? 1 : 0;
+        const bUnavail = getAvailabilityToday(eltsAvailability?.[b.resourceCode])?.status === "unavailable" ? 1 : 0;
+        if (aUnavail !== bUnavail) return aUnavail - bUnavail;
         // Feature 2: Favorites first
         const aFav = favoritesSet.has(a.resourceCode) ? 1 : 0;
         const bFav = favoritesSet.has(b.resourceCode) ? 1 : 0;
@@ -1097,10 +1214,21 @@ export default function DashboardPage() {
         if (sb !== sa) return sb - sa;
         return a.fullName.localeCompare(b.fullName);
       });
-  }, [freelancers, selectedTask, freelancerSearch, selectedFreelancers, taskLangPair, freelancerStats, favoritesSet]);
+  }, [freelancers, selectedTask, freelancerSearch, selectedFreelancers, taskLangPair, freelancerStats, favoritesSet, eltsAvailability]);
 
   // Use bulkFilteredFreelancers in bulk mode, filteredFreelancers otherwise
   const displayFreelancers = bulkMode ? bulkFilteredFreelancers : filteredFreelancers;
+
+  // Determine current account name for ELTS quality lookup
+  const currentAccountName = useMemo(() => {
+    if (selectedTask) return selectedTask.account || null;
+    if (bulkMode && tasks) {
+      const checkedTasks = tasks.filter(t => checkedKeys.has(taskKey(t)));
+      const accounts = Array.from(new Set(checkedTasks.map(t => t.account).filter(Boolean)));
+      return accounts.length === 1 ? accounts[0] : null;
+    }
+    return null;
+  }, [selectedTask, bulkMode, tasks, checkedKeys]);
 
   function addFreelancer(f: Freelancer) {
     if (assignmentType === "direct") {
@@ -2666,10 +2794,24 @@ export default function DashboardPage() {
                       const fStats = freelancerStats?.[f.resourceCode];
                       const fDeliveryStats = freelancerDeliveryStats?.[f.resourceCode];
                       const isFav = favoritesSet.has(f.resourceCode);
+                      // ELTS quality data
+                      const eltsQ = eltsQuality?.[f.resourceCode];
+                      const eltsAcctQ = currentAccountName && eltsQ?.accounts?.[currentAccountName];
+                      // Determine best QS to show: account-specific > general > sheet-based
+                      const eltsQsVal = eltsAcctQ ? eltsAcctQ.qs : (eltsQ ? eltsQ.generalQs : null);
+                      const eltsQsLabel = eltsAcctQ && currentAccountName ? currentAccountName : (eltsQ ? "ELTS" : null);
+                      const eltsReportCount = eltsAcctQ ? eltsAcctQ.count : (eltsQ ? eltsQ.totalReports : null);
+                      // ELTS availability
+                      const fAvailDays = eltsAvailability?.[f.resourceCode];
+                      const todayAvail = getAvailabilityToday(fAvailDays);
+                      const isUnavailableToday = todayAvail?.status === "unavailable";
+                      const isPartialToday = todayAvail?.status === "partially_available";
+                      const upcomingOff = getUpcomingUnavailable(fAvailDays);
+                      const availTooltip = formatAvailabilityTooltip(fAvailDays);
                       return (
                         <div
                           key={f.id}
-                          className={`flex items-center gap-2.5 px-3 py-2.5 hover:bg-white/[0.03] cursor-pointer transition-colors ${isFav ? 'bg-amber-500/[0.04]' : ''}`}
+                          className={`flex items-center gap-2.5 px-3 py-2.5 hover:bg-white/[0.03] cursor-pointer transition-colors ${isFav ? 'bg-amber-500/[0.04]' : ''} ${isUnavailableToday ? 'opacity-60' : ''}`}
                           onClick={() => addFreelancer(f)}
                           data-testid={`freelancer-${f.resourceCode}`}
                         >
@@ -2703,12 +2845,66 @@ export default function DashboardPage() {
                                 <>
                                   <span className="text-muted-foreground/40">·</span>
                                   <span className="tabular-nums">{fStats.taskCount} tasks</span>
-                                  {fStats.avgQs !== null && (
-                                    <>
-                                      <span className="text-muted-foreground/40">·</span>
-                                      <span className="tabular-nums">QS: {fStats.avgQs}</span>
-                                    </>
-                                  )}
+                                </>
+                              )}
+                              {/* ELTS quality badge */}
+                              {eltsQsVal !== null && eltsQsVal !== undefined ? (
+                                <>
+                                  <span className="text-muted-foreground/40">·</span>
+                                  <span
+                                    className={`inline-flex items-center gap-0.5 px-1.5 py-0 rounded-full border text-[9px] tabular-nums font-medium ${getQsBadgeColor(eltsQsVal)}`}
+                                    data-testid={`elts-qs-${f.resourceCode}`}
+                                  >
+                                    {eltsQsLabel}: {eltsQsVal.toFixed(1)}
+                                    {eltsReportCount !== null && (
+                                      <span className="text-[8px] font-normal opacity-70 ml-0.5">({eltsReportCount})</span>
+                                    )}
+                                  </span>
+                                </>
+                              ) : fStats?.avgQs !== null && fStats?.avgQs !== undefined ? (
+                                <>
+                                  <span className="text-muted-foreground/40">·</span>
+                                  <span className="tabular-nums">QS: {fStats.avgQs}</span>
+                                </>
+                              ) : null}
+                              {/* Availability indicator */}
+                              {isUnavailableToday && (
+                                <>
+                                  <span className="text-muted-foreground/40">·</span>
+                                  <span
+                                    className="inline-flex items-center gap-1 text-red-400"
+                                    title={availTooltip}
+                                    data-testid={`avail-${f.resourceCode}`}
+                                  >
+                                    <span className="w-1.5 h-1.5 rounded-full bg-red-400 inline-block" />
+                                    Off today
+                                  </span>
+                                </>
+                              )}
+                              {isPartialToday && !isUnavailableToday && (
+                                <>
+                                  <span className="text-muted-foreground/40">·</span>
+                                  <span
+                                    className="inline-flex items-center gap-1 text-amber-400"
+                                    title={availTooltip}
+                                    data-testid={`avail-${f.resourceCode}`}
+                                  >
+                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" />
+                                    {todayAvail?.hours}h today
+                                  </span>
+                                </>
+                              )}
+                              {!isUnavailableToday && !isPartialToday && upcomingOff && (
+                                <>
+                                  <span className="text-muted-foreground/40">·</span>
+                                  <span
+                                    className="inline-flex items-center gap-1 text-amber-400/70"
+                                    title={availTooltip}
+                                    data-testid={`avail-upcoming-${f.resourceCode}`}
+                                  >
+                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400/60 inline-block" />
+                                    Off {upcomingOff.start}{upcomingOff.start !== upcomingOff.end ? `-${upcomingOff.end}` : ""}
+                                  </span>
                                 </>
                               )}
                             </div>

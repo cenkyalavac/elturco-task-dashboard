@@ -1415,6 +1415,123 @@ const freelancers = (Array.isArray(data) ? data : [])
     res.json({ success: true, revCompleteValue: revCompleteValue || "Yes" });
   });
 
+  // ---- ELTS QUALITY SCORES (account-based from QualityReport entity) ----
+  app.get("/api/elts/quality", requireAuth, async (_req: Request, res: Response) => {
+    try {
+      // Fetch QualityReports from ELTS
+      const qrRes = await fetch(
+        BASE44_API.replace("/entities/Freelancer", "/entities/QualityReport"),
+        { headers: { "Content-Type": "application/json", "api_key": BASE44_KEY } }
+      );
+      const reports = await qrRes.json();
+      if (!Array.isArray(reports)) return res.json({});
+
+      // Fetch freelancers for ID → code mapping
+      const flRes = await fetch(BASE44_API, {
+        headers: { "Content-Type": "application/json", "api_key": BASE44_KEY },
+      });
+      const freelancers = await flRes.json();
+      const idToCode: Record<string, string> = {};
+      if (Array.isArray(freelancers)) {
+        for (const f of freelancers) idToCode[f.id] = f.resource_code || "";
+      }
+
+      // Build: { resourceCode: { general: {qs, lqa, count}, accounts: { accountName: {qs, lqa, count} } } }
+      const result: Record<string, any> = {};
+      for (const r of reports) {
+        const code = idToCode[r.freelancer_id];
+        if (!code) continue;
+        const acc = r.client_account || "General";
+        const qs = r.qs_score;
+        const lqa = r.lqa_score;
+        if (qs == null && lqa == null) continue;
+
+        if (!result[code]) result[code] = { general: { qsScores: [], lqaScores: [] }, accounts: {} };
+        if (!result[code].accounts[acc]) result[code].accounts[acc] = { qsScores: [], lqaScores: [] };
+
+        if (qs != null) {
+          result[code].general.qsScores.push(qs);
+          result[code].accounts[acc].qsScores.push(qs);
+        }
+        if (lqa != null) {
+          result[code].general.lqaScores.push(lqa);
+          result[code].accounts[acc].lqaScores.push(lqa);
+        }
+      }
+
+      // Compute averages
+      const avg = (arr: number[]) => arr.length > 0 ? Math.round((arr.reduce((a, b) => a + b, 0) / arr.length) * 10) / 10 : null;
+      const output: Record<string, any> = {};
+      for (const [code, data] of Object.entries(result) as any) {
+        output[code] = {
+          generalQs: avg(data.general.qsScores),
+          generalLqa: avg(data.general.lqaScores),
+          totalReports: data.general.qsScores.length + data.general.lqaScores.length,
+          accounts: {} as Record<string, any>,
+        };
+        for (const [acc, ad] of Object.entries(data.accounts) as any) {
+          output[code].accounts[acc] = {
+            qs: avg(ad.qsScores),
+            lqa: avg(ad.lqaScores),
+            count: ad.qsScores.length + ad.lqaScores.length,
+          };
+        }
+      }
+      res.json(output);
+    } catch (e: any) {
+      console.error("ELTS quality fetch error:", e.message);
+      res.json({});
+    }
+  });
+
+  // ---- ELTS AVAILABILITY (from Availability entity) ----
+  app.get("/api/elts/availability", requireAuth, async (_req: Request, res: Response) => {
+    try {
+      // Fetch Availability records
+      const avRes = await fetch(
+        BASE44_API.replace("/entities/Freelancer", "/entities/Availability"),
+        { headers: { "Content-Type": "application/json", "api_key": BASE44_KEY } }
+      );
+      const records = await avRes.json();
+      if (!Array.isArray(records)) return res.json({});
+
+      // Fetch freelancers for ID → code mapping
+      const flRes = await fetch(BASE44_API, {
+        headers: { "Content-Type": "application/json", "api_key": BASE44_KEY },
+      });
+      const freelancers = await flRes.json();
+      const idToCode: Record<string, string> = {};
+      if (Array.isArray(freelancers)) {
+        for (const f of freelancers) idToCode[f.id] = f.resource_code || "";
+      }
+
+      // Build: { resourceCode: [ {date, status, hours, notes} ] }
+      // Only include today and future dates
+      const today = new Date().toISOString().slice(0, 10);
+      const result: Record<string, any[]> = {};
+      for (const r of records) {
+        const code = idToCode[r.freelancer_id];
+        if (!code) continue;
+        if (r.date < today) continue; // Skip past dates
+        if (!result[code]) result[code] = [];
+        result[code].push({
+          date: r.date,
+          status: r.status, // "available" | "partially_available" | "unavailable"
+          hours: r.hours_available || 0,
+          notes: r.notes || "",
+        });
+      }
+      // Sort each freelancer's dates
+      for (const code of Object.keys(result)) {
+        result[code].sort((a: any, b: any) => a.date.localeCompare(b.date));
+      }
+      res.json(result);
+    } catch (e: any) {
+      console.error("ELTS availability fetch error:", e.message);
+      res.json({});
+    }
+  });
+
   // ---- FREELANCER STATS (QS, LQI averages) ----
 
   app.get("/api/freelancer-stats", requireAuth, async (_req: Request, res: Response) => {
