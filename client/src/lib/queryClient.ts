@@ -25,28 +25,52 @@ export function getPublicApiBase(): string {
   return window.location.origin + "/" + API_BASE;
 }
 
-// Auth token management — persists across page reloads using window.name
-// (localStorage/sessionStorage/cookies are blocked in sandboxed iframes)
+// Auth token management — persists via localStorage ("Remember Me") or window.name (session-only)
 let authToken: string | null = null;
 let currentUser: { id: number; email: string; name: string; role: string; defaultFilter?: string; defaultMyProjects?: boolean } | null = null;
+let rememberMe = false;
 
-// Restore from window.name on load
+// Restore from localStorage first, then window.name fallback
 try {
-  const saved = window.name ? JSON.parse(window.name) : null;
-  if (saved?.authToken) {
-    authToken = saved.authToken;
-    currentUser = saved.currentUser || null;
+  const lsSaved = localStorage.getItem("elturco_auth");
+  if (lsSaved) {
+    const parsed = JSON.parse(lsSaved);
+    if (parsed?.authToken) {
+      authToken = parsed.authToken;
+      currentUser = parsed.currentUser || null;
+      rememberMe = true;
+    }
   }
 } catch {}
+if (!authToken) {
+  try {
+    const saved = window.name ? JSON.parse(window.name) : null;
+    if (saved?.authToken) {
+      authToken = saved.authToken;
+      currentUser = saved.currentUser || null;
+    }
+  } catch {}
+}
 
 function persistAuth() {
   try {
     if (authToken) {
       window.name = JSON.stringify({ authToken, currentUser });
+      if (rememberMe) {
+        localStorage.setItem("elturco_auth", JSON.stringify({ authToken, currentUser }));
+      }
     } else {
       window.name = "";
+      localStorage.removeItem("elturco_auth");
     }
   } catch {}
+}
+
+export function setRememberMe(val: boolean) {
+  rememberMe = val;
+}
+export function getRememberMe() {
+  return rememberMe;
 }
 
 export function setAuthToken(token: string | null) {

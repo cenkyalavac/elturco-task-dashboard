@@ -19,7 +19,7 @@ const MAGIC_LINK_EXPIRY_MINUTES = 30;
 const SESSION_EXPIRY_HOURS = 72;
 
 // Public URL — set SITE_PUBLIC_URL env var for self-hosting
-const SITE_PUBLIC_URL = process.env.SITE_PUBLIC_URL || "https://www.perplexity.ai/computer/a/elturco-dispatch-xq.ImUQkRZ2T_RNbjgAXhg";
+const SITE_PUBLIC_URL = process.env.SITE_PUBLIC_URL || "https://dispatch.eltur.co";
 
 // Slack webhook for notifications (optional)
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL || "";
@@ -565,7 +565,7 @@ export async function registerRoutes(server: Server, app: Express) {
     const expiresAt = new Date(Date.now() + SESSION_EXPIRY_HOURS * 3600 * 1000).toISOString();
     storage.createSession(sessionToken, pmUser.id, expiresAt);
 
-    res.json({ token: sessionToken, user: { id: pmUser.id, email: pmUser.email, name: pmUser.name, initial: pmUser.initial || "", role: pmUser.role, defaultFilter: pmUser.defaultFilter || "ongoing", defaultMyProjects: !!pmUser.defaultMyProjects } });
+    res.json({ token: sessionToken, user: { id: pmUser.id, email: pmUser.email, name: pmUser.name, initial: pmUser.initial || "", role: pmUser.role, defaultFilter: pmUser.defaultFilter || "ongoing", defaultMyProjects: !!pmUser.defaultMyProjects, defaultSource: (pmUser as any).defaultSource || "all", defaultAccount: (pmUser as any).defaultAccount || "all" } });
   });
 
   // ---- REDIRECT ENDPOINTS (no '#' in URL — safe for email clients) ----
@@ -1779,37 +1779,43 @@ const freelancers = (Array.isArray(data) ? data : [])
     try {
       const allTasks = await getAllTasksCached(); // Uses shared 2-min cache
 
-      const trStats: Record<string, { qsScores: number[]; count: number }> = {};
-      const revStats: Record<string, { count: number }> = {};
+      const trStats: Record<string, { qsScores: number[]; count: number; activeCount: number; activeWwc: number }> = {};
+      const revStats: Record<string, { count: number; activeCount: number }> = {};
 
       for (const t of allTasks) {
         const tr = (t.translator || "").trim();
         const rev = (t.reviewer || "").trim();
         const qs = parseFloat(t.qs || "0");
+        const isOngoing = t.delivered === "Ongoing";
+        const wwc = parseFloat((t.wwc || "0").toString().replace(/[^\d.,]/g, "").replace(",", "."));
 
         if (tr && tr !== "XX") {
-          if (!trStats[tr]) trStats[tr] = { qsScores: [], count: 0 };
+          if (!trStats[tr]) trStats[tr] = { qsScores: [], count: 0, activeCount: 0, activeWwc: 0 };
           trStats[tr].count++;
+          if (isOngoing) { trStats[tr].activeCount++; trStats[tr].activeWwc += wwc; }
           if (qs > 0) trStats[tr].qsScores.push(qs);
         }
         if (rev && rev !== "XX") {
-          if (!revStats[rev]) revStats[rev] = { count: 0 };
+          if (!revStats[rev]) revStats[rev] = { count: 0, activeCount: 0 };
           revStats[rev].count++;
+          if (isOngoing) revStats[rev].activeCount++;
         }
       }
 
-      const result: Record<string, { taskCount: number; avgQs: number | null }> = {};
+      const result: Record<string, { taskCount: number; avgQs: number | null; activeCount: number; activeWwc: number }> = {};
       for (const [code, stats] of Object.entries(trStats)) {
         result[code] = {
           taskCount: stats.count + (revStats[code]?.count || 0),
           avgQs: stats.qsScores.length > 0
             ? Math.round((stats.qsScores.reduce((a, b) => a + b, 0) / stats.qsScores.length) * 10) / 10
             : null,
+          activeCount: stats.activeCount + (revStats[code]?.activeCount || 0),
+          activeWwc: Math.round(stats.activeWwc),
         };
       }
       for (const [code, stats] of Object.entries(revStats)) {
         if (!result[code]) {
-          result[code] = { taskCount: stats.count, avgQs: null };
+          result[code] = { taskCount: stats.count, avgQs: null, activeCount: stats.activeCount, activeWwc: 0 };
         }
       }
 
@@ -1857,15 +1863,16 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   // Update PM preferences (default filter, my projects)
   app.post("/api/pm-users/preferences", requireAuth, (req: Request, res: Response) => {
-    const { defaultFilter, defaultMyProjects } = req.body;
+    const { defaultFilter, defaultMyProjects, defaultSource, defaultAccount } = req.body;
     const session = storage.getSession(req.headers.authorization!.replace("Bearer ", ""));
     if (!session) return res.status(401).json({ error: "Unauthorized" });
     const user = storage.getAllPmUsers().find(u => u.id === session.pmUserId);
     if (!user) return res.status(404).json({ error: "User not found" });
-    // Update using raw SQL since we don't have a dedicated update method for these fields
     const updates: any = {};
     if (defaultFilter !== undefined) updates.defaultFilter = defaultFilter;
     if (defaultMyProjects !== undefined) updates.defaultMyProjects = defaultMyProjects ? 1 : 0;
+    if (defaultSource !== undefined) updates.defaultSource = defaultSource;
+    if (defaultAccount !== undefined) updates.defaultAccount = defaultAccount;
     if (Object.keys(updates).length > 0) {
       storage.updatePmUser(user.id, updates);
     }

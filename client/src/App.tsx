@@ -55,12 +55,8 @@ function AppLayout() {
       {/* Top navbar — premium dark with gradient */}
       <header className="h-12 bg-gradient-to-r from-[#0d1117] via-[#111827] to-[#0d1117] border-b border-white/[0.06] flex items-center px-5 shrink-0 shadow-lg shadow-black/20">
         {/* Left: Logo */}
-        <div className="flex items-center gap-2.5 mr-8">
-          <div className="w-7 h-7 bg-gradient-to-br from-primary/80 to-blue-400/60 rounded-lg flex items-center justify-center shadow-sm shadow-primary/20">
-            <svg width="14" height="14" viewBox="0 0 32 32" fill="none">
-              <path d="M6 8h20M6 14h14M6 20h8M22 18l4 4-4 4" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </div>
+        <div className="flex items-center gap-2 mr-8">
+          <img src="/logo-icon.jpg" alt="ElTurco" className="w-7 h-7 rounded-full object-cover" />
           <span className="font-semibold text-white text-sm tracking-tight" data-testid="text-nav-title">Dispatch</span>
         </div>
 

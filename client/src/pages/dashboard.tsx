@@ -139,6 +139,8 @@ interface SequencePreset {
 interface FreelancerStats {
   taskCount: number;
   avgQs: number | null;
+  activeCount: number;
+  activeWwc: number;
 }
 
 interface FreelancerDeliveryStats {
@@ -468,8 +470,8 @@ export default function DashboardPage() {
 
   // State
   const [searchQuery, setSearchQuery] = useState("");
-  const [sourceFilter, setSourceFilter] = useState("all");
-  const [accountFilter, setAccountFilter] = useState("all");
+  const [sourceFilter, setSourceFilter] = useState(user?.defaultSource || "all");
+  const [accountFilter, setAccountFilter] = useState(user?.defaultAccount || "all");
   const [langFilter, setLangFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState(user?.defaultFilter || "ongoing");
   const [myProjectsOnly, setMyProjectsOnly] = useState(user?.defaultMyProjects || false);
@@ -1349,10 +1351,12 @@ export default function DashboardPage() {
       await apiRequest("POST", "/api/pm-users/preferences", {
         defaultFilter: statusFilter,
         defaultMyProjects: myProjectsOnly,
+        defaultSource: sourceFilter,
+        defaultAccount: accountFilter,
       });
     },
     onSuccess: () => {
-      toast({ title: "Default filters saved", description: `Will open with "${statusFilter}"${myProjectsOnly ? " + My Projects" : ""} next time.` });
+      toast({ title: "Default filters saved", description: `Saved: ${statusFilter}${sourceFilter !== "all" ? ` / ${sourceFilter}` : ""}${myProjectsOnly ? " + My Projects" : ""}` });
     },
     onError: (err: any) => {
       toast({ title: "Error saving defaults", description: err.message, variant: "destructive" });
@@ -1748,6 +1752,17 @@ export default function DashboardPage() {
 
   return (
     <div className="h-full flex flex-col">
+      {/* Overdue alert banner */}
+      {stats.pastDeadline > 0 && statusFilter !== "overdue" && (
+        <div
+          className="px-4 py-1.5 bg-red-500/10 border-b border-red-500/20 flex items-center gap-2 cursor-pointer hover:bg-red-500/15 transition-colors"
+          onClick={() => setStatusFilter("overdue")}
+        >
+          <span className="text-red-400 text-xs font-medium">{stats.pastDeadline} overdue task{stats.pastDeadline > 1 ? "s" : ""} past deadline</span>
+          <span className="text-red-400/50 text-[10px]">Click to view</span>
+        </div>
+      )}
+
       {/* Stats bar — premium glassmorphism stat pills */}
       <div className="border-b border-white/[0.06] bg-gradient-to-r from-card via-card to-card/80 px-4 py-2">
         <div className="flex items-center gap-1.5 text-xs flex-wrap">
@@ -2031,7 +2046,7 @@ export default function DashboardPage() {
                   className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
                   onClick={() => saveDefaultsMutation.mutate()}
                   disabled={saveDefaultsMutation.isPending}
-                  title="Save current status filter and My Projects toggle as your default view"
+                  title="Save current filters (status, source, account, my projects) as your default view"
                   data-testid="button-save-defaults"
                 >
                   {saveDefaultsMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
@@ -2891,6 +2906,11 @@ export default function DashboardPage() {
                                 <>
                                   <span className="text-muted-foreground/40">·</span>
                                   <span className="tabular-nums">{fStats.taskCount} tasks</span>
+                                  {fStats.activeCount > 0 && (
+                                    <span className="inline-flex items-center gap-0.5 px-1 py-0 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/15 text-[9px] tabular-nums">
+                                      {fStats.activeCount} active{fStats.activeWwc > 0 ? ` · ${fStats.activeWwc >= 1000 ? `${(fStats.activeWwc/1000).toFixed(1)}K` : fStats.activeWwc} WWC` : ""}
+                                    </span>
+                                  )}
                                 </>
                               )}
                               {/* ELTS quality badge */}

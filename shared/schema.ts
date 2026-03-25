@@ -12,6 +12,8 @@ export const pmUsers = sqliteTable("pm_users", {
   role: text("role").notNull().default("pm"), // "pm" | "admin"
   defaultFilter: text("default_filter").default("ongoing"), // "ongoing" | "unassigned" | "needs_tr" | "needs_rev" | "assigned" | "all"
   defaultMyProjects: integer("default_my_projects").default(0), // 0 or 1
+  defaultSource: text("default_source").default("all"),
+  defaultAccount: text("default_account").default("all"),
 });
 
 // Magic link tokens for authentication

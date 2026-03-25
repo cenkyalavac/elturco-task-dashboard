@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, setRememberMe } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Mail, Lock, Loader2 } from "lucide-react";
@@ -11,6 +11,7 @@ import { Mail, Lock, Loader2 } from "lucide-react";
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(true);
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const [, setLocation] = useLocation();
@@ -21,11 +22,10 @@ export default function LoginPage() {
     if (!email.trim() || !password) return;
     setLoading(true);
     try {
+      setRememberMe(remember);
       const res = await apiRequest("POST", "/api/auth/login", { email: email.trim(), password });
       const data = await res.json();
       login(data.token, data.user);
-      // Force navigation — use window.location.hash directly to ensure
-      // the router picks up the change after auth state updates.
       window.location.hash = "/";
     } catch (err: any) {
       toast({
@@ -42,9 +42,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4 relative overflow-hidden">
-      {/* Subtle gradient background */}
       <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-purple-500/5" />
-      {/* Subtle grid pattern */}
       <div
         className="absolute inset-0 opacity-[0.03]"
         style={{
@@ -52,17 +50,16 @@ export default function LoginPage() {
           backgroundSize: "48px 48px",
         }}
       />
-      {/* Radial glow behind the card */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-primary/[0.04] rounded-full blur-3xl" />
 
       <div className="w-full max-w-sm relative z-10">
         {/* Logo */}
         <div className="flex flex-col items-center mb-10">
-          <div className="w-14 h-14 bg-gradient-to-br from-primary to-blue-400 rounded-2xl flex items-center justify-center mb-5 shadow-lg shadow-primary/20 ring-1 ring-white/10">
-            <svg width="28" height="28" viewBox="0 0 32 32" fill="none" aria-label="ElTurco Dispatch">
-              <path d="M6 8h20M6 14h14M6 20h8M22 18l4 4-4 4" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </div>
+          <img
+            src="/logo-icon.jpg"
+            alt="ElTurco"
+            className="w-20 h-20 rounded-full object-cover mb-4 shadow-lg shadow-primary/20 ring-2 ring-white/10"
+          />
           <h1 className="text-2xl font-bold text-foreground tracking-tight" data-testid="text-app-title">
             ElTurco Dispatch
           </h1>
@@ -106,6 +103,18 @@ export default function LoginPage() {
                   />
                 </div>
               </div>
+
+              {/* Remember Me */}
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={remember}
+                  onChange={(e) => setRemember(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded border-white/20 bg-background/50 text-primary focus:ring-primary/30 accent-primary"
+                />
+                <span className="text-xs text-muted-foreground">Remember me</span>
+              </label>
+
               <Button
                 type="submit"
                 className="w-full h-10 bg-gradient-to-r from-primary to-blue-500 hover:from-primary/90 hover:to-blue-500/90 shadow-lg shadow-primary/25 font-medium"

@@ -26,7 +26,9 @@ sqlite.exec(`
     password TEXT NOT NULL DEFAULT '',
     role TEXT NOT NULL DEFAULT 'pm',
     default_filter TEXT DEFAULT 'ongoing',
-    default_my_projects INTEGER DEFAULT 0
+    default_my_projects INTEGER DEFAULT 0,
+    default_source TEXT DEFAULT 'all',
+    default_account TEXT DEFAULT 'all'
   );
   CREATE TABLE IF NOT EXISTS auth_tokens (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -95,6 +97,10 @@ sqlite.exec(`
     pm_email TEXT NOT NULL, freelancer_code TEXT NOT NULL, created_at TEXT NOT NULL
   );
 `);
+
+// Migrate existing DB: add new columns if missing
+try { sqlite.exec(`ALTER TABLE pm_users ADD COLUMN default_source TEXT DEFAULT 'all'`); } catch {}
+try { sqlite.exec(`ALTER TABLE pm_users ADD COLUMN default_account TEXT DEFAULT 'all'`); } catch {}
 
 export const db = drizzle(sqlite);
 
