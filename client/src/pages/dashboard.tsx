@@ -846,12 +846,13 @@ export default function DashboardPage() {
       if (statusFilter === "unassigned" && !isUnassigned) return false;
       if (statusFilter === "assigned" && (isUnassigned || isTerminal)) return false;
       if (statusFilter === "delivered" && t.delivered !== "Delivered") return false;
+      if (statusFilter === "rev_done" && (!isRevCompleted(t) || isTerminal)) return false;
       // Overdue filter — exclude terminal statuses
       if (statusFilter === "overdue") {
         const d = parseDeadline(t.deadline);
         if (!d || d >= new Date() || isRevCompleted(t) || isTerminal) return false;
       }
-      if (["delivered", "all", "ongoing", "needs_tr", "needs_rev", "unassigned", "assigned", "overdue"].indexOf(statusFilter) === -1 && t.delivered === "Delivered") return false;
+      if (["delivered", "all", "ongoing", "needs_tr", "needs_rev", "unassigned", "assigned", "overdue", "rev_done"].indexOf(statusFilter) === -1 && t.delivered === "Delivered") return false;
 
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
@@ -1723,7 +1724,7 @@ export default function DashboardPage() {
           <StatPill label="Unassigned" value={stats.needsTR + stats.needsREV} loading={tasksLoading} color="red" active={statusFilter === "unassigned"} onClick={() => setStatusFilter("unassigned")} />
           <StatPill label="Overdue" value={stats.pastDeadline} loading={tasksLoading} color="red" active={statusFilter === "overdue"} onClick={() => setStatusFilter("overdue")} />
           <StatPill label="Assigned" value={stats.assigned} loading={tasksLoading} color="emerald" active={statusFilter === "assigned"} onClick={() => setStatusFilter("assigned")} />
-          <StatPill label="Rev Done" value={stats.completed} loading={tasksLoading} color="green" active={statusFilter === "delivered"} onClick={() => setStatusFilter("delivered")} />
+          <StatPill label="Rev Done" value={stats.completed} loading={tasksLoading} color="green" active={statusFilter === "rev_done"} onClick={() => setStatusFilter("rev_done")} />
           <StatPill label="All" value={stats.total} loading={tasksLoading} color="gray" active={statusFilter === "all"} onClick={() => setStatusFilter("all")} />
           {/* Feature 1: Sound toggle */}
           <button
