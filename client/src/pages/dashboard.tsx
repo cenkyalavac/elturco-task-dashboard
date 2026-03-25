@@ -846,10 +846,10 @@ export default function DashboardPage() {
       if (statusFilter === "unassigned" && !isUnassigned) return false;
       if (statusFilter === "assigned" && (isUnassigned || isTerminal)) return false;
       if (statusFilter === "delivered" && t.delivered !== "Delivered") return false;
-      // Overdue filter
+      // Overdue filter — exclude terminal statuses
       if (statusFilter === "overdue") {
         const d = parseDeadline(t.deadline);
-        if (!d || d >= new Date() || isRevCompleted(t)) return false;
+        if (!d || d >= new Date() || isRevCompleted(t) || isTerminal) return false;
       }
       if (["delivered", "all", "ongoing", "needs_tr", "needs_rev", "unassigned", "assigned", "overdue"].indexOf(statusFilter) === -1 && t.delivered === "Delivered") return false;
 
