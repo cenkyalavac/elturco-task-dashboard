@@ -1,0 +1,11 @@
+node_modules
+.git
+*.db
+*.db-shm
+*.db-wal
+screenshot-*
+client/
+server/
+script/
+*.png
+*.jpg

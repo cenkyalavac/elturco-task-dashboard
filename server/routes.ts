@@ -519,6 +519,11 @@ function setCache<T>(key: string, data: T): void {
 
 export async function registerRoutes(server: Server, app: Express) {
 
+  // ---- HEALTH CHECK ----
+  app.get("/api/health", (_req: Request, res: Response) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
   // ---- RATE LIMITING ----
   const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes

@@ -1,156 +1,109 @@
-# ElTurco Dispatch — Self-Hosting Guide
+# ElTurco Dispatch — Deployment Guide
 
-## Option 1: Railway (Recommended — Easiest)
+## Railway (Recommended)
 
-### Setup
+### 1. Create Project
 1. Go to [railway.app](https://railway.app) and sign in with GitHub
 2. Click "New Project" → "Deploy from GitHub repo"
 3. Select `cenkyalavac/elturco-task-dashboard`
-4. Railway auto-detects Node.js
+4. Railway auto-detects the Dockerfile
 
-### Environment Variables
-Set these in Railway dashboard → Variables:
+### 2. Add Persistent Volume (CRITICAL for SQLite)
+1. In your service, go to **Settings** → **Volumes**
+2. Click **Add Volume**
+3. Mount path: `/data`
+4. This ensures your database persists across deploys
+
+### 3. Environment Variables
+Set these in Railway dashboard → **Variables**:
 ```
 NODE_ENV=production
 PORT=5000
+DB_PATH=/data/data.db
+SITE_PUBLIC_URL=https://your-app.up.railway.app
+RESEND_API_KEY=re_FMm17BfH_7okFDAPYqRXthvJTxBfA2d3f
+SHEETDB_API_KEY=key_hkhvrflszkvo0zifaekx1g7c01gj
 ```
 
-### Build & Start Commands
-Railway should auto-detect from `package.json`, but if not:
-- Build: `npm run build`
-- Start: `node dist/index.cjs`
+Optional:
+```
+SLACK_WEBHOOK_URL=https://hooks.slack.com/...
+BASE44_API=https://elts.base44.app/api/apps/694868412332f081649b2833/entities/Freelancer
+BASE44_KEY=bf9b19a625ae4083ba38b8585fb5a78f
+```
 
-### Custom Domain
-1. Go to Settings → Domains
-2. Add your domain (e.g. `dispatch.eltur.co`)
-3. Add CNAME record in your DNS: `dispatch.eltur.co` → `<railway-provided-url>`
+### 4. Custom Domain (Optional)
+1. Settings → Domains → Add Custom Domain
+2. Add CNAME record pointing to Railway
+3. Update `SITE_PUBLIC_URL` to your custom domain
 
-### Database
-SQLite file (`data.db`) persists on Railway's volume storage.
-For better persistence, attach a Railway volume:
-- Settings → Volumes → Mount path: `/app`
+### 5. Deploy
+Railway deploys automatically on every git push to main.
 
----
-
-## Option 2: Render
-
-### Setup
-1. Go to [render.com](https://render.com)
-2. New → Web Service → Connect GitHub repo
-3. Settings:
-   - Runtime: Node
-   - Build: `npm install && npm run build`
-   - Start: `node dist/index.cjs`
-   - Instance: Free tier works
-
-### Disk
-Add a Persistent Disk (for SQLite):
-- Mount path: `/opt/render/project/src`
-- Size: 1 GB (free with paid plan)
-
-### Custom Domain
-Settings → Custom Domains → Add `dispatch.eltur.co`
+### Health Check
+The app exposes `GET /api/health` for monitoring.
 
 ---
 
-## Option 3: VPS (DigitalOcean / Hetzner)
+## Manual / VPS Deployment
 
-### Setup
+### Prerequisites
+- Node.js 20+
+- npm
+
+### Build
 ```bash
-# On your VPS (Ubuntu)
-sudo apt update && sudo apt install -y nodejs npm nginx certbot
-
-# Clone repo
-git clone https://github.com/cenkyalavac/elturco-task-dashboard.git
-cd elturco-task-dashboard
-npm install
+npm ci
 npm run build
+```
 
-# Run with PM2 (process manager)
+### Run
+```bash
+NODE_ENV=production \
+RESEND_API_KEY=re_... \
+SHEETDB_API_KEY=key_... \
+SITE_PUBLIC_URL=https://your-domain.com \
+node dist/server.js
+```
+
+### With Docker
+```bash
+docker build -t elturco-dispatch .
+docker run -d \
+  -p 5000:5000 \
+  -v elturco-data:/data \
+  -e NODE_ENV=production \
+  -e RESEND_API_KEY=re_... \
+  -e SHEETDB_API_KEY=key_... \
+  -e SITE_PUBLIC_URL=https://your-domain.com \
+  elturco-dispatch
+```
+
+### PM2 (Process Manager)
+```bash
 npm install -g pm2
-pm2 start dist/index.cjs --name dispatch
+pm2 start dist/server.js --name elturco-dispatch
 pm2 save
 pm2 startup
 ```
 
-### Nginx Config
-```nginx
-server {
-    server_name dispatch.eltur.co;
-    
-    location / {
-        proxy_pass http://localhost:5000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-Host $host;
-    }
-}
-```
-
-### SSL
-```bash
-sudo certbot --nginx -d dispatch.eltur.co
-```
-
 ---
 
-## Option 4: Docker (Any Platform)
+## Environment Variables Reference
 
-### Dockerfile (create in project root)
-```dockerfile
-FROM node:20-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --production=false
-COPY . .
-RUN npm run build
-ENV NODE_ENV=production PORT=5000
-EXPOSE 5000
-CMD ["node", "dist/index.cjs"]
-```
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `NODE_ENV` | Yes | Set to `production` |
+| `PORT` | No | Server port (default: 5000) |
+| `DB_PATH` | No | SQLite database path (default: `data.db`) |
+| `SITE_PUBLIC_URL` | Yes | Public URL for email links |
+| `RESEND_API_KEY` | Yes | Resend.com API key for emails |
+| `SHEETDB_API_KEY` | No | SheetDB global API key |
+| `BASE44_API` | No | ELTS Freelancer API URL |
+| `BASE44_KEY` | No | ELTS API key |
+| `SLACK_WEBHOOK_URL` | No | Slack notifications webhook |
 
-### Build & Run
-```bash
-docker build -t elturco-dispatch .
-docker run -d -p 5000:5000 -v dispatch-data:/app elturco-dispatch
-```
-
----
-
-## Important Notes
-
-### Email Sending
-The app uses the Resend API for email delivery. It works in two modes:
-- **Self-hosted**: Set `RESEND_API_KEY` env var — emails go via Resend HTTP API directly
-- **Perplexity sandbox**: Falls back to `external-tool` CLI automatically (no API key needed)
-
-To set up for production:
-1. Sign up at [resend.com](https://resend.com)
-2. Get an API key and verify your domain
-3. Set the env var: `RESEND_API_KEY=re_xxxxx`
-
-No code changes needed — the `sendEmail()` function auto-detects the environment.
-
-### Freelancer API
-The Base44 freelancer API (`https://elts.base44.app/api/...`) is accessed directly via HTTP — works from any host.
-
-### SheetDB
-SheetDB API is also accessed via HTTP — works from any host.
-
-### Database
-For production, consider migrating from SQLite to PostgreSQL:
-- Better concurrent access
-- Managed backups (via Railway, Render, or Supabase)
-- Change `drizzle.config.ts` and `storage.ts` to use `drizzle-orm/postgres-js`
-
-### Environment Variables for Self-Hosting
-```
-NODE_ENV=production
-PORT=5000
-RESEND_API_KEY=re_xxxxx           # From resend.com
-SITE_PUBLIC_URL=https://dispatch.eltur.co  # Your domain
-```
+## PM Accounts
+Default accounts are created on first run:
+- `cenk@eltur.co` / `elturco2026` (PM)
+- `perplexity@eltur.co` / `elturco2026` (Admin)

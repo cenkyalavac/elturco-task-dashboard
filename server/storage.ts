@@ -12,7 +12,8 @@ import {
   type AutoAssignRule, type InsertAutoAssignRule,
 } from "@shared/schema";
 
-const sqlite = new Database("data.db");
+const DB_PATH = process.env.DB_PATH || "data.db";
+const sqlite = new Database(DB_PATH);
 sqlite.pragma("journal_mode = WAL");
 export const db = drizzle(sqlite);
 
