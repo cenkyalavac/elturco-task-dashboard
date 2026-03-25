@@ -845,6 +845,7 @@ export default function DashboardPage() {
       if (statusFilter === "needs_rev" && !nREV) return false;
       if (statusFilter === "unassigned" && !isUnassigned) return false;
       if (statusFilter === "assigned" && (isUnassigned || isTerminal)) return false;
+      if (statusFilter === "all" && isTerminal) return false;
       if (statusFilter === "delivered" && t.delivered !== "Delivered") return false;
       if (statusFilter === "rev_done" && (!isRevCompleted(t) || isTerminal)) return false;
       // Overdue filter — exclude terminal statuses
