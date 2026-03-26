@@ -25,12 +25,14 @@ export function getPublicApiBase(): string {
   return window.location.origin + "/" + API_BASE;
 }
 
-// Auth token management — persists via localStorage ("Remember Me") or window.name (session-only)
+// Auth token management
+// - Always: sessionStorage (survives refresh, clears on tab close)
+// - Remember Me: localStorage (survives browser close)
 let authToken: string | null = null;
-let currentUser: { id: number; email: string; name: string; role: string; defaultFilter?: string; defaultMyProjects?: boolean } | null = null;
+let currentUser: { id: number; email: string; name: string; role: string; defaultFilter?: string; defaultMyProjects?: boolean; defaultSource?: string; defaultAccount?: string } | null = null;
 let rememberMe = false;
 
-// Restore from localStorage first, then window.name fallback
+// Restore: try localStorage first (remember me), then sessionStorage (session)
 try {
   const lsSaved = localStorage.getItem("elturco_auth");
   if (lsSaved) {
@@ -44,10 +46,13 @@ try {
 } catch {}
 if (!authToken) {
   try {
-    const saved = window.name ? JSON.parse(window.name) : null;
-    if (saved?.authToken) {
-      authToken = saved.authToken;
-      currentUser = saved.currentUser || null;
+    const ssSaved = sessionStorage.getItem("elturco_auth");
+    if (ssSaved) {
+      const parsed = JSON.parse(ssSaved);
+      if (parsed?.authToken) {
+        authToken = parsed.authToken;
+        currentUser = parsed.currentUser || null;
+      }
     }
   } catch {}
 }
@@ -55,12 +60,14 @@ if (!authToken) {
 function persistAuth() {
   try {
     if (authToken) {
-      window.name = JSON.stringify({ authToken, currentUser });
+      // Always save to sessionStorage (survives refresh)
+      sessionStorage.setItem("elturco_auth", JSON.stringify({ authToken, currentUser }));
+      // Save to localStorage only if Remember Me
       if (rememberMe) {
         localStorage.setItem("elturco_auth", JSON.stringify({ authToken, currentUser }));
       }
     } else {
-      window.name = "";
+      sessionStorage.removeItem("elturco_auth");
       localStorage.removeItem("elturco_auth");
     }
   } catch {}
