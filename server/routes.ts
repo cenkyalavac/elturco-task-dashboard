@@ -2,6 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import { storage, db } from "./storage";
 import { taskNotes, pmFavorites } from "@shared/schema";
+import { wsBroadcast } from "./index";
 import { eq, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import bcrypt from "bcryptjs";
@@ -248,6 +249,7 @@ async function fetchSheetTasks(apiId: string, tabName: string, sheetLabel: strin
       atmsId: getCol(row, "ATMS ID", "ATMS_ID", "APS Code"),
       symfonieLink: getCol(row, "Symfonie", "Symfonie link", "Symfonie Link", "SYM Link", "TP URL", "URL", "Link"),
       symfonieId: getCol(row, "Symfonie ID", "SymfonieID"),
+      languagePair: extractLanguagePair(row, sheetLabel, source),
     })).filter((t: any) => t.projectId).map((t: any) => {
       // If TR Done or Rev Complete says Cancelled/On Hold, override delivered status
       const trLower = (t.trDone || "").trim().toLowerCase();
@@ -335,6 +337,26 @@ function extractRevComplete(row: any, sheet: string): string {
 }
 function extractRevType(row: any): string {
   return getCol(row, "Rev Type", "Rev\nType", "Review Type", "REV Type", "Rev type");
+}
+function extractLanguagePair(row: any, sheet: string, source: string): string {
+  // Try to detect from Language, Target, or Source/Target columns
+  const lang = getCol(row, "Language", "Target", "Target Language", "target");
+  if (lang) {
+    const lv = lang.toLowerCase().trim();
+    // Format: "ES-ES ► TR" or "es-ES > tr-TR" or "en-US" or "tr-TR"
+    if (lv.includes("►") || lv.includes(">")) {
+      const parts = lv.split(/[►>]/).map(s => s.trim());
+      if (parts.length === 2) {
+        const src = parts[0].split("-")[0].toUpperCase();
+        const tgt = parts[1].split("-")[0].toUpperCase();
+        return `${src}>${tgt}`;
+      }
+    }
+    // Just target language: "tr-TR" → assume EN>TR
+    const tgt = lv.split("-")[0].toUpperCase();
+    if (tgt && tgt !== "EN") return `EN>${tgt}`;
+  }
+  return ""; // empty = use sheet config default
 }
 
 // ============================================
@@ -550,6 +572,21 @@ function setCache<T>(key: string, data: T): void {
   cache[key] = { data, timestamp: Date.now() };
 }
 
+// Helper to create notification + broadcast
+function notify(type: string, title: string, message: string, metadata?: any) {
+  try {
+    const n = storage.createNotification({
+      type, title, message,
+      metadata: metadata ? JSON.stringify(metadata) : null,
+      read: 0,
+      createdAt: new Date().toISOString(),
+    });
+    wsBroadcast("notification", { ...n, metadata: metadata || null });
+  } catch (e) {
+    console.error("Notification create error (non-fatal):", e);
+  }
+}
+
 export async function registerRoutes(server: Server, app: Express) {
 
   // ---- HEALTH CHECK ----
@@ -686,7 +723,7 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   // Shared task fetch function with 2-minute cache
   async function getAllTasksCached(): Promise<any[]> {
-    const cached = getCached<any[]>("allTasks", 120000); // 2 min
+    const cached = getCached<any[]>("allTasks", 300000); // 5 min
     if (cached) return cached;
 
     const configs = storage.getAllSheetConfigs();
@@ -1088,6 +1125,12 @@ const freelancers = (Array.isArray(data) ? data : [])
     // Slack notification
     notifySlackAccepted(assignment.projectId, offer.freelancerName, assignment.role);
 
+    // In-app notification + WebSocket
+    notify("offer_accepted", `${offer.freelancerName} accepted`,
+      `${offer.freelancerName} accepted ${assignment.role} for ${assignment.projectId}`,
+      { projectId: assignment.projectId, freelancerCode: offer.freelancerCode, role: assignment.role });
+    wsBroadcast("offer_accepted", { assignmentId: assignment.id, freelancerName: offer.freelancerName, projectId: assignment.projectId });
+
     res.json({ success: true, message: "Task accepted. Thank you!" });
   });
 
@@ -1156,6 +1199,12 @@ const freelancers = (Array.isArray(data) ? data : [])
     // Slack notification
     notifySlackRejected(assignment.projectId, offer.freelancerName, assignment.role);
 
+    // In-app notification + WebSocket
+    notify("offer_rejected", `${offer.freelancerName} declined`,
+      `${offer.freelancerName} declined ${assignment.role} for ${assignment.projectId}`,
+      { projectId: assignment.projectId, freelancerCode: offer.freelancerCode, role: assignment.role });
+    wsBroadcast("offer_rejected", { assignmentId: assignment.id, freelancerName: offer.freelancerName, projectId: assignment.projectId });
+
     res.json({ success: true, message: "Offer declined." });
   });
 
@@ -1204,6 +1253,12 @@ const freelancers = (Array.isArray(data) ? data : [])
     } catch (e) {
       console.error("Sheet status write error (non-fatal):", e);
     }
+
+    // In-app notification + WebSocket
+    notify("task_completed", `Task completed`,
+      `${offer.freelancerName} completed ${assignment.role} for ${assignment.projectId}`,
+      { projectId: assignment.projectId, freelancerCode: offer.freelancerCode, role: assignment.role });
+    wsBroadcast("task_completed", { assignmentId: assignment.id, projectId: assignment.projectId });
 
     res.json({ success: true, message: "Task marked as completed!" });
   });
@@ -2287,6 +2342,11 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   app.get("/api/analytics", requireAuth, async (req: Request, res: Response) => {
     try {
+      // Cache analytics response for 5 min (keyed by query params)
+      const cacheKey = `analytics_${req.url}`;
+      const cachedAnalytics = getCached<any>(cacheKey, 300000);
+      if (cachedAnalytics) return res.json(cachedAnalytics);
+
       const allSheetTasksRaw = await getAllTasksCached();
 
       // ── Apply filters ──
@@ -2434,7 +2494,7 @@ const freelancers = (Array.isArray(data) ? data : [])
         .sort((a, b) => b.wwc - a.wwc)
         .slice(0, 15);
 
-      res.json({
+      const result = {
         // Dispatch data
         byDay: Object.entries(byDay).sort(([a], [b]) => a.localeCompare(b)),
         byRole, byType,
@@ -2453,10 +2513,176 @@ const freelancers = (Array.isArray(data) ? data : [])
         byStatus,
         byMonth: Object.entries(byMonth).sort(([a], [b]) => a.localeCompare(b)),
         topFreelancersByWwc,
-      });
+      };
+      setCache(cacheKey, result);
+      res.json(result);
     } catch (e: any) {
       console.error("Analytics error:", e.message);
       res.status(500).json({ error: "Failed to compute analytics" });
     }
   });
+
+  // ============================================
+  // NOTIFICATION CENTER
+  // ============================================
+
+  app.get("/api/notifications", requireAuth, (_req: Request, res: Response) => {
+    const recent = storage.getRecentNotifications(50);
+    // Only return last 24h
+    const cutoff = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const filtered = recent.filter(n => n.createdAt >= cutoff);
+    res.json({ notifications: filtered, unreadCount: storage.getUnreadCount() });
+  });
+
+  app.post("/api/notifications/:id/read", requireAuth, (req: Request, res: Response) => {
+    storage.markNotificationRead(+req.params.id);
+    res.json({ success: true });
+  });
+
+  app.post("/api/notifications/read-all", requireAuth, (_req: Request, res: Response) => {
+    storage.markAllNotificationsRead();
+    res.json({ success: true });
+  });
+
+  // ============================================
+  // FREELANCER PORTAL
+  // ============================================
+
+  // Magic link request — freelancer enters their email
+  app.post("/api/freelancer/magic-link", async (req: Request, res: Response) => {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "Email is required" });
+
+    try {
+      // Check if this email belongs to an approved freelancer
+      const flRes = await fetch(BASE44_API, {
+        headers: { "Content-Type": "application/json", "api_key": BASE44_KEY },
+      });
+      const freelancers = await flRes.json();
+      const fl = (Array.isArray(freelancers) ? freelancers : []).find(
+        (f: any) => f.email?.toLowerCase() === email.toLowerCase().trim()
+      );
+      if (!fl) return res.status(404).json({ error: "Email not found in our records." });
+
+      const token = generateToken();
+      const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+      storage.createFreelancerSession({
+        token,
+        freelancerCode: fl.resource_code,
+        freelancerName: fl.full_name,
+        freelancerEmail: fl.email,
+        expiresAt,
+      });
+
+      const clientBase = req.body.clientBaseUrl || SITE_PUBLIC_URL;
+      const magicUrl = `${clientBase}#/freelancer/verify/${token}`;
+      const html = buildMagicLinkEmailHtml(fl.full_name, magicUrl);
+
+      await sendEmail([fl.email], "ElTurco Dispatch — Sign In", html);
+      res.json({ success: true, message: "Magic link sent to your email." });
+    } catch (e: any) {
+      console.error("Freelancer magic link error:", e);
+      res.status(500).json({ error: "Failed to send magic link" });
+    }
+  });
+
+  // Verify magic link and create session
+  app.post("/api/freelancer/verify/:token", (req: Request, res: Response) => {
+    const session = storage.getFreelancerSession(req.params.token);
+    if (!session) return res.status(404).json({ error: "Invalid or expired link" });
+    if (new Date(session.expiresAt) < new Date()) {
+      storage.deleteFreelancerSession(req.params.token);
+      return res.status(400).json({ error: "Link has expired" });
+    }
+    // Extend session to 72 hours
+    const newToken = generateToken();
+    const expiresAt = new Date(Date.now() + 72 * 3600 * 1000).toISOString();
+    storage.createFreelancerSession({
+      token: newToken,
+      freelancerCode: session.freelancerCode,
+      freelancerName: session.freelancerName,
+      freelancerEmail: session.freelancerEmail,
+      expiresAt,
+    });
+    // Clean up the one-time token
+    storage.deleteFreelancerSession(req.params.token);
+    res.json({
+      token: newToken,
+      freelancer: {
+        code: session.freelancerCode,
+        name: session.freelancerName,
+        email: session.freelancerEmail,
+      },
+    });
+  });
+
+  // Get freelancer tasks (active + completed)
+  app.get("/api/freelancer/tasks", async (req: Request, res: Response) => {
+    const flToken = req.headers.authorization?.replace("Bearer ", "");
+    if (!flToken) return res.status(401).json({ error: "No token" });
+    const session = storage.getFreelancerSession(flToken);
+    if (!session) return res.status(401).json({ error: "Invalid session" });
+    if (new Date(session.expiresAt) < new Date()) {
+      storage.deleteFreelancerSession(flToken);
+      return res.status(401).json({ error: "Session expired" });
+    }
+
+    try {
+      const code = session.freelancerCode;
+      const allTasks = await getAllTasksCached();
+
+      // Find tasks where this freelancer is assigned as TR or REV
+      const myTasks = allTasks.filter((t: any) =>
+        (t.translator || "").trim() === code || (t.reviewer || "").trim() === code
+      ).map((t: any) => {
+        const isTranslator = (t.translator || "").trim() === code;
+        const isReviewer = (t.reviewer || "").trim() === code;
+        const roles: string[] = [];
+        if (isTranslator) roles.push("translator");
+        if (isReviewer) roles.push("reviewer");
+        return { ...t, myRoles: roles };
+      });
+
+      // Split into active vs completed
+      const active = myTasks.filter((t: any) => t.delivered === "Ongoing" && !isEffectivelyCancelledTask(t));
+      const completed = myTasks.filter((t: any) => t.delivered !== "Ongoing" || isEffectivelyCancelledTask(t));
+
+      // Get pending offers for this freelancer
+      const allAssignments = storage.getAllAssignments();
+      const pendingOffers: any[] = [];
+      for (const a of allAssignments) {
+        if (a.status === "offered" || a.status === "pending") {
+          const offers = storage.getOffersByAssignment(a.id);
+          for (const o of offers) {
+            if (o.freelancerCode === code && o.status === "pending") {
+              const taskDetails = JSON.parse(a.taskDetails || "{}");
+              pendingOffers.push({
+                offerId: o.id,
+                token: o.token,
+                assignment: { id: a.id, source: a.source, sheet: a.sheet, projectId: a.projectId, account: a.account, role: a.role, reviewType: a.reviewType },
+                task: taskDetails,
+                sentAt: o.sentAt,
+              });
+            }
+          }
+        }
+      }
+
+      res.json({
+        freelancer: { code: session.freelancerCode, name: session.freelancerName, email: session.freelancerEmail },
+        active, completed: completed.slice(0, 50),
+        pendingOffers,
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Helper for freelancer portal
+  function isEffectivelyCancelledTask(t: any): boolean {
+    const trLower = (t.trDone || "").trim().toLowerCase();
+    const revLower = (t.revComplete || "").trim().toLowerCase();
+    const cancelledValues = ["cancelled", "canceled", "on hold", "onhold", "on-hold"];
+    return cancelledValues.includes(trLower) || cancelledValues.includes(revLower);
+  }
 }

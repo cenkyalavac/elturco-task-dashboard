@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { WebSocketServer, WebSocket } from "ws";
 
 const app = express();
 const httpServer = createServer(app);
@@ -59,6 +60,26 @@ app.use((req, res, next) => {
 
   next();
 });
+
+// ---- WebSocket Server ----
+const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
+const wsClients = new Set<WebSocket>();
+
+wss.on("connection", (ws) => {
+  wsClients.add(ws);
+  ws.on("close", () => wsClients.delete(ws));
+  ws.on("error", () => wsClients.delete(ws));
+});
+
+// Broadcast to all connected clients
+export function wsBroadcast(event: string, data: any) {
+  const msg = JSON.stringify({ event, data, timestamp: new Date().toISOString() });
+  for (const client of wsClients) {
+    if (client.readyState === WebSocket.OPEN) {
+      try { client.send(msg); } catch {}
+    }
+  }
+}
 
 (async () => {
   await registerRoutes(httpServer, app);

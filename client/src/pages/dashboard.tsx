@@ -73,6 +73,7 @@ interface Task {
   atmsId: string;
   symfonieLink: string;
   symfonieId: string;
+  languagePair: string;
 }
 
 interface Freelancer {
@@ -255,11 +256,13 @@ function deadlineClass(d: string): string {
   const date = parseDeadline(d);
   if (!date) return "text-muted-foreground";
   const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const deadlineDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  if (deadlineDay < today) return "text-red-400 font-semibold";
-  if (deadlineDay.getTime() === today.getTime()) return "text-amber-400 font-semibold";
-  return "text-muted-foreground";
+  const diffMs = date.getTime() - now.getTime();
+  const diffHours = diffMs / (1000 * 60 * 60);
+  if (diffMs < 0) return "text-red-500 font-semibold"; // overdue
+  if (diffHours <= 2) return "text-red-400 font-medium animate-pulse"; // within 2 hours
+  if (diffHours <= 8) return "text-orange-400 font-medium"; // within 8 hours
+  if (diffHours <= 24) return "text-amber-400"; // within 24 hours
+  return "text-emerald-400/70"; // more than 24h away
 }
 
 // Calculate suggested translator deadline based on WWC and business hours
@@ -1247,22 +1250,41 @@ export default function DashboardPage() {
         }
         return true;
       })
+      .map((f) => {
+        // Smart score calculation
+        let score = 0;
+        const fSt = freelancerStats?.[f.resourceCode];
+        const eltsQ = eltsQuality?.[f.resourceCode];
+        const acctQ = selectedTask?.account && eltsQ?.accounts?.[selectedTask.account];
+        const todayAvail = getAvailabilityToday(eltsAvailability?.[f.resourceCode]);
+        // +30: Available today
+        if (todayAvail?.status !== "unavailable") score += 30;
+        if (todayAvail?.status === "partially_available") score += 15;
+        // +25: Low active workload (fewer active = better)
+        const activeCount = fSt?.activeCount || 0;
+        score += Math.max(0, 25 - activeCount * 5);
+        // +20: High QS (account-specific or general)
+        const qs = acctQ?.qs ?? eltsQ?.generalQs ?? fSt?.avgQs ?? 0;
+        if (qs >= 4.5) score += 20;
+        else if (qs >= 4) score += 15;
+        else if (qs >= 3.5) score += 10;
+        else if (qs > 0) score += 5;
+        // +15: Has experience with this account
+        if (acctQ && acctQ.count > 0) score += 15;
+        // +10: Favorite
+        if (favoritesSet.has(f.resourceCode)) score += 10;
+        return { ...f, _score: score };
+      })
       .sort((a, b) => {
-        // Unavailable freelancers sort to bottom
+        // Unavailable sort to bottom
         const aUnavail = getAvailabilityToday(eltsAvailability?.[a.resourceCode])?.status === "unavailable" ? 1 : 0;
         const bUnavail = getAvailabilityToday(eltsAvailability?.[b.resourceCode])?.status === "unavailable" ? 1 : 0;
         if (aUnavail !== bUnavail) return aUnavail - bUnavail;
-        // Feature 2: Favorites first
-        const aFav = favoritesSet.has(a.resourceCode) ? 1 : 0;
-        const bFav = favoritesSet.has(b.resourceCode) ? 1 : 0;
-        if (bFav !== aFav) return bFav - aFav;
-        // Sort by task count desc (most used first), then alphabetical
-        const sa = freelancerStats?.[a.resourceCode]?.taskCount || 0;
-        const sb = freelancerStats?.[b.resourceCode]?.taskCount || 0;
-        if (sb !== sa) return sb - sa;
+        // Smart score desc
+        if (b._score !== a._score) return b._score - a._score;
         return a.fullName.localeCompare(b.fullName);
       });
-  }, [freelancers, selectedTask, freelancerSearch, selectedFreelancers, taskLangPair, freelancerStats, favoritesSet, eltsAvailability]);
+  }, [freelancers, selectedTask, freelancerSearch, selectedFreelancers, taskLangPair, freelancerStats, favoritesSet, eltsAvailability, eltsQuality]);
 
   // Use bulkFilteredFreelancers in bulk mode, filteredFreelancers otherwise
   const displayFreelancers = bulkMode ? bulkFilteredFreelancers : filteredFreelancers;
@@ -1876,6 +1898,24 @@ export default function DashboardPage() {
             <Button
               variant="outline"
               size="sm"
+              className="h-7 text-xs border-red-500/20 text-red-400 hover:bg-red-500/10"
+              onClick={async () => {
+                if (!confirm(`Unassign TR from ${checkedKeys.size} tasks? This writes XX to the sheet.`)) return;
+                for (const key of checkedKeys) {
+                  const [source, sheet, projectId] = key.split("|");
+                  try { await apiRequest("POST", "/api/tasks/unassign", { source, sheet, projectId, role: "translator" }); } catch {}
+                }
+                queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+                toast({ title: "Bulk unassign complete" });
+                setCheckedKeys(new Set());
+              }}
+            >
+              <UserX className="w-3 h-3 mr-1" />
+              Unassign TR
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               className="h-7 text-xs border-white/10"
               onClick={() => { setCheckedKeys(new Set()); setBulkMode(null); setShowBulkComplete(false); setShowBatchDeadline(false); }}
             >
@@ -2400,6 +2440,21 @@ export default function DashboardPage() {
                         <span className="text-muted-foreground">Total: <span className="font-semibold text-foreground">{selectedTask.total}</span></span>
                         <span className="text-muted-foreground">WWC: <span className="font-semibold text-foreground">{selectedTask.wwc}</span></span>
                       </div>
+                    </div>
+                  )}
+
+                  {/* Symfonie Link */}
+                  {selectedTask.symfonieLink && (
+                    <div className="px-4 py-2.5 border-b border-white/[0.06]">
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Symfonie</p>
+                      <a
+                        href={selectedTask.symfonieLink.startsWith("http") ? selectedTask.symfonieLink : `https://${selectedTask.symfonieLink}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-blue-400 hover:text-blue-300 underline underline-offset-2 break-all"
+                      >
+                        {selectedTask.symfonieLink}
+                      </a>
                     </div>
                   )}
                 </>
@@ -2949,6 +3004,9 @@ export default function DashboardPage() {
                             <div className="flex items-center gap-1.5">
                               <span className="text-xs font-medium text-foreground truncate">{f.fullName}</span>
                               <span className="text-[10px] text-muted-foreground">{f.resourceCode}</span>
+                              {(f as any)._score >= 80 && displayFreelancers.indexOf(f) === 0 && (
+                                <span className="text-[8px] px-1.5 py-0 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 font-semibold">Recommended</span>
+                              )}
                               {fDeliveryStats && fDeliveryStats.avgWwcPerHour > 0 && (
                                 <span className="text-[9px] px-1.5 py-0 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 tabular-nums" data-testid={`speed-badge-${f.resourceCode}`}>
                                   ~{Math.round(fDeliveryStats.avgWwcPerHour)} w/h

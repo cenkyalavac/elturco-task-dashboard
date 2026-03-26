@@ -1,10 +1,9 @@
 import { useState, useEffect } from "react";
 import { useRoute } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Loader2, CheckCircle2, XCircle, AlertTriangle, FileCheck, Clock } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, AlertTriangle, FileCheck, Clock, ExternalLink, Globe, FileText } from "lucide-react";
 
 const API_BASE = "__PORT_5000__".startsWith("__") ? "" : "__PORT_5000__";
 
@@ -65,13 +64,8 @@ export default function RespondPage() {
           return m ? m[1] + ab : window.location.origin + "/" + ab;
         })(),
       };
-      // For complete action, add timeSpent if reviewer (non-self-edit)
-      if (action === "complete" && timeSpent) {
-        bodyData.timeSpent = parseInt(timeSpent, 10);
-      }
-      if (action === "complete" && qsScore) {
-        bodyData.qsScore = parseFloat(qsScore);
-      }
+      if (action === "complete" && timeSpent) bodyData.timeSpent = parseInt(timeSpent, 10);
+      if (action === "complete" && qsScore) bodyData.qsScore = parseFloat(qsScore);
       const res = await fetch(`${API_BASE}/api/offers/${token}/${action}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -82,7 +76,6 @@ export default function RespondPage() {
         setActionResult({ success: false, message: json.error || "An error occurred." });
       } else {
         setActionResult({ success: true, message: json.message });
-        // Refresh data
         const refreshRes = await fetch(`${API_BASE}/api/offers/${token}`);
         if (refreshRes.ok) setData(await refreshRes.json());
       }
@@ -96,21 +89,23 @@ export default function RespondPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      <div className="min-h-screen bg-[#0f1117] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-8 h-8 animate-spin text-blue-400" />
+          <p className="text-sm text-white/40">Loading task details...</p>
+        </div>
       </div>
     );
   }
 
   if (error || !data) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <Card className="max-w-sm w-full border border-border">
-          <CardContent className="pt-6 text-center">
-            <AlertTriangle className="w-10 h-10 text-orange-500 mx-auto mb-3" />
-            <p className="font-medium text-foreground">{error || "Offer not found."}</p>
-          </CardContent>
-        </Card>
+      <div className="min-h-screen bg-[#0f1117] flex items-center justify-center p-4">
+        <div className="max-w-sm w-full bg-[#1a1d27] rounded-2xl border border-white/[0.06] p-8 text-center">
+          <AlertTriangle className="w-12 h-12 text-orange-400 mx-auto mb-4" />
+          <p className="font-medium text-white text-lg mb-2">Not Found</p>
+          <p className="text-sm text-white/50">{error || "This offer is no longer available."}</p>
+        </div>
       </div>
     );
   }
@@ -119,16 +114,15 @@ export default function RespondPage() {
   const isTranslator = assignment.role === "translator";
   const isReviewer = assignment.role === "reviewer";
   const isSelfEdit = assignment.reviewType === "Self-Edit";
-  const role = isTranslator ? "Translation" : (isSelfEdit ? "Self-Edit (Translation + Review)" : "Review");
+  const role = isTranslator ? "Translation" : (isSelfEdit ? "Self-Edit" : "Review");
   const isPending = offer.status === "pending";
   const isAccepted = offer.status === "accepted";
   const isCompleted = assignment.status === "completed";
 
-  // Show the right deadline based on role
   const deadline = isTranslator ? (task.deadline || "—") : (task.revDeadline || task.deadline || "—");
-  const deadlineLabel = isTranslator ? "Translation Deadline" : "Review Deadline";
+  const deadlineLabel = isTranslator ? "TR Deadline" : "Review Deadline";
 
-  // Cat counts
+  // CAT counts for translator
   const cc = task.catCounts || {};
   const hasCatCounts = cc.ice || cc.rep || cc.match100 || cc.fuzzy95 || cc.fuzzy85 || cc.fuzzy75 || cc.noMatch || cc.mt;
   const nonZeroCats = hasCatCounts ? [
@@ -142,179 +136,196 @@ export default function RespondPage() {
     { label: "MT", value: cc.mt },
   ].filter(c => c.value && c.value !== "0") : [];
 
-  // Should we ask for time spent? Only for reviewers who are NOT self-edit
   const needsTimeInput = isReviewer && !isSelfEdit;
 
+  // Status config
+  const statusConfig = {
+    pending: { bg: "bg-amber-500/10", text: "text-amber-400", border: "border-amber-500/20", label: "Awaiting Response" },
+    accepted: { bg: "bg-emerald-500/10", text: "text-emerald-400", border: "border-emerald-500/20", label: "Accepted" },
+    completed: { bg: "bg-blue-500/10", text: "text-blue-400", border: "border-blue-500/20", label: "Completed" },
+    rejected: { bg: "bg-red-500/10", text: "text-red-400", border: "border-red-500/20", label: "Declined" },
+    withdrawn: { bg: "bg-zinc-500/10", text: "text-zinc-400", border: "border-zinc-500/20", label: "Withdrawn" },
+    expired: { bg: "bg-zinc-500/10", text: "text-zinc-400", border: "border-zinc-500/20", label: "Expired" },
+  };
+  const st = statusConfig[offer.status as keyof typeof statusConfig] || statusConfig.pending;
+  const displayStatus = isCompleted ? statusConfig.completed : st;
+
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <div className="max-w-md w-full">
-        {/* Logo */}
-        <div className="flex items-center justify-center gap-2 mb-6">
-          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-            <svg width="16" height="16" viewBox="0 0 32 32" fill="none">
-              <path d="M6 8h20M6 14h14M6 20h8M22 18l4 4-4 4" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
+    <div className="min-h-screen bg-[#0f1117]">
+      {/* Top brand bar */}
+      <div className="bg-gradient-to-r from-[#0d1117] via-[#131620] to-[#0d1117] border-b border-white/[0.04] px-6 py-4">
+        <div className="max-w-lg mx-auto flex items-center gap-3">
+          <img src="/logo-icon.jpg" alt="ElTurco" className="w-8 h-8 rounded-lg object-cover" />
+          <div>
+            <p className="text-white font-semibold text-sm tracking-tight">ElTurco Dispatch</p>
+            <p className="text-white/30 text-[11px]">Task Assignment Portal</p>
           </div>
-          <span className="font-semibold text-foreground text-sm">ElTurco Dispatch</span>
         </div>
+      </div>
 
-        <Card className="border border-border">
-          <CardContent className="pt-6">
-            {/* Result banner */}
-            {actionResult && (
-              <div className={`mb-4 p-3 rounded-lg text-sm flex items-center gap-2 ${actionResult.success ? "bg-green-500/10 text-green-600" : "bg-red-500/10 text-red-600"}`} data-testid="text-action-result">
-                {actionResult.success ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <XCircle className="w-4 h-4 shrink-0" />}
-                {actionResult.message}
+      <div className="max-w-lg mx-auto p-4 sm:p-6 space-y-4">
+        {/* Result banner */}
+        {actionResult && (
+          <div className={`p-4 rounded-xl flex items-center gap-3 ${actionResult.success ? "bg-emerald-500/10 border border-emerald-500/20" : "bg-red-500/10 border border-red-500/20"}`} data-testid="text-action-result">
+            {actionResult.success ? <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" /> : <XCircle className="w-5 h-5 text-red-400 shrink-0" />}
+            <p className={`text-sm font-medium ${actionResult.success ? "text-emerald-300" : "text-red-300"}`}>{actionResult.message}</p>
+          </div>
+        )}
+
+        {/* Main card */}
+        <div className="bg-[#1a1d27] rounded-2xl border border-white/[0.06] overflow-hidden">
+          {/* Header with role badge */}
+          <div className="px-6 pt-6 pb-4 border-b border-white/[0.04]">
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <p className="text-white/40 text-xs mb-1">Hello</p>
+                <p className="text-white text-xl font-semibold" data-testid="text-freelancer-name">{offer.freelancerName}</p>
               </div>
+              <Badge className={`text-xs ${displayStatus.bg} ${displayStatus.text} ${displayStatus.border} border`}>{displayStatus.label}</Badge>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-xs text-blue-300 border-blue-500/20 bg-blue-500/5">{role}</Badge>
+              <span className="text-white/30 text-xs">{assignment.source} / {assignment.sheet}</span>
+            </div>
+          </div>
+
+          {/* Task info grid */}
+          <div className="px-6 py-4 space-y-3">
+            <InfoRow icon={<Globe className="w-3.5 h-3.5" />} label="Account" value={task.account || assignment.account} />
+            {task.projectTitle && <InfoRow icon={<FileText className="w-3.5 h-3.5" />} label="Project" value={task.projectTitle} />}
+            <InfoRow label="Project ID" value={assignment.projectId} mono />
+            {task.atmsId && task.atmsId !== assignment.projectId && <InfoRow label="ATMS ID" value={task.atmsId} mono />}
+            <InfoRow label={deadlineLabel} value={deadline} highlight />
+
+            {/* WC: Translator sees Total/WWC, Reviewer sees only Total WC */}
+            {isReviewer ? (
+              <InfoRow label="Total WC" value={task.total || "—"} />
+            ) : (
+              <InfoRow label="Total / WWC" value={`${task.total || "—"} / ${task.wwc || "—"}`} />
             )}
+            {isReviewer && task.revType && <InfoRow label="Review Type" value={task.revType} />}
+          </div>
 
-            {/* Greeting */}
-            <p className="text-sm text-muted-foreground mb-1">Hello</p>
-            <p className="text-lg font-semibold text-foreground mb-4" data-testid="text-freelancer-name">{offer.freelancerName}</p>
-
-            {/* Status badge */}
-            <div className="mb-4">
-              {offer.status === "pending" && <Badge variant="secondary" className="text-xs">Pending Response</Badge>}
-              {offer.status === "accepted" && !isCompleted && <Badge className="text-xs bg-green-500/10 text-green-600 border-green-500/20">Accepted</Badge>}
-              {isCompleted && <Badge className="text-xs bg-blue-500/10 text-blue-600 border-blue-500/20">Completed</Badge>}
-              {offer.status === "rejected" && <Badge variant="destructive" className="text-xs">Declined</Badge>}
-              {offer.status === "withdrawn" && <Badge variant="secondary" className="text-xs">Withdrawn</Badge>}
-              {offer.status === "expired" && <Badge variant="destructive" className="text-xs">Expired</Badge>}
-            </div>
-
-            {/* Task details */}
-            <div className="space-y-0 text-sm mb-4">
-              <DetailRow label="Task Type" value={role} />
-              <DetailRow label="Account" value={task.account || assignment.account} />
-              <DetailRow label="Source" value={`${assignment.source} / ${assignment.sheet}`} />
-              <DetailRow label="Project ID" value={assignment.projectId} />
-              {task.atmsId && task.atmsId !== assignment.projectId && (
-                <DetailRow label="ATMS ID" value={task.atmsId} />
-              )}
-              {task.projectTitle && <DetailRow label="Title" value={task.projectTitle} />}
-              <DetailRow label={deadlineLabel} value={deadline} highlight />
-              <DetailRow label="Total / WWC" value={`${task.total || "—"} / ${task.wwc || "—"}`} />
-              {isReviewer && task.revType && <DetailRow label="Review Type" value={task.revType} />}
-            </div>
-
-            {/* CAT Match Breakdown */}
-            {nonZeroCats.length > 0 && (
-              <div className="mb-4">
-                <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">Word Count Breakdown</p>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs bg-muted/30 rounded-lg p-3">
+          {/* CAT Breakdown — translator only */}
+          {isTranslator && nonZeroCats.length > 0 && (
+            <div className="mx-6 mb-4">
+              <p className="text-[10px] font-semibold text-white/30 uppercase tracking-widest mb-2">CAT Analysis</p>
+              <div className="bg-[#13151d] rounded-xl border border-white/[0.04] p-4">
+                <div className="grid grid-cols-2 gap-x-6 gap-y-2">
                   {nonZeroCats.map(c => (
-                    <div key={c.label} className="flex justify-between py-0.5">
-                      <span className="text-muted-foreground">{c.label}</span>
-                      <span className="font-medium text-foreground tabular-nums">{c.value}</span>
+                    <div key={c.label} className="flex justify-between">
+                      <span className="text-white/40 text-xs">{c.label}</span>
+                      <span className="text-white/80 text-xs font-medium tabular-nums">{c.value}</span>
                     </div>
                   ))}
                 </div>
               </div>
-            )}
+            </div>
+          )}
 
-            {/* HO Note */}
-            {task.hoNote && (
-              <div className="mb-4">
-                <p className="text-xs font-medium text-muted-foreground mb-1 uppercase tracking-wider">HO Note</p>
-                <p className="text-sm text-foreground bg-amber-500/5 border border-amber-500/20 rounded-lg p-3">{task.hoNote}</p>
+          {/* HO Note */}
+          {task.hoNote && (
+            <div className="mx-6 mb-4">
+              <p className="text-[10px] font-semibold text-white/30 uppercase tracking-widest mb-2">HO Note</p>
+              <div className="bg-amber-500/[0.04] border border-amber-500/10 rounded-xl p-4">
+                <p className="text-sm text-amber-200/80 leading-relaxed">{task.hoNote}</p>
               </div>
-            )}
+            </div>
+          )}
 
-            {/* Instructions */}
-            {task.instructions && (
-              <div className="mb-4">
-                <p className="text-xs font-medium text-muted-foreground mb-1 uppercase tracking-wider">Instructions</p>
-                <p className="text-sm text-foreground bg-blue-500/5 border border-blue-500/20 rounded-lg p-3 whitespace-pre-wrap">{task.instructions}</p>
+          {/* Instructions */}
+          {task.instructions && (
+            <div className="mx-6 mb-4">
+              <p className="text-[10px] font-semibold text-white/30 uppercase tracking-widest mb-2">Instructions</p>
+              <div className="bg-blue-500/[0.04] border border-blue-500/10 rounded-xl p-4">
+                <p className="text-sm text-blue-200/80 leading-relaxed whitespace-pre-wrap">{task.instructions}</p>
               </div>
-            )}
+            </div>
+          )}
 
-            {/* Symfonie link */}
-            {(task.symfonieLink || task.symfonieId) && (
-              <div className="mb-4">
-                <p className="text-xs font-medium text-muted-foreground mb-1 uppercase tracking-wider">Symfonie</p>
-                <div className="text-sm bg-muted/30 rounded-lg p-3">
-                  {task.symfonieLink && (
-                    <a href={task.symfonieLink.startsWith("http") ? task.symfonieLink : `https://${task.symfonieLink}`} 
-                       target="_blank" rel="noopener noreferrer"
-                       className="text-primary underline break-all">
-                      {task.symfonieLink}
-                    </a>
-                  )}
-                  {task.symfonieId && !task.symfonieLink && (
-                    <span className="text-foreground">{task.symfonieId}</span>
-                  )}
-                </div>
+          {/* Symfonie link */}
+          {(task.symfonieLink || task.symfonieId) && (
+            <div className="mx-6 mb-4">
+              <p className="text-[10px] font-semibold text-white/30 uppercase tracking-widest mb-2">Symfonie</p>
+              <div className="bg-[#13151d] border border-white/[0.04] rounded-xl p-4">
+                {task.symfonieLink ? (
+                  <a href={task.symfonieLink.startsWith("http") ? task.symfonieLink : `https://${task.symfonieLink}`}
+                     target="_blank" rel="noopener noreferrer"
+                     className="text-blue-400 hover:text-blue-300 text-sm underline underline-offset-2 flex items-center gap-1.5 break-all">
+                    <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                    {task.symfonieLink}
+                  </a>
+                ) : (
+                  <span className="text-white/60 text-sm">{task.symfonieId}</span>
+                )}
               </div>
-            )}
+            </div>
+          )}
 
-            {/* Action buttons */}
+          {/* Action buttons */}
+          <div className="px-6 pb-6">
             {isPending && !actionResult?.success && (
-              <div className="space-y-2 mt-4">
-                <Button
-                  className="w-full"
-                  size="lg"
+              <div className="space-y-2.5">
+                <button
+                  className="w-full h-12 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-semibold text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
                   onClick={() => handleAction("accept")}
                   disabled={!!actionLoading}
                   data-testid="button-accept"
                 >
-                  {actionLoading === "accept" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
+                  {actionLoading === "accept" ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
                   Accept Task
-                </Button>
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  size="lg"
+                </button>
+                <button
+                  className="w-full h-11 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-white/60 hover:text-white font-medium text-sm flex items-center justify-center gap-2 transition-colors border border-white/[0.06] disabled:opacity-50"
                   onClick={() => handleAction("reject")}
                   disabled={!!actionLoading}
                   data-testid="button-reject"
                 >
-                  {actionLoading === "reject" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <XCircle className="w-4 h-4 mr-2" />}
+                  {actionLoading === "reject" ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
                   Decline
-                </Button>
+                </button>
               </div>
             )}
 
             {isAccepted && !isCompleted && (
-              <div className="mt-4 space-y-3">
+              <div className="space-y-3">
                 {needsTimeInput && !showTimeInput && (
-                  <Button
-                    className="w-full"
-                    size="lg"
+                  <button
+                    className="w-full h-12 rounded-xl bg-blue-500 hover:bg-blue-400 text-white font-semibold text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
                     onClick={() => setShowTimeInput(true)}
                     disabled={!!actionLoading}
                     data-testid="button-complete"
                   >
-                    <FileCheck className="w-4 h-4 mr-2" />
+                    <FileCheck className="w-4 h-4" />
                     Mark as Completed
-                  </Button>
+                  </button>
                 )}
                 {needsTimeInput && showTimeInput && (
-                  <div className="space-y-3 p-4 bg-muted/30 rounded-lg border border-border">
-                    <p className="text-sm font-medium text-foreground">How long did the review take?</p>
+                  <div className="bg-[#13151d] border border-white/[0.06] rounded-xl p-4 space-y-4">
+                    <p className="text-sm font-medium text-white">How long did the review take?</p>
                     <div className="flex items-center gap-2">
-                      <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
+                      <Clock className="w-4 h-4 text-white/30 shrink-0" />
                       <Input
                         type="number"
                         placeholder="Minutes spent..."
                         value={timeSpent}
                         onChange={(e) => setTimeSpent(e.target.value)}
-                        className="h-9 text-sm"
+                        className="h-10 text-sm bg-[#0f1117] border-white/[0.08]"
                         autoFocus
                         data-testid="input-time-spent"
                       />
                     </div>
-                    {/* QS Score Selector */}
                     <div>
-                      <p className="text-xs text-muted-foreground mb-1.5">QS Score <span className="opacity-60">(optional)</span></p>
+                      <p className="text-xs text-white/40 mb-2">QS Score <span className="opacity-50">(optional)</span></p>
                       <div className="flex flex-wrap gap-1.5" data-testid="qs-score-selector">
                         {["1", "1.5", "2", "2.5", "3", "3.5", "4", "4.5", "5"].map((score) => (
                           <button
                             key={score}
                             type="button"
-                            className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
                               qsScore === score
-                                ? "bg-primary text-primary-foreground border-primary"
-                                : "bg-transparent text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
+                                ? "bg-blue-500 text-white border-blue-500"
+                                : "bg-transparent text-white/50 border-white/[0.08] hover:border-blue-500/40 hover:text-white/80"
                             }`}
                             onClick={() => setQsScore(qsScore === score ? "" : score)}
                             data-testid={`qs-btn-${score}`}
@@ -325,40 +336,42 @@ export default function RespondPage() {
                       </div>
                     </div>
                     <div className="flex gap-2">
-                      <Button
-                        className="flex-1"
-                        size="sm"
+                      <button
+                        className="flex-1 h-10 rounded-lg bg-blue-500 hover:bg-blue-400 text-white font-medium text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
                         onClick={() => handleAction("complete")}
                         disabled={!!actionLoading || !timeSpent}
                         data-testid="button-confirm-complete"
                       >
-                        {actionLoading === "complete" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
+                        {actionLoading === "complete" ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
                         Confirm
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => { setShowTimeInput(false); setTimeSpent(""); setQsScore(""); }}>
+                      </button>
+                      <button
+                        className="px-4 h-10 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-white/50 text-sm transition-colors"
+                        onClick={() => { setShowTimeInput(false); setTimeSpent(""); setQsScore(""); }}
+                      >
                         Cancel
-                      </Button>
+                      </button>
                     </div>
                   </div>
                 )}
                 {!needsTimeInput && (
-                  <Button
-                    className="w-full"
-                    size="lg"
+                  <button
+                    className="w-full h-12 rounded-xl bg-blue-500 hover:bg-blue-400 text-white font-semibold text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
                     onClick={() => handleAction("complete")}
                     disabled={!!actionLoading}
                     data-testid="button-complete"
                   >
-                    {actionLoading === "complete" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileCheck className="w-4 h-4 mr-2" />}
+                    {actionLoading === "complete" ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileCheck className="w-4 h-4" />}
                     Mark as Completed
-                  </Button>
+                  </button>
                 )}
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
-        <p className="text-center text-xs text-muted-foreground mt-4">
+        {/* Footer */}
+        <p className="text-center text-xs text-white/20 pb-4">
           ElTurco Projects — projects@eltur.co
         </p>
       </div>
@@ -366,11 +379,16 @@ export default function RespondPage() {
   );
 }
 
-function DetailRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+function InfoRow({ icon, label, value, highlight, mono }: { icon?: React.ReactNode; label: string; value: string; highlight?: boolean; mono?: boolean }) {
   return (
-    <div className="flex justify-between py-1.5 border-b border-border last:border-0">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={`font-medium ${highlight ? "text-red-600" : "text-foreground"}`}>{value}</span>
+    <div className="flex justify-between items-center py-1">
+      <span className="text-white/35 text-xs flex items-center gap-1.5">
+        {icon}
+        {label}
+      </span>
+      <span className={`text-sm font-medium ${highlight ? "text-red-400" : "text-white/80"} ${mono ? "font-mono text-xs" : ""} text-right max-w-[60%] break-words`}>
+        {value}
+      </span>
     </div>
   );
 }

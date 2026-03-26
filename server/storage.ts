@@ -2,7 +2,7 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
 import { eq, and, desc, or, sql } from "drizzle-orm";
 import {
-  pmUsers, authTokens, sessions, assignments, offers, sheetConfigs, emailTemplates, sequencePresets, autoAssignRules,
+  pmUsers, authTokens, sessions, assignments, offers, sheetConfigs, emailTemplates, sequencePresets, autoAssignRules, notifications, freelancerSessions,
   type PmUser, type InsertPmUser,
   type Assignment, type InsertAssignment,
   type Offer, type InsertOffer,
@@ -10,6 +10,8 @@ import {
   type EmailTemplate, type InsertEmailTemplate,
   type SequencePreset, type InsertSequencePreset,
   type AutoAssignRule, type InsertAutoAssignRule,
+  type Notification, type InsertNotification,
+  type FreelancerSession,
 } from "@shared/schema";
 
 const DB_PATH = process.env.DB_PATH || "data.db";
@@ -96,6 +98,17 @@ sqlite.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     pm_email TEXT NOT NULL, freelancer_code TEXT NOT NULL, created_at TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type TEXT NOT NULL, title TEXT NOT NULL, message TEXT NOT NULL,
+    metadata TEXT, read INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS freelancer_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token TEXT NOT NULL UNIQUE, freelancer_code TEXT NOT NULL,
+    freelancer_name TEXT NOT NULL, freelancer_email TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+  );
 `);
 
 // Migrate existing DB: add new columns if missing
@@ -153,6 +166,18 @@ export interface IStorage {
   createAutoAssignRule(data: InsertAutoAssignRule): AutoAssignRule;
   updateAutoAssignRule(id: number, data: Partial<AutoAssignRule>): void;
   deleteAutoAssignRule(id: number): void;
+
+  // Notifications
+  createNotification(data: InsertNotification): Notification;
+  getRecentNotifications(limit?: number): Notification[];
+  markNotificationRead(id: number): void;
+  markAllNotificationsRead(): void;
+  getUnreadCount(): number;
+
+  // Freelancer Sessions
+  createFreelancerSession(data: { token: string; freelancerCode: string; freelancerName: string; freelancerEmail: string; expiresAt: string }): void;
+  getFreelancerSession(token: string): FreelancerSession | undefined;
+  deleteFreelancerSession(token: string): void;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -385,6 +410,35 @@ export class DatabaseStorage implements IStorage {
   }
   deleteAutoAssignRule(id: number) {
     db.delete(autoAssignRules).where(eq(autoAssignRules.id, id)).run();
+  }
+
+  // Notifications
+  createNotification(data: InsertNotification) {
+    return db.insert(notifications).values(data).returning().get();
+  }
+  getRecentNotifications(limit = 50) {
+    return db.select().from(notifications).orderBy(desc(notifications.id)).limit(limit).all();
+  }
+  markNotificationRead(id: number) {
+    db.update(notifications).set({ read: 1 }).where(eq(notifications.id, id)).run();
+  }
+  markAllNotificationsRead() {
+    db.update(notifications).set({ read: 1 }).where(eq(notifications.read, 0)).run();
+  }
+  getUnreadCount() {
+    const result = db.select({ count: sql<number>`count(*)` }).from(notifications).where(eq(notifications.read, 0)).get();
+    return result?.count || 0;
+  }
+
+  // Freelancer Sessions
+  createFreelancerSession(data: { token: string; freelancerCode: string; freelancerName: string; freelancerEmail: string; expiresAt: string }) {
+    db.insert(freelancerSessions).values(data).run();
+  }
+  getFreelancerSession(token: string) {
+    return db.select().from(freelancerSessions).where(eq(freelancerSessions.token, token)).get();
+  }
+  deleteFreelancerSession(token: string) {
+    db.delete(freelancerSessions).where(eq(freelancerSessions.token, token)).run();
   }
 }
 

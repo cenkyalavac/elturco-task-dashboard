@@ -183,3 +183,30 @@ export type SequencePreset = typeof sequencePresets.$inferSelect;
 export type InsertSequencePreset = z.infer<typeof insertSequencePresetSchema>;
 export type AutoAssignRule = typeof autoAssignRules.$inferSelect;
 export type InsertAutoAssignRule = z.infer<typeof insertAutoAssignRuleSchema>;
+
+// Notifications for PM dashboard
+export const notifications = sqliteTable("notifications", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  type: text("type").notNull(), // "offer_accepted" | "offer_rejected" | "task_completed" | "sequence_advanced" | "assignment_created"
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  metadata: text("metadata"), // JSON extra data
+  read: integer("read").notNull().default(0),
+  createdAt: text("created_at").notNull(),
+});
+
+// Freelancer sessions (magic link based)
+export const freelancerSessions = sqliteTable("freelancer_sessions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  token: text("token").notNull().unique(),
+  freelancerCode: text("freelancer_code").notNull(),
+  freelancerName: text("freelancer_name").notNull(),
+  freelancerEmail: text("freelancer_email").notNull(),
+  expiresAt: text("expires_at").notNull(),
+});
+
+export const insertNotificationSchema = createInsertSchema(notifications).omit({ id: true });
+export const insertFreelancerSessionSchema = createInsertSchema(freelancerSessions).omit({ id: true });
+export type Notification = typeof notifications.$inferSelect;
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+export type FreelancerSession = typeof freelancerSessions.$inferSelect;
