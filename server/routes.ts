@@ -676,9 +676,9 @@ function notify(type: string, title: string, message: string, metadata?: any) {
 export async function registerRoutes(server: Server, app: Express) {
 
   // ---- HEALTH CHECK ----
-  app.get("/api/health", async (_req: Request, res: Response) => {
-    const gsAvailable = await gsIsAvailable();
-    res.json({ status: "ok", timestamp: new Date().toISOString(), googleSheetsApi: gsAvailable });
+  app.get("/api/health", (_req: Request, res: Response) => {
+    // Respond immediately — don't block on async GSheets init during startup
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
   // ---- RATE LIMITING ----
