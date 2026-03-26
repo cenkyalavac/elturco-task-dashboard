@@ -213,6 +213,8 @@ export class DatabaseStorage implements IStorage {
     const seeds = [
       { email: "perplexity@eltur.co", name: "Cenk Yalavaç", initial: "CY", password: SEED_HASH, role: "admin" },
       { email: "cenk@eltur.co", name: "Cenk Yalavaç", initial: "CY", password: SEED_HASH, role: "admin" },
+      { email: "onder@eltur.co", name: "Önder Eroğlu", initial: "OE", password: SEED_HASH, role: "pm" },
+      { email: "cansun@eltur.co", name: "Cansun Coşkun", initial: "CC", password: SEED_HASH, role: "pm" },
     ];
     for (const s of seeds) {
       const existing = db.select().from(pmUsers).where(eq(pmUsers.email, s.email)).get();
