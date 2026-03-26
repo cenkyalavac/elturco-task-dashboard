@@ -139,6 +139,59 @@ async function sendEmail(to: string[], subject: string, html: string) {
 // HELPERS
 // ============================================
 
+// Normalize language pair to standard 2-letter ISO format: "EN>TR"
+// Handles: "English>Arabic" → "EN>AR", "EN>AR-SA" → "EN>AR", "EN>AR-INCL. CODING" → "EN>AR"
+const LANG_NAME_MAP: Record<string, string> = {
+  english: "EN", turkish: "TR", arabic: "AR", spanish: "ES", russian: "RU",
+  french: "FR", german: "DE", italian: "IT", portuguese: "PT", dutch: "NL",
+  polish: "PL", czech: "CS", hungarian: "HU", romanian: "RO", bulgarian: "BG",
+  greek: "EL", croatian: "HR", serbian: "SR", slovenian: "SL", slovak: "SK",
+  lithuanian: "LT", latvian: "LV", estonian: "ET", ukrainian: "UK", hebrew: "HE",
+  persian: "FA", korean: "KO", japanese: "JP", chinese: "ZH", thai: "TH",
+  vietnamese: "VI", indonesian: "ID", malay: "MS", filipino: "FI",
+  indonesia: "ID", brazilian: "PT",
+};
+
+function normalizeLangPair(pair: string): string {
+  if (!pair) return "";
+  // If pair contains ">", split on it
+  const gtIdx = pair.indexOf(">");
+  if (gtIdx === -1) return pair;
+  let srcRaw = pair.slice(0, gtIdx).trim();
+  let tgtRaw = pair.slice(gtIdx + 1).trim();
+  
+  function normLang(code: string): string {
+    const c = code.trim();
+    if (!c || c.toLowerCase() === "null") return "";
+    // Full language name → ISO code
+    const lower = c.toLowerCase();
+    if (LANG_NAME_MAP[lower]) return LANG_NAME_MAP[lower];
+    // Multi-word: try last word ("Brazilian Portuguese" → "Portuguese")
+    const words = lower.split(/\s+/);
+    for (const w of words) {
+      if (LANG_NAME_MAP[w]) return LANG_NAME_MAP[w];
+    }
+    // Strip dialect/variant suffixes: "AR-SA" → "AR", "AR-INCL. CODING" → "AR"
+    const base = c.split("-")[0].split(" ")[0].toUpperCase();
+    // Skip non-language codes (DTP, General Support, etc.)
+    if (base.length > 4 || base.length < 2) return "";
+    return base;
+  }
+  
+  // Handle prefix patterns like "Amazon SeCM EN" → extract just the lang code
+  // If source has spaces and ends with a 2-3 letter code, use that code
+  if (srcRaw.includes(" ")) {
+    const lastWord = srcRaw.split(/\s+/).pop() || "";
+    if (/^[A-Z]{2,3}$/i.test(lastWord)) srcRaw = lastWord;
+    else srcRaw = normLang(srcRaw) ? srcRaw : "";
+  }
+  
+  const src = normLang(srcRaw);
+  const tgt = normLang(tgtRaw);
+  if (!src || !tgt) return "";
+  return `${src}>${tgt}`;
+}
+
 function generateToken(): string {
   return randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "");
 }
@@ -332,7 +385,7 @@ async function fetchSheetTasks(apiId: string, tabName: string, sheetLabel: strin
       atmsId: getCol(row, "ATMS ID", "ATMS_ID", "APS Code"),
       symfonieLink: getCol(row, "Symfonie", "Symfonie link", "Symfonie Link", "SYM Link", "TP URL", "URL", "Link"),
       symfonieId: getCol(row, "Symfonie ID", "SymfonieID"),
-      languagePair: extractLanguagePair(row, sheetLabel, source),
+      languagePair: normalizeLangPair(extractLanguagePair(row, sheetLabel, source)),
     })).filter((t: any) => t.projectId).map((t: any) => {
       // If TR Done or Rev Complete says Cancelled/On Hold, override delivered status
       const trLower = (t.trDone || "").trim().toLowerCase();
@@ -792,7 +845,7 @@ const freelancers = (Array.isArray(data) ? data : [])
         email: f.email,
         status: f.status,
         accounts: f.accounts || [],
-        languagePairs: (f.language_pairs || []).map((lp: any) => `${lp.source_language}>${lp.target_language}`),
+        languagePairs: [...new Set((f.language_pairs || []).map((lp: any) => normalizeLangPair(`${lp.source_language}>${lp.target_language}`)).filter(Boolean))],
         serviceTypes: f.service_types || [],
         availability: f.availability,
         rates: f.rates || [],
