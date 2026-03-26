@@ -9,10 +9,10 @@ COPY package*.json ./
 RUN npm ci
 
 COPY . .
-RUN npx vite build && \
-    npx esbuild server/index.ts --bundle --platform=node --outfile=dist/server.js \
-      --packages=external --format=esm \
-      --banner:js="import{createRequire as _cr}from'module';import{fileURLToPath as _fu}from'url';import _p from'path';const require=_cr(import.meta.url);const __filename=_fu(import.meta.url);const __dirname=_p.dirname(__filename);"
+RUN npm run build
+
+# Copy static assets needed at runtime
+RUN cp -r client/public/* dist/public/ 2>/dev/null || true
 
 # Cleanup source (keep dist + node_modules)
 RUN rm -rf client server shared script *.ts *.config.* postcss.* screenshot-*
@@ -24,4 +24,7 @@ ENV NODE_ENV=production
 ENV PORT=5000
 EXPOSE 5000
 
-CMD ["node", "dist/server.js"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -q --spider http://localhost:5000/api/health || exit 1
+
+CMD ["node", "dist/index.cjs"]

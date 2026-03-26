@@ -2,11 +2,17 @@ import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import { storage, db } from "./storage";
 import { taskNotes, pmFavorites } from "@shared/schema";
-import { wsBroadcast } from "./index";
+import { wsBroadcast } from "./ws";
 import { eq, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
+
+// Helper to safely extract string param (Express types req.params values as string | string[])
+function param(req: Request, name: string): string {
+  const v = req.params[name];
+  return Array.isArray(v) ? v[0] : v;
+}
 
 // ============================================
 // CONFIG
@@ -644,22 +650,22 @@ export async function registerRoutes(server: Server, app: Express) {
   // We serve an HTML page that does a client-side redirect so the hash
   // fragment is preserved (302 redirects drop the hash in most browsers).
   app.get("/api/auth/redirect/:token", (req: Request, res: Response) => {
-    const authToken = storage.getAuthToken(req.params.token);
+    const authToken = storage.getAuthToken(param(req, "token"));
     if (!authToken || !authToken.clientBaseUrl) {
       return res.status(404).send("Invalid or expired link.");
     }
-    const frontendUrl = `${authToken.clientBaseUrl}#/auth/verify/${req.params.token}`;
+    const frontendUrl = `${authToken.clientBaseUrl}#/auth/verify/${param(req, "token")}`;
     res.type("html").send(buildRedirectPage(frontendUrl, "Signing you in..."));
   });
 
   // Offer redirect: freelancer email links point here
   app.get("/api/offers/redirect/:token", (req: Request, res: Response) => {
-    const offer = storage.getOfferByToken(req.params.token);
+    const offer = storage.getOfferByToken(param(req, "token"));
     if (!offer) {
       return res.status(404).send("Offer not found or expired.");
     }
     const base = offer.clientBaseUrl || SITE_PUBLIC_URL;
-    const frontendUrl = `${base}#/respond/${req.params.token}`;
+    const frontendUrl = `${base}#/respond/${param(req, "token")}`;
     res.type("html").send(buildRedirectPage(frontendUrl, "Loading task details..."));
   });
 
@@ -797,7 +803,7 @@ const freelancers = (Array.isArray(data) ? data : [])
   });
 
   app.get("/api/assignments/:id", requireAuth, (req: Request, res: Response) => {
-    const a = storage.getAssignment(+req.params.id);
+    const a = storage.getAssignment(+param(req, "id"));
     if (!a) return res.status(404).json({ error: "Assignment not found" });
     res.json({
       ...a,
@@ -810,7 +816,7 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   // Cancel assignment and withdraw all pending offers
   app.post("/api/assignments/:id/cancel", requireAuth, (req: Request, res: Response) => {
-    const assignment = storage.getAssignment(+req.params.id);
+    const assignment = storage.getAssignment(+param(req, "id"));
     if (!assignment) return res.status(404).json({ error: "Assignment not found" });
     if (assignment.status === "completed") {
       return res.status(400).json({ error: "Cannot cancel a completed assignment" });
@@ -831,7 +837,7 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   // Withdraw a specific offer
   app.post("/api/offers/:id/withdraw", requireAuth, (req: Request, res: Response) => {
-    const offer = storage.getOffer(+req.params.id);
+    const offer = storage.getOffer(+param(req, "id"));
     if (!offer) return res.status(404).json({ error: "Offer not found" });
     if (offer.status !== "pending") {
       return res.status(400).json({ error: "Only pending offers can be withdrawn" });
@@ -1044,8 +1050,8 @@ const freelancers = (Array.isArray(data) ? data : [])
   // Get offer details for freelancer view
   app.get("/api/offers/:token", offerLimiter, async (req: Request, res: Response) => {
     // Validate token format (64-char hex) to prevent enumeration
-    if (!/^[a-f0-9]{64}$/.test(req.params.token)) return res.status(404).json({ error: "Offer not found." });
-    const offer = storage.getOfferByToken(req.params.token);
+    if (!/^[a-f0-9]{64}$/.test(param(req, "token"))) return res.status(404).json({ error: "Offer not found." });
+    const offer = storage.getOfferByToken(param(req, "token"));
     if (!offer) return res.status(404).json({ error: "Offer not found." });
 
     const assignment = storage.getAssignment(offer.assignmentId);
@@ -1078,8 +1084,8 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   // Accept offer
   app.post("/api/offers/:token/accept", offerLimiter, async (req: Request, res: Response) => {
-    if (!/^[a-f0-9]{64}$/.test(req.params.token)) return res.status(404).json({ error: "Offer not found." });
-    const offer = storage.getOfferByToken(req.params.token);
+    if (!/^[a-f0-9]{64}$/.test(param(req, "token"))) return res.status(404).json({ error: "Offer not found." });
+    const offer = storage.getOfferByToken(param(req, "token"));
     if (!offer) return res.status(404).json({ error: "Offer not found." });
     if (offer.status !== "pending") {
       return res.status(400).json({ error: "This offer is no longer valid.", currentStatus: offer.status });
@@ -1136,8 +1142,8 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   // Reject offer
   app.post("/api/offers/:token/reject", offerLimiter, async (req: Request, res: Response) => {
-    if (!/^[a-f0-9]{64}$/.test(req.params.token)) return res.status(404).json({ error: "Offer not found." });
-    const offer = storage.getOfferByToken(req.params.token);
+    if (!/^[a-f0-9]{64}$/.test(param(req, "token"))) return res.status(404).json({ error: "Offer not found." });
+    const offer = storage.getOfferByToken(param(req, "token"));
     if (!offer) return res.status(404).json({ error: "Offer not found." });
     if (offer.status !== "pending") {
       return res.status(400).json({ error: "This offer is no longer valid.", currentStatus: offer.status });
@@ -1210,8 +1216,8 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   // Mark task as completed by freelancer
   app.post("/api/offers/:token/complete", offerLimiter, async (req: Request, res: Response) => {
-    if (!/^[a-f0-9]{64}$/.test(req.params.token)) return res.status(404).json({ error: "Offer not found." });
-    const offer = storage.getOfferByToken(req.params.token);
+    if (!/^[a-f0-9]{64}$/.test(param(req, "token"))) return res.status(404).json({ error: "Offer not found." });
+    const offer = storage.getOfferByToken(param(req, "token"));
     if (!offer) return res.status(404).json({ error: "Offer not found." });
     if (offer.status !== "accepted") {
       return res.status(400).json({ error: "Only accepted tasks can be completed." });
@@ -1491,7 +1497,7 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   // ---- UNDO ASSIGNMENT (cancel within 10s) ----
   app.post("/api/assignments/:id/undo", requireAuth, (req: Request, res: Response) => {
-    const assignment = storage.getAssignment(+req.params.id);
+    const assignment = storage.getAssignment(+param(req, "id"));
     if (!assignment) return res.status(404).json({ error: "Assignment not found" });
     // Only allow undo within 15 seconds of creation
     const createdTime = new Date(assignment.createdAt).getTime();
@@ -1728,7 +1734,7 @@ const freelancers = (Array.isArray(data) ? data : [])
   });
 
   app.delete("/api/sheet-configs/:id", requireAuth, (req: Request, res: Response) => {
-    storage.deleteSheetConfig(+req.params.id);
+    storage.deleteSheetConfig(+param(req, "id"));
     res.json({ success: true });
   });
 
@@ -1775,7 +1781,7 @@ const freelancers = (Array.isArray(data) ? data : [])
   });
 
   app.delete("/api/presets/:id", requireAuth, (req: Request, res: Response) => {
-    storage.deletePreset(+req.params.id);
+    storage.deletePreset(+param(req, "id"));
     res.json({ success: true });
   });
 
@@ -1937,7 +1943,7 @@ const freelancers = (Array.isArray(data) ? data : [])
         const rev = (t.reviewer || "").trim();
         const qs = parseFloat(t.qs || "0");
         const isOngoing = t.delivered === "Ongoing";
-        const wwc = parseFloat((t.wwc || "0").toString().replace(/[^\d.,]/g, "").replace(",", "."));
+        const wwcRaw2 = parseFloat((t.wwc || "0").toString().replace(/[^\d.,]/g, "").replace(",", ".")); const wwc = isNaN(wwcRaw2) ? 0 : wwcRaw2;
 
         if (tr && tr !== "XX") {
           if (!trStats[tr]) trStats[tr] = { qsScores: [], count: 0, activeCount: 0, activeWwc: 0 };
@@ -1995,7 +2001,7 @@ const freelancers = (Array.isArray(data) ? data : [])
   // Update PM user (admin edit)
   app.put("/api/pm-users/:id", requireAuth, async (req: Request, res: Response) => {
     const { name, initial, role, password } = req.body;
-    const id = +req.params.id;
+    const id = +param(req, "id");
     const user = storage.getAllPmUsers().find(u => u.id === id);
     if (!user) return res.status(404).json({ error: "User not found" });
     const updates: any = {};
@@ -2154,12 +2160,12 @@ const freelancers = (Array.isArray(data) ? data : [])
     if (assignmentType !== undefined) updates.assignmentType = assignmentType;
     if (maxWwc !== undefined) updates.maxWwc = maxWwc || null;
     if (enabled !== undefined) updates.enabled = enabled ? 1 : 0;
-    storage.updateAutoAssignRule(+req.params.id, updates);
+    storage.updateAutoAssignRule(+param(req, "id"), updates);
     res.json({ success: true });
   });
 
   app.delete("/api/auto-assign-rules/:id", requireAuth, (req: Request, res: Response) => {
-    storage.deleteAutoAssignRule(+req.params.id);
+    storage.deleteAutoAssignRule(+param(req, "id"));
     res.json({ success: true });
   });
 
@@ -2290,7 +2296,8 @@ const freelancers = (Array.isArray(data) ? data : [])
       if (hours <= 0 || hours > 720) continue; // skip invalid
 
       const task = JSON.parse(a.taskDetails || "{}");
-      const wwc = parseFloat((task.wwc || "0").toString().replace(/[^\d.,]/g, "").replace(",", "."));
+      const wwcParsed = parseFloat((task.wwc || "0").toString().replace(/[^\d.,]/g, "").replace(",", "."));
+      const wwc = isNaN(wwcParsed) ? 0 : wwcParsed;
 
       const code = a.acceptedBy;
       if (!stats[code]) stats[code] = { avgHoursToComplete: 0, taskCount: 0, avgWwcPerHour: 0 };
@@ -2381,7 +2388,8 @@ const freelancers = (Array.isArray(data) ? data : [])
         const acc = t.account || "Unknown";
         if (!byAccount[acc]) byAccount[acc] = { count: 0, totalWwc: 0 };
         byAccount[acc].count++;
-        const wwc = parseFloat((t.wwc || "0").toString().replace(/[^\d.,]/g, "").replace(",", "."));
+        const wwcRaw = parseFloat((t.wwc || "0").toString().replace(/[^\d.,]/g, "").replace(",", "."));
+        const wwc = isNaN(wwcRaw) ? 0 : wwcRaw;
         byAccount[acc].totalWwc += wwc;
         totalWwcSum += wwc;
 
@@ -2535,7 +2543,7 @@ const freelancers = (Array.isArray(data) ? data : [])
   });
 
   app.post("/api/notifications/:id/read", requireAuth, (req: Request, res: Response) => {
-    storage.markNotificationRead(+req.params.id);
+    storage.markNotificationRead(+param(req, "id"));
     res.json({ success: true });
   });
 
@@ -2588,10 +2596,10 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   // Verify magic link and create session
   app.post("/api/freelancer/verify/:token", (req: Request, res: Response) => {
-    const session = storage.getFreelancerSession(req.params.token);
+    const session = storage.getFreelancerSession(param(req, "token"));
     if (!session) return res.status(404).json({ error: "Invalid or expired link" });
     if (new Date(session.expiresAt) < new Date()) {
-      storage.deleteFreelancerSession(req.params.token);
+      storage.deleteFreelancerSession(param(req, "token"));
       return res.status(400).json({ error: "Link has expired" });
     }
     // Extend session to 72 hours
@@ -2605,7 +2613,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       expiresAt,
     });
     // Clean up the one-time token
-    storage.deleteFreelancerSession(req.params.token);
+    storage.deleteFreelancerSession(param(req, "token"));
     res.json({
       token: newToken,
       freelancer: {

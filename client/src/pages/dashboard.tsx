@@ -119,6 +119,9 @@ interface SheetConfig {
   source: string;
   sheet: string;
   languagePair: string;
+  sheetDbId?: string;
+  googleSheetUrl?: string;
+  assignedPms?: string | null;
 }
 
 interface EmailTemplate {
@@ -1255,7 +1258,7 @@ export default function DashboardPage() {
         let score = 0;
         const fSt = freelancerStats?.[f.resourceCode];
         const eltsQ = eltsQuality?.[f.resourceCode];
-        const acctQ = selectedTask?.account && eltsQ?.accounts?.[selectedTask.account];
+        const acctQ = (selectedTask?.account && eltsQ?.accounts?.[selectedTask.account]) || null;
         const todayAvail = getAvailabilityToday(eltsAvailability?.[f.resourceCode]);
         // +30: Available today
         if (todayAvail?.status !== "unavailable") score += 30;

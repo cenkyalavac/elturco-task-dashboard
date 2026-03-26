@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, createContext, useContext, useCallback } from "react";
+import { useState, useEffect, useRef, createContext, useContext } from "react";
 import { Switch, Route, Router, Redirect, useLocation, Link } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
 import { queryClient, apiRequest, getAuthToken } from "./lib/queryClient";
@@ -15,8 +15,9 @@ import AssignmentsPage from "@/pages/assignments";
 import RespondPage from "@/pages/respond";
 import AnalyticsPage from "@/pages/analytics";
 import FreelancerPortalPage from "@/pages/freelancer-portal";
+import AuthVerifyPage from "@/pages/auth-verify";
 import NotFound from "@/pages/not-found";
-import { LogOut, BarChart3, Sun, Moon, Bell, CheckCheck, X } from "lucide-react";
+import { LogOut, BarChart3, Sun, Moon, Bell, CheckCheck } from "lucide-react";
 
 // Theme context
 const ThemeContext = createContext<{ theme: "dark" | "light"; toggleTheme: () => void }>({ theme: "dark", toggleTheme: () => {} });
@@ -222,6 +223,7 @@ function AppRouter() {
     <Switch>
       <Route path="/login" component={LoginPage} />
       <Route path="/respond/:token" component={RespondPage} />
+      <Route path="/auth/verify/:token" component={AuthVerifyPage} />
       <Route path="/freelancer" component={FreelancerPortalPage} />
       <Route path="/freelancer/verify/:token" component={FreelancerPortalPage} />
       <Route>{() => (isAuthenticated || hasToken) ? <AppLayout /> : <Redirect to="/login" />}</Route>
