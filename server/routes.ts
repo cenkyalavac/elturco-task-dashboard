@@ -784,7 +784,32 @@ const freelancers = (Array.isArray(data) ? data : [])
       // Filter out delivered tasks by default
       const includeDelivered = req.query.includeDelivered === "true";
       const filtered = includeDelivered ? pmTasks : pmTasks.filter((t: any) => t.delivered !== "Delivered");
-      res.json(filtered);
+
+      // Overlay local assignment data onto tasks (covers SheetDB propagation delay)
+      const allAssignments = storage.getAllAssignments();
+      const assignMap = new Map<string, any[]>();
+      for (const a of allAssignments) {
+        if (a.status !== "accepted" && a.status !== "completed") continue;
+        const key = `${a.source}|${a.sheet}|${a.projectId}`;
+        if (!assignMap.has(key)) assignMap.set(key, []);
+        assignMap.get(key)!.push(a);
+      }
+      const overlaid = filtered.map((t: any) => {
+        const key = `${t.source}|${t.sheet}|${t.projectId}`;
+        const matches = assignMap.get(key);
+        if (!matches) return t;
+        const copy = { ...t };
+        for (const a of matches) {
+          if (a.role === "translator" && (!copy.translator || copy.translator === "XX") && a.acceptedBy) {
+            copy.translator = a.acceptedBy;
+          }
+          if (a.role === "reviewer" && (!copy.reviewer || copy.reviewer === "XX") && a.acceptedBy) {
+            copy.reviewer = a.acceptedBy;
+          }
+        }
+        return copy;
+      });
+      res.json(overlaid);
     } catch (e: any) {
       res.status(500).json({ error: "Failed to fetch task data: " + e.message });
     }
