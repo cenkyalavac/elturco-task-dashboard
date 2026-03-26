@@ -369,44 +369,62 @@ function buildDefaultOfferBody(vars: Record<string, string>, task?: any): string
   const isReviewer = role === "Review";
   const deadline = isReviewer ? (task?.revDeadline || vars.deadline) : vars.deadline;
   const deadlineLabel = isReviewer ? "Review Deadline" : "Translation Deadline";
+  const rowA = (label: string, value: string) => `<tr><td style="padding:10px 14px;background:#f8f9fa;font-weight:600;color:#555;border-bottom:1px solid #eee;width:140px;font-size:13px">${label}</td><td style="padding:10px 14px;background:#f8f9fa;border-bottom:1px solid #eee;font-size:13px">${value}</td></tr>`;
+  const rowB = (label: string, value: string) => `<tr><td style="padding:10px 14px;font-weight:600;color:#555;border-bottom:1px solid #eee;width:140px;font-size:13px">${label}</td><td style="padding:10px 14px;border-bottom:1px solid #eee;font-size:13px">${value}</td></tr>`;
 
-  // Build CAT breakdown row if available
-  let catRow = "";
-  if (task?.catCounts) {
+  // CAT breakdown — translator only, individual match rows
+  let catRows = "";
+  if (!isReviewer && task?.catCounts) {
     const cc = task.catCounts;
     const cats = [
-      { label: "ICE", value: cc.ice },
-      { label: "Rep", value: cc.rep },
+      { label: "ICE/CM", value: cc.ice },
+      { label: "Repetitions", value: cc.rep },
       { label: "100%", value: cc.match100 },
       { label: "95-99%", value: cc.fuzzy95 },
       { label: "85-94%", value: cc.fuzzy85 },
       { label: "75-84%", value: cc.fuzzy75 },
       { label: "No Match", value: cc.noMatch },
       { label: "MT", value: cc.mt },
-    ].filter(c => c.value && c.value !== "0");
+    ].filter(c => c.value && c.value !== "0" && c.value !== "0.0");
     if (cats.length > 0) {
-      const catStr = cats.map(c => `${c.label}: ${c.value}`).join(" &middot; ");
-      catRow = `<tr><td style="padding:10px 12px;font-weight:600;color:#666;border-bottom:1px solid #eee">Word Count</td><td style="padding:10px 12px;border-bottom:1px solid #eee;font-size:13px">${catStr}</td></tr>`;
+      catRows = cats.map((c, i) => {
+        const fn = i % 2 === 0 ? rowA : rowB;
+        return fn(c.label, c.value);
+      }).join("");
     }
   }
 
-  // HO Note row
+  // HO Note
   let hoNoteRow = "";
   if (task?.hoNote) {
-    hoNoteRow = `<tr><td style="padding:10px 12px;background:#f8f9fa;font-weight:600;color:#666;border-bottom:1px solid #eee">HO Note</td><td style="padding:10px 12px;background:#f8f9fa;border-bottom:1px solid #eee">${task.hoNote}</td></tr>`;
+    hoNoteRow = rowA("HO Note", `<span style="color:#e67e22">${task.hoNote}</span>`);
   }
 
-  return `<p>Hello <strong>${vars.freelancerName}</strong>,</p>
-<p>We'd like to know if you're available for the following ${role.toLowerCase()} task.</p>
-<table style="width:100%;border-collapse:collapse;margin:16px 0">
-<tr><td style="padding:10px 12px;background:#f8f9fa;font-weight:600;color:#666;border-bottom:1px solid #eee;width:140px">Account</td><td style="padding:10px 12px;background:#f8f9fa;border-bottom:1px solid #eee">${vars.account}</td></tr>
-<tr><td style="padding:10px 12px;font-weight:600;color:#666;border-bottom:1px solid #eee">Source / Tab</td><td style="padding:10px 12px;border-bottom:1px solid #eee">${vars.source} / ${vars.sheet}</td></tr>
-<tr><td style="padding:10px 12px;background:#f8f9fa;font-weight:600;color:#666;border-bottom:1px solid #eee">Project ID</td><td style="padding:10px 12px;background:#f8f9fa;border-bottom:1px solid #eee">${vars.projectId}</td></tr>
-<tr><td style="padding:10px 12px;font-weight:600;color:#666;border-bottom:1px solid #eee">${deadlineLabel}</td><td style="padding:10px 12px;color:#e74c3c;font-weight:600;border-bottom:1px solid #eee">${deadline}</td></tr>
-<tr><td style="padding:10px 12px;background:#f8f9fa;font-weight:600;color:#666;border-bottom:1px solid #eee">Total / WWC</td><td style="padding:10px 12px;background:#f8f9fa;border-bottom:1px solid #eee">${vars.total} / ${vars.wwc}</td></tr>
-${catRow}
+  // Project title
+  let titleRow = "";
+  if (task?.projectTitle) {
+    titleRow = rowB("Project", task.projectTitle);
+  }
+
+  // Review type (reviewer only)
+  let revTypeRow = "";
+  if (isReviewer && task?.revType) {
+    revTypeRow = rowB("Review Type", task.revType);
+  }
+
+  return `<p style="font-size:15px;color:#333;margin:0 0 16px">Hello <strong>${vars.freelancerName}</strong>,</p>
+<p style="font-size:14px;color:#555;margin:0 0 20px">We'd like to know if you're available for the following <strong>${role.toLowerCase()}</strong> task.</p>
+<table style="width:100%;border-collapse:collapse;margin:0 0 8px;border-radius:8px;overflow:hidden;border:1px solid #eee">
+${rowA("Account", vars.account)}
+${titleRow}
+${rowB("Project ID", vars.projectId)}
+${rowA(deadlineLabel, `<span style="color:#e74c3c;font-weight:700">${deadline}</span>`)}
+${isReviewer
+  ? rowB("Total WC", vars.total)
+  : rowA("Total / WWC", `${vars.total} / ${vars.wwc}`)}
+${catRows}
 ${hoNoteRow}
-<tr><td style="padding:10px 12px;background:${catRow || hoNoteRow ? '#f8f9fa' : 'transparent'};font-weight:600;color:#666;border-bottom:1px solid #eee">Task Type</td><td style="padding:10px 12px;background:${catRow || hoNoteRow ? '#f8f9fa' : 'transparent'};border-bottom:1px solid #eee">${role}</td></tr>
+${revTypeRow}
 </table>`;
 }
 
@@ -417,17 +435,32 @@ function buildOfferEmailHtml(task: any, offer: any, assignment: any, customSubje
   const acceptUrl = `${base}#/respond/${offer.token}`;
   const role = assignment.role === "translator" ? "Translation" : "Review";
 
+  const isReviewer = assignment.role === "reviewer";
+  const deadline = isReviewer ? (task.revDeadline || task.deadline || "TBD") : (task.deadline || "TBD");
+  const cc = task.catCounts || {};
+
   const vars: Record<string, string> = {
     freelancerName: offer.freelancerName || "",
     account: task.account || "",
     source: task.source || "",
     sheet: task.sheet || "",
     projectId: task.projectId || "",
-    deadline: task.deadline || "TBD",
+    deadline,
     total: task.total || "N/A",
     wwc: task.wwc || "N/A",
     role,
     acceptUrl,
+    projectTitle: task.projectTitle || "",
+    hoNote: task.hoNote || "",
+    revType: task.revType || "",
+    ice: cc.ice || "0",
+    rep: cc.rep || "0",
+    match100: cc.match100 || "0",
+    fuzzy95: cc.fuzzy95 || "0",
+    fuzzy85: cc.fuzzy85 || "0",
+    fuzzy75: cc.fuzzy75 || "0",
+    noMatch: cc.noMatch || "0",
+    mt: cc.mt || "0",
   };
 
   // Resolve subject

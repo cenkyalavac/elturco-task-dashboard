@@ -692,21 +692,61 @@ function EmailTemplatesSection() {
 
 const TEMPLATE_PLACEHOLDERS = [
   "freelancerName", "account", "source", "sheet",
-  "projectId", "deadline", "total", "wwc", "role", "acceptUrl",
+  "projectId", "projectTitle", "deadline", "total", "wwc", "role", "acceptUrl",
+  "hoNote", "revType",
+  "ice", "rep", "match100", "fuzzy95", "fuzzy85", "fuzzy75", "noMatch", "mt",
 ];
 
 const SAMPLE_DATA: Record<string, string> = {
   freelancerName: "Jane Doe",
-  account: "Amazon",
+  account: "Amazon WD 2026",
   source: "Amazon",
   sheet: "non-AFT",
-  projectId: "PRJ-20260323-001",
-  deadline: "2026-03-25 17:00",
+  projectId: "41198507",
+  projectTitle: "Widget Translation Q1",
+  deadline: "26.03.2026 18:00",
   total: "5,200",
   wwc: "3,800",
-  role: "Translator",
-  acceptUrl: "https://example.com/respond?token=abc123",
+  role: "Translation",
+  acceptUrl: "https://dispatch.eltur.co/#/respond/abc123",
+  hoNote: "Please check glossary",
+  revType: "Full Review",
+  ice: "120", rep: "340", match100: "890", fuzzy95: "1,200",
+  fuzzy85: "450", fuzzy75: "80", noMatch: "2,120", mt: "0",
 };
+
+function buildSampleTemplate(key: string): string {
+  if (key === "offer_reviewer") {
+    return `<p>Hello <strong>{{freelancerName}}</strong>,</p>
+<p>We'd like to know if you're available for the following review task.</p>
+<table style="width:100%;border-collapse:collapse;margin:16px 0;border:1px solid #eee">
+<tr><td style="padding:10px 14px;background:#f8f9fa;font-weight:600;color:#555;border-bottom:1px solid #eee;width:140px">Account</td><td style="padding:10px 14px;background:#f8f9fa;border-bottom:1px solid #eee">{{account}}</td></tr>
+<tr><td style="padding:10px 14px;font-weight:600;color:#555;border-bottom:1px solid #eee">Project</td><td style="padding:10px 14px;border-bottom:1px solid #eee">{{projectTitle}}</td></tr>
+<tr><td style="padding:10px 14px;background:#f8f9fa;font-weight:600;color:#555;border-bottom:1px solid #eee">Project ID</td><td style="padding:10px 14px;background:#f8f9fa;border-bottom:1px solid #eee">{{projectId}}</td></tr>
+<tr><td style="padding:10px 14px;font-weight:600;color:#555;border-bottom:1px solid #eee">Review Deadline</td><td style="padding:10px 14px;color:#e74c3c;font-weight:700;border-bottom:1px solid #eee">{{deadline}}</td></tr>
+<tr><td style="padding:10px 14px;background:#f8f9fa;font-weight:600;color:#555;border-bottom:1px solid #eee">Total WC</td><td style="padding:10px 14px;background:#f8f9fa;border-bottom:1px solid #eee">{{total}}</td></tr>
+<tr><td style="padding:10px 14px;font-weight:600;color:#555;border-bottom:1px solid #eee">Review Type</td><td style="padding:10px 14px;border-bottom:1px solid #eee">{{revType}}</td></tr>
+</table>`;
+  }
+  // Default: translator template
+  return `<p>Hello <strong>{{freelancerName}}</strong>,</p>
+<p>We'd like to know if you're available for the following translation task.</p>
+<table style="width:100%;border-collapse:collapse;margin:16px 0;border:1px solid #eee">
+<tr><td style="padding:10px 14px;background:#f8f9fa;font-weight:600;color:#555;border-bottom:1px solid #eee;width:140px">Account</td><td style="padding:10px 14px;background:#f8f9fa;border-bottom:1px solid #eee">{{account}}</td></tr>
+<tr><td style="padding:10px 14px;font-weight:600;color:#555;border-bottom:1px solid #eee">Project</td><td style="padding:10px 14px;border-bottom:1px solid #eee">{{projectTitle}}</td></tr>
+<tr><td style="padding:10px 14px;background:#f8f9fa;font-weight:600;color:#555;border-bottom:1px solid #eee">Project ID</td><td style="padding:10px 14px;background:#f8f9fa;border-bottom:1px solid #eee">{{projectId}}</td></tr>
+<tr><td style="padding:10px 14px;font-weight:600;color:#555;border-bottom:1px solid #eee">TR Deadline</td><td style="padding:10px 14px;color:#e74c3c;font-weight:700;border-bottom:1px solid #eee">{{deadline}}</td></tr>
+<tr><td style="padding:10px 14px;background:#f8f9fa;font-weight:600;color:#555;border-bottom:1px solid #eee">Total / WWC</td><td style="padding:10px 14px;background:#f8f9fa;border-bottom:1px solid #eee">{{total}} / {{wwc}}</td></tr>
+<tr><td style="padding:10px 14px;font-weight:600;color:#555;border-bottom:1px solid #eee">ICE/CM</td><td style="padding:10px 14px;border-bottom:1px solid #eee">{{ice}}</td></tr>
+<tr><td style="padding:10px 14px;background:#f8f9fa;font-weight:600;color:#555;border-bottom:1px solid #eee">Repetitions</td><td style="padding:10px 14px;background:#f8f9fa;border-bottom:1px solid #eee">{{rep}}</td></tr>
+<tr><td style="padding:10px 14px;font-weight:600;color:#555;border-bottom:1px solid #eee">100%</td><td style="padding:10px 14px;border-bottom:1px solid #eee">{{match100}}</td></tr>
+<tr><td style="padding:10px 14px;background:#f8f9fa;font-weight:600;color:#555;border-bottom:1px solid #eee">95-99%</td><td style="padding:10px 14px;background:#f8f9fa;border-bottom:1px solid #eee">{{fuzzy95}}</td></tr>
+<tr><td style="padding:10px 14px;font-weight:600;color:#555;border-bottom:1px solid #eee">85-94%</td><td style="padding:10px 14px;border-bottom:1px solid #eee">{{fuzzy85}}</td></tr>
+<tr><td style="padding:10px 14px;background:#f8f9fa;font-weight:600;color:#555;border-bottom:1px solid #eee">75-84%</td><td style="padding:10px 14px;background:#f8f9fa;border-bottom:1px solid #eee">{{fuzzy75}}</td></tr>
+<tr><td style="padding:10px 14px;font-weight:600;color:#555;border-bottom:1px solid #eee">No Match</td><td style="padding:10px 14px;border-bottom:1px solid #eee">{{noMatch}}</td></tr>
+<tr><td style="padding:10px 14px;background:#f8f9fa;font-weight:600;color:#555;border-bottom:1px solid #eee">MT</td><td style="padding:10px 14px;background:#f8f9fa;border-bottom:1px solid #eee">{{mt}}</td></tr>
+</table>`;
+}
 
 function replaceTemplateVars(html: string): string {
   let result = html;
@@ -827,20 +867,56 @@ function TemplateEditor({ template }: { template: EmailTemplate }) {
           )}
         </div>
         {!previewMode && (
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">Insert placeholder</label>
-            <div className="flex flex-wrap gap-1">
-              {TEMPLATE_PLACEHOLDERS.map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => insertPlaceholder(p)}
-                  className="px-2 py-0.5 text-[11px] rounded-full bg-muted hover:bg-muted-foreground/20 text-foreground font-mono cursor-pointer transition-colors"
-                  data-testid={`chip-${p}`}
-                >
-                  {`{{${p}}}`}
+          <div className="space-y-2">
+            {/* Formatting helpers */}
+            <div className="flex items-center gap-1">
+              <label className="text-xs text-muted-foreground mr-1">Format:</label>
+              {[
+                { label: "B", tag: "strong", cls: "font-bold" },
+                { label: "I", tag: "em", cls: "italic" },
+                { label: "H3", tag: "h3", cls: "" },
+                { label: "Link", tag: "a href=\"\"", cls: "" },
+                { label: "<br>", tag: "br/", cls: "" },
+              ].map(f => (
+                <button key={f.label} type="button" onClick={() => {
+                  const ta = bodyRef.current; if (!ta) return;
+                  const start = ta.selectionStart; const end = ta.selectionEnd;
+                  const sel = body.substring(start, end);
+                  const wrapped = f.tag === "br/" ? body.substring(0, start) + "<br>" + body.substring(end)
+                    : body.substring(0, start) + `<${f.tag}>${sel}</${f.tag.split(" ")[0]}>` + body.substring(end);
+                  setBody(wrapped);
+                }} className={`px-2 py-0.5 text-[11px] rounded bg-muted hover:bg-muted-foreground/20 text-foreground cursor-pointer ${f.cls}`}>
+                  {f.label}
                 </button>
               ))}
+              <div className="flex-1" />
+              <button type="button" onClick={() => { setBody(buildSampleTemplate(template.key)); }} className="px-2 py-0.5 text-[10px] rounded bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 cursor-pointer">
+                Reset to Default
+              </button>
+            </div>
+            {/* Placeholders grouped */}
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Insert placeholder</label>
+              <div className="space-y-1">
+                <div className="flex flex-wrap gap-1">
+                  <span className="text-[9px] text-muted-foreground/50 w-10 pt-0.5">Core</span>
+                  {["freelancerName", "account", "projectId", "projectTitle", "deadline", "role", "acceptUrl"].map(p => (
+                    <button key={p} type="button" onClick={() => insertPlaceholder(p)} className="px-2 py-0.5 text-[10px] rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/15 hover:bg-blue-500/20 font-mono cursor-pointer">{`{{${p}}}`}</button>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  <span className="text-[9px] text-muted-foreground/50 w-10 pt-0.5">WC</span>
+                  {["total", "wwc", "ice", "rep", "match100", "fuzzy95", "fuzzy85", "fuzzy75", "noMatch", "mt"].map(p => (
+                    <button key={p} type="button" onClick={() => insertPlaceholder(p)} className="px-2 py-0.5 text-[10px] rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/15 hover:bg-emerald-500/20 font-mono cursor-pointer">{`{{${p}}}`}</button>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  <span className="text-[9px] text-muted-foreground/50 w-10 pt-0.5">Extra</span>
+                  {["source", "sheet", "hoNote", "revType"].map(p => (
+                    <button key={p} type="button" onClick={() => insertPlaceholder(p)} className="px-2 py-0.5 text-[10px] rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/15 hover:bg-purple-500/20 font-mono cursor-pointer">{`{{${p}}}`}</button>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         )}
