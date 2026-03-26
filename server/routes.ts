@@ -3,12 +3,75 @@ import type { Server } from "http";
 import { storage, db } from "./storage";
 import { taskNotes, pmFavorites } from "@shared/schema";
 import { wsBroadcast } from "./ws";
-import { gsWriteToColumn, gsIsAvailable, type SheetWriteConfig } from "./gsheets";
+import { gsWriteToColumn, gsIsAvailable, gsReadSheet, type SheetWriteConfig } from "./gsheets";
 import { createToken, verifyToken } from "./jwt";
 import { eq, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
+import { z } from "zod";
+
+// ============================================
+// ZOD VALIDATION SCHEMAS
+// ============================================
+const loginSchema = z.object({
+  email: z.string().email().max(200),
+  password: z.string().min(1).max(200),
+});
+const selfAssignSchema = z.object({
+  source: z.string().min(1).max(100),
+  sheet: z.string().max(100).optional(),
+  projectId: z.string().min(1).max(200),
+  account: z.string().max(200).optional(),
+  taskDetails: z.record(z.any()).optional(),
+  role: z.enum(["translator", "reviewer"]),
+  reviewType: z.string().max(100).optional().nullable(),
+  customDeadline: z.string().max(100).optional(),
+});
+const assignmentSchema = z.object({
+  source: z.string().min(1).max(100),
+  sheet: z.string().max(100).optional(),
+  projectId: z.string().min(1).max(200),
+  account: z.string().max(200).optional(),
+  taskDetails: z.record(z.any()).optional(),
+  assignmentType: z.enum(["direct", "sequence", "broadcast"]),
+  role: z.enum(["translator", "reviewer"]),
+  freelancers: z.array(z.object({
+    resourceCode: z.string(),
+    full_name: z.string().optional(),
+    email: z.string().optional(),
+  })).min(1),
+  emailSubject: z.string().max(500).optional(),
+  emailBody: z.string().max(10000).optional(),
+  customDeadline: z.string().max(100).optional(),
+  reviewType: z.string().max(100).optional().nullable(),
+  autoAssignReviewer: z.number().optional(),
+  reviewerAssignmentType: z.string().optional().nullable(),
+  reviewerSequenceList: z.string().optional().nullable(),
+});
+
+// Validation helper — returns parsed data or sends 400
+function validate<T>(schema: z.ZodType<T>, data: unknown, res: Response): T | null {
+  const result = schema.safeParse(data);
+  if (!result.success) {
+    res.status(400).json({ error: "Validation error", details: result.error.issues.map(i => i.message).join(", ") });
+    return null;
+  }
+  return result.data;
+}
+
+// ============================================
+// MUTEX — prevents concurrent dispatch/sequence-advance on same task
+// ============================================
+const activeLocks = new Set<string>();
+function acquireLock(key: string): boolean {
+  if (activeLocks.has(key)) return false;
+  activeLocks.add(key);
+  return true;
+}
+function releaseLock(key: string) {
+  activeLocks.delete(key);
+}
 
 // Helper to safely extract string param (Express types req.params values as string | string[])
 function param(req: Request, name: string): string {
@@ -49,11 +112,14 @@ const SPECIALIZATION_MATCH: Record<string, string[]> = {
 };
 
 // ============================================
-// EMAIL — Proper Resend API with sandbox fallback
+// EMAIL — Resend API
 // ============================================
 
-// Primary: Use Resend HTTP API directly (works on any server)
-async function sendEmailViaResend(to: string[], subject: string, html: string) {
+async function sendEmail(to: string[], subject: string, html: string) {
+  if (!RESEND_API_KEY) {
+    console.error("Email send failed: RESEND_API_KEY not configured");
+    throw new Error("Email service not configured. Set RESEND_API_KEY.");
+  }
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -67,32 +133,6 @@ async function sendEmailViaResend(to: string[], subject: string, html: string) {
     throw new Error(`Resend API error ${res.status}: ${err}`);
   }
   return res.json();
-}
-
-// Fallback: Perplexity sandbox external-tool (dev environment only)
-function sendEmailViaSandbox(to: string[], subject: string, html: string) {
-  try {
-    const { execSync } = require("child_process");
-    const params = JSON.stringify({
-      source_id: "resend__pipedream",
-      tool_name: "resend-send-email",
-      arguments: { from: FROM_EMAIL, to, subject, html },
-    });
-    const escaped = params.replace(/'/g, "'\\''");
-    const result = execSync(`external-tool call '${escaped}'`, { timeout: 30000 }).toString();
-    return JSON.parse(result);
-  } catch (e: any) {
-    console.error("Sandbox email fallback failed:", e.message);
-    throw e;
-  }
-}
-
-async function sendEmail(to: string[], subject: string, html: string) {
-  if (RESEND_API_KEY) {
-    return sendEmailViaResend(to, subject, html);
-  }
-  // Fallback for Perplexity sandbox environment
-  return sendEmailViaSandbox(to, subject, html);
 }
 
 // ============================================
@@ -213,7 +253,7 @@ function requireAuth(req: Request, res: Response, next: NextFunction) {
 }
 
 // ============================================
-// TASK FETCHING FROM SHEETDB
+// TASK FETCHING — Google Sheets API (primary) with SheetDB fallback
 // ============================================
 function sheetDbHeaders(): Record<string, string> {
   const h: Record<string, string> = { "Content-Type": "application/json" };
@@ -221,13 +261,40 @@ function sheetDbHeaders(): Record<string, string> {
   return h;
 }
 
-async function fetchSheetTasks(apiId: string, tabName: string, sheetLabel: string, source: string): Promise<any[]> {
-  const url = `https://sheetdb.io/api/v1/${apiId}?sheet=${encodeURIComponent(tabName)}`;
+// Map config sheet names to actual Google Sheets tab names (where they differ)
+const TAB_NAME_MAP: Record<string, string> = {
+  "Non-EN": "Non-EN Tasks",
+  "DPX": "Amazon DPX",
+};
+
+async function fetchSheetTasks(apiId: string, tabName: string, sheetLabel: string, source: string, googleSheetId?: string | null): Promise<any[]> {
+  let data: any[] | null = null;
+
+  // 1. Try Google Sheets API first (faster, no rate limits)
+  if (googleSheetId) {
+    const actualTab = TAB_NAME_MAP[tabName] || tabName;
+    data = await gsReadSheet(googleSheetId, actualTab);
+    if (data !== null) {
+      // gsReadSheet returns same format as SheetDB — proceed to mapping
+    }
+  }
+
+  // 2. Fallback: SheetDB (for tabs without Google Sheet ID)
+  if (data === null && apiId) {
+    try {
+      const url = `https://sheetdb.io/api/v1/${apiId}?sheet=${encodeURIComponent(tabName)}`;
+      const res = await fetch(url, { headers: sheetDbHeaders() });
+      if (res.ok) {
+        const json = await res.json();
+        if (Array.isArray(json)) data = json;
+      }
+    } catch (e: any) {
+      console.error(`SheetDB fallback read failed for ${tabName}:`, e.message?.slice(0, 80));
+    }
+  }
+
+  if (!data || !Array.isArray(data)) return [];
   try {
-    const res = await fetch(url, { headers: sheetDbHeaders() });
-    if (!res.ok) return [];
-    const data = await res.json();
-    if (!Array.isArray(data)) return [];
     return data.map((row: any) => ({
       source,
       sheet: sheetLabel,
@@ -633,21 +700,21 @@ export async function registerRoutes(server: Server, app: Express) {
 
   // Email + password login
   app.post("/api/auth/login", loginLimiter, async (req: Request, res: Response) => {
-    const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ error: "Email and password are required." });
+    const body = validate(loginSchema, req.body, res);
+    if (!body) return;
 
-    const emailNorm = email.toLowerCase().trim();
+    const emailNorm = body.email.toLowerCase().trim();
     const pmUser = storage.getPmUserByEmail(emailNorm);
     if (!pmUser) return res.status(401).json({ error: "Invalid email or password." });
     // Support both bcrypt hashed and legacy plaintext passwords
     const isHashed = pmUser.password.startsWith("$2");
     const passwordMatch = isHashed
-      ? await bcrypt.compare(password, pmUser.password)
-      : pmUser.password === password;
+      ? await bcrypt.compare(body.password, pmUser.password)
+      : pmUser.password === body.password;
     if (!passwordMatch) return res.status(401).json({ error: "Invalid email or password." });
     // Auto-upgrade plaintext password to bcrypt on successful login
     if (!isHashed) {
-      const hashed = await bcrypt.hash(password, 10);
+      const hashed = await bcrypt.hash(body.password, 10);
       storage.updatePmUser(pmUser.id, { password: hashed });
     }
 
@@ -741,34 +808,30 @@ const freelancers = (Array.isArray(data) ? data : [])
     }
   });
 
-  // ---- TASK ROUTES (SheetDB) ----
+  // ---- TASK ROUTES ----
 
-  // Shared task fetch function with 2-minute cache
+  // Shared task fetch function with 5-minute cache
   async function getAllTasksCached(): Promise<any[]> {
     const cached = getCached<any[]>("allTasks", 300000); // 5 min
     if (cached) return cached;
 
     const configs = storage.getAllSheetConfigs();
     const allTasks: any[] = [];
-    const byApiId = new Map<string, typeof configs>();
-    for (const c of configs) {
-      if (!c.sheetDbId) continue;
-      if (!byApiId.has(c.sheetDbId)) byApiId.set(c.sheetDbId, []);
-      byApiId.get(c.sheetDbId)!.push(c);
-    }
-    // Batch parallel fetches (max 6 concurrent to avoid SheetDB rate limits)
-    const FETCH_CONCURRENCY = 6;
-    const fetchJobs: (() => Promise<void>)[] = [];
-    byApiId.forEach((cfgs, apiId) => {
-      for (const cfg of cfgs) {
-        fetchJobs.push(() =>
-          fetchSheetTasks(apiId, cfg.sheet, cfg.sheet, cfg.source)
-            .then(rows => { allTasks.push(...rows); })
-        );
-      }
-    });
-    for (let i = 0; i < fetchJobs.length; i += FETCH_CONCURRENCY) {
-      await Promise.all(fetchJobs.slice(i, i + FETCH_CONCURRENCY).map(fn => fn()));
+
+    // Fetch all sheets in parallel (Google Sheets API has generous rate limits)
+    const fetchJobs = configs
+      .filter(c => c.googleSheetId || c.sheetDbId) // need at least one data source
+      .map(cfg => () =>
+        fetchSheetTasks(cfg.sheetDbId || "", cfg.sheet, cfg.sheet, cfg.source, cfg.googleSheetId)
+          .then(rows => { allTasks.push(...rows); })
+      );
+
+    // Google Sheets API: 300 read req/min quota — 18 tabs is fine in parallel
+    // SheetDB fallback: throttle to 6 concurrent if needed
+    const gsAvail = await gsIsAvailable();
+    const CONCURRENCY = gsAvail ? 18 : 6;
+    for (let i = 0; i < fetchJobs.length; i += CONCURRENCY) {
+      await Promise.all(fetchJobs.slice(i, i + CONCURRENCY).map(fn => fn()));
     }
     setCache("allTasks", allTasks);
     return allTasks;
@@ -889,8 +952,9 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   // ---- ASSIGN TO ME ----
   app.post("/api/assignments/self-assign", requireAuth, (req: Request, res: Response) => {
-    const { source, sheet, projectId, account, taskDetails, role } = req.body;
-    if (!source || !projectId || !role) return res.status(400).json({ error: "Missing fields" });
+    const body = validate(selfAssignSchema, req.body, res);
+    if (!body) return;
+    const { source, sheet, projectId, account, taskDetails, role } = body;
 
     const pmUserId = (req as any).pmUserId;
     const user = storage.getAllPmUsers().find(u => u.id === pmUserId);
@@ -906,7 +970,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       sequenceList: null, currentSequenceIndex: 0, sequenceTimeoutMinutes: 60,
       broadcastList: null, autoAssignReviewer: 0,
       reviewerAssignmentType: null, reviewerSequenceList: null,
-      reviewType: req.body.reviewType || null,
+      reviewType: body.reviewType || null,
       createdAt: now, offeredAt: now, acceptedAt: now,
     });
 
@@ -915,13 +979,13 @@ const freelancers = (Array.isArray(data) ? data : [])
     safeWriteToSheet(assignment, pmInitial, role as "translator" | "reviewer");
 
     // Self-Edit: write the same code to both TR and REV
-    if (req.body.reviewType === "Self-Edit" && role === "reviewer") {
+    if (body.reviewType === "Self-Edit" && role === "reviewer") {
       safeWriteToSheet(assignment, pmInitial, "translator");
     }
 
     // Write custom TR deadline to sheet if provided
-    if (req.body.customDeadline && role === "translator") {
-      safeWriteDeadlineToSheet(assignment, req.body.customDeadline);
+    if (body.customDeadline && role === "translator") {
+      safeWriteDeadlineToSheet(assignment, body.customDeadline);
     }
 
     // Invalidate task cache so next fetch reflects the write
@@ -1991,27 +2055,7 @@ const freelancers = (Array.isArray(data) ? data : [])
         const result = await gsWriteToColumn(gsConfig, candidates, "XX", { skipSafetyCheck: true });
         console.log(`Unassign [${source}/${sheet}]: ${result.message}`);
       } else {
-        // SheetDB fallback for unassign
-        const configs = storage.getAllSheetConfigs();
-        const config = configs.find(c => c.source === source && c.sheet === (sheet || ""));
-        if (config?.sheetDbId) {
-          const apiId = config.sheetDbId;
-          const sheetName = sheet || "";
-          const sampleRes = await fetch(`https://sheetdb.io/api/v1/${apiId}?sheet=${encodeURIComponent(sheetName)}&limit=1`, { headers: sheetDbHeaders() });
-          if (sampleRes.ok) {
-            const sampleRows = await sampleRes.json();
-            if (Array.isArray(sampleRows) && sampleRows.length > 0) {
-              const keys = Object.keys(sampleRows[0]);
-              const idCol = findCol(keys, "Project ID", "ProjectID", "ID", "ATMS ID", "Project code", "Job ID", "Job Code", "Task Name");
-              const targetCol = findCol(keys, ...candidates);
-              if (idCol && targetCol) {
-                const writeUrl = `https://sheetdb.io/api/v1/${apiId}/${encodeURIComponent(idCol)}/${encodeURIComponent(projectId)}?sheet=${encodeURIComponent(sheetName)}`;
-                await fetch(writeUrl, { method: "PATCH", headers: sheetDbHeaders(), body: JSON.stringify({ data: { [targetCol]: "XX" } }) });
-                console.log(`SheetDB unassign OK: ${targetCol}=XX for ${projectId}`);
-              }
-            }
-          }
-        }
+        console.error(`Unassign SKIPPED [${source}/${sheet}]: No Google Sheet config.`);
       }
 
       // 2. Cancel any matching dispatch assignment
@@ -2126,9 +2170,12 @@ const freelancers = (Array.isArray(data) ? data : [])
   // ---- AUTO-DISPATCH ENGINE ----
   // POST /api/auto-dispatch — checks rules against unassigned tasks and auto-assigns
   app.post("/api/auto-dispatch", requireAuth, async (req: Request, res: Response) => {
+    if (!acquireLock("auto-dispatch")) {
+      return res.status(409).json({ error: "Auto-dispatch is already running. Please wait." });
+    }
     try {
       const rules = storage.getAllAutoAssignRules().filter(r => r.enabled);
-      if (rules.length === 0) return res.json({ dispatched: 0, message: "No enabled rules" });
+      if (rules.length === 0) { releaseLock("auto-dispatch"); return res.json({ dispatched: 0, message: "No enabled rules" }); }
 
       const allAssignments = storage.getAllAssignments();
       const assignedKeys = new Set(
@@ -2158,12 +2205,17 @@ const freelancers = (Array.isArray(data) ? data : [])
       res.json({ dispatched, rules: results });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
+    } finally {
+      releaseLock("auto-dispatch");
     }
   });
 
   // ---- SEQUENCE TIMEOUT / AUTO-WITHDRAW ----
   // POST /api/sequence-advance — checks pending sequential offers and advances expired ones
   app.post("/api/sequence-advance", requireAuth, async (req: Request, res: Response) => {
+    if (!acquireLock("sequence-advance")) {
+      return res.status(409).json({ error: "Sequence advance is already running. Please wait." });
+    }
     try {
       const assignments = storage.getAllAssignments().filter(a => 
         a.status === "offered" && a.assignmentType === "sequence"
@@ -2219,6 +2271,8 @@ const freelancers = (Array.isArray(data) ? data : [])
       res.json({ advanced, checked: assignments.length });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
+    } finally {
+      releaseLock("sequence-advance");
     }
   });
 

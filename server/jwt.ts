@@ -5,8 +5,15 @@
 
 import crypto from "crypto";
 
-// Secret: use env var in production, fallback for dev
-const JWT_SECRET = process.env.JWT_SECRET || "elturco-dispatch-jwt-secret-2026";
+// Secret: use env var in production, random fallback for dev (sessions won't survive restart in dev)
+const JWT_SECRET = process.env.JWT_SECRET || (() => {
+  if (process.env.NODE_ENV === "production" && !process.env.JWT_SECRET) {
+    console.error("FATAL: JWT_SECRET env var is required in production. Set it in Railway.");
+    process.exit(1);
+  }
+  // Dev fallback — deterministic so sessions survive hot-reload
+  return "elturco-dev-jwt-secret-local-only";
+})();
 
 const ALGORITHM = "HS256";
 

@@ -231,3 +231,36 @@ export async function gsIsAvailable(): Promise<boolean> {
   const sheets = await getSheets();
   return !!sheets;
 }
+
+/**
+ * Read all rows from a sheet tab and return as array of objects
+ * (same format as SheetDB: { "Column Name": "value", ... }).
+ * Returns null if GS API is unavailable.
+ */
+export async function gsReadSheet(googleSheetId: string, tabName: string): Promise<Record<string, string>[] | null> {
+  const sheets = await getSheets();
+  if (!sheets) return null;
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: googleSheetId,
+      range: `'${tabName}'!A:BZ`,
+      valueRenderOption: "FORMATTED_VALUE",
+    });
+    const rows = res.data.values;
+    if (!rows || rows.length < 2) return [];
+    const headers = rows[0] as string[];
+    const result: Record<string, string>[] = [];
+    for (let i = 1; i < rows.length; i++) {
+      const obj: Record<string, string> = {};
+      for (let j = 0; j < headers.length; j++) {
+        const key = headers[j] || "";
+        if (key) obj[key] = (rows[i]?.[j] ?? "").toString();
+      }
+      result.push(obj);
+    }
+    return result;
+  } catch (e: any) {
+    console.error(`GSheets: readSheet ${tabName} failed:`, e.message?.slice(0, 120));
+    return null;
+  }
+}
