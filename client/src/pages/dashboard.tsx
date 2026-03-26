@@ -123,6 +123,8 @@ interface SheetConfig {
   sheetDbId?: string;
   googleSheetUrl?: string;
   assignedPms?: string | null;
+  googleSheetId?: string | null;
+  worksheetId?: number | null;
 }
 
 interface EmailTemplate {

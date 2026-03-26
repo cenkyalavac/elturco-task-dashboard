@@ -1329,7 +1329,7 @@ const freelancers = (Array.isArray(data) ? data : [])
     const configs = storage.getAllSheetConfigs();
     const config = configs.find(c => c.source === assignment.source && c.sheet === assignment.sheet);
     if (!config) return null;
-    const gsId = (config as any).googleSheetId;
+    const gsId = config.googleSheetId;
     if (gsId) return { googleSheetId: gsId, tabName: assignment.sheet, projectId: assignment.projectId };
     return null;
   }
