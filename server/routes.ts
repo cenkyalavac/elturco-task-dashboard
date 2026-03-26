@@ -4,6 +4,7 @@ import { storage, db } from "./storage";
 import { taskNotes, pmFavorites } from "@shared/schema";
 import { wsBroadcast } from "./ws";
 import { gsWriteToColumn, gsIsAvailable, type SheetWriteConfig } from "./gsheets";
+import { createToken, verifyToken } from "./jwt";
 import { eq, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import bcrypt from "bcryptjs";
@@ -188,10 +189,19 @@ function buildApiBase(req: Request): string {
   return `${req.protocol || "http"}://${req.headers.host || "localhost:5000"}`;
 }
 
-// Auth middleware
+// Auth middleware — supports JWT tokens (survive deploys) and legacy DB sessions
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   const token = req.headers.authorization?.replace("Bearer ", "");
   if (!token) return res.status(401).json({ error: "No token provided" });
+
+  // 1. Try JWT verification first (stateless, survives deploys)
+  const jwtPayload = verifyToken(token);
+  if (jwtPayload) {
+    (req as any).pmUserId = jwtPayload.pmUserId;
+    return next();
+  }
+
+  // 2. Fallback: legacy DB session (for tokens issued before JWT migration)
   const session = storage.getSession(token);
   if (!session) return res.status(401).json({ error: "Invalid session" });
   if (new Date(session.expiresAt) < new Date()) {
@@ -641,11 +651,10 @@ export async function registerRoutes(server: Server, app: Express) {
       storage.updatePmUser(pmUser.id, { password: hashed });
     }
 
-    const sessionToken = generateToken();
-    const expiresAt = new Date(Date.now() + SESSION_EXPIRY_HOURS * 3600 * 1000).toISOString();
-    storage.createSession(sessionToken, pmUser.id, expiresAt);
+    // Issue a JWT — survives server restarts and deploys (no DB lookup needed)
+    const jwtToken = createToken(pmUser.id, pmUser.email, SESSION_EXPIRY_HOURS);
 
-    res.json({ token: sessionToken, user: { id: pmUser.id, email: pmUser.email, name: pmUser.name, initial: pmUser.initial || "", role: pmUser.role, defaultFilter: pmUser.defaultFilter || "ongoing", defaultMyProjects: !!pmUser.defaultMyProjects, defaultSource: (pmUser as any).defaultSource || "all", defaultAccount: (pmUser as any).defaultAccount || "all" } });
+    res.json({ token: jwtToken, user: { id: pmUser.id, email: pmUser.email, name: pmUser.name, initial: pmUser.initial || "", role: pmUser.role, defaultFilter: pmUser.defaultFilter || "ongoing", defaultMyProjects: !!pmUser.defaultMyProjects, defaultSource: (pmUser as any).defaultSource || "all", defaultAccount: (pmUser as any).defaultAccount || "all" } });
   });
 
   // ---- REDIRECT ENDPOINTS (no '#' in URL — safe for email clients) ----
@@ -675,17 +684,20 @@ export async function registerRoutes(server: Server, app: Express) {
 
   // Get current user
   app.get("/api/auth/me", requireAuth, (req: Request, res: Response) => {
-    const session = storage.getSession(req.headers.authorization!.replace("Bearer ", ""));
-    if (!session) return res.status(401).json({ error: "Invalid session" });
+    const pmUserId = (req as any).pmUserId;
     const allUsers = storage.getAllPmUsers();
-    const user = allUsers.find(u => u.id === session.pmUserId);
+    const user = allUsers.find(u => u.id === pmUserId);
     if (!user) return res.status(404).json({ error: "User not found" });
     res.json({ id: user.id, email: user.email, name: user.name, role: user.role });
   });
 
-  app.post("/api/auth/logout", requireAuth, (req: Request, res: Response) => {
-    const token = req.headers.authorization!.replace("Bearer ", "");
-    storage.deleteSession(token);
+  app.post("/api/auth/logout", (req: Request, res: Response) => {
+    // JWT is stateless — logout just acknowledges. Client clears its stored token.
+    // Also delete legacy DB session if it exists.
+    const token = req.headers.authorization?.replace("Bearer ", "");
+    if (token) {
+      try { storage.deleteSession(token); } catch {}
+    }
     res.json({ success: true });
   });
 
@@ -768,10 +780,10 @@ const freelancers = (Array.isArray(data) ? data : [])
 
       // PM-specific filtering
       const pmEmail = (() => {
-        const session = storage.getSession(req.headers.authorization!.replace("Bearer ", ""));
-        if (!session) return null;
+        const pmUserId = (req as any).pmUserId;
+        if (!pmUserId) return null;
         const allUsers = storage.getAllPmUsers();
-        const user = allUsers.find(u => u.id === session.pmUserId);
+        const user = allUsers.find(u => u.id === pmUserId);
         return user?.email || null;
       })();
       const configs = storage.getAllSheetConfigs();
@@ -880,9 +892,8 @@ const freelancers = (Array.isArray(data) ? data : [])
     const { source, sheet, projectId, account, taskDetails, role } = req.body;
     if (!source || !projectId || !role) return res.status(400).json({ error: "Missing fields" });
 
-    const session = storage.getSession(req.headers.authorization!.replace("Bearer ", ""));
-    if (!session) return res.status(401).json({ error: "Unauthorized" });
-    const user = storage.getAllPmUsers().find(u => u.id === session.pmUserId);
+    const pmUserId = (req as any).pmUserId;
+    const user = storage.getAllPmUsers().find(u => u.id === pmUserId);
     if (!user) return res.status(404).json({ error: "User not found" });
 
     const now = new Date().toISOString();
@@ -890,7 +901,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       source, sheet: sheet || "", projectId, account: account || "",
       taskDetails: JSON.stringify(taskDetails || {}),
       assignmentType: "direct", role, status: "accepted",
-      assignedBy: session.pmUserId,
+      assignedBy: pmUserId,
       acceptedBy: user.initial || user.name, acceptedByName: user.name, acceptedByEmail: user.email,
       sequenceList: null, currentSequenceIndex: 0, sequenceTimeoutMinutes: 60,
       broadcastList: null, autoAssignReviewer: 0,
@@ -1391,9 +1402,7 @@ const freelancers = (Array.isArray(data) ? data : [])
   app.post("/api/task-notes", requireAuth, (req: Request, res: Response) => {
     const { source, sheet, projectId, note } = req.body;
     if (!source || !projectId) return res.status(400).json({ error: "Missing fields" });
-    const session = storage.getSession(req.headers.authorization!.replace("Bearer ", ""));
-    if (!session) return res.status(401).json({ error: "Unauthorized" });
-    const user = storage.getAllPmUsers().find(u => u.id === session.pmUserId);
+    const user = storage.getAllPmUsers().find(u => u.id === (req as any).pmUserId);
     if (!user) return res.status(404).json({ error: "User not found" });
     const now = new Date().toISOString();
     // Upsert: update if exists, create if not
@@ -1411,9 +1420,7 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   // ---- PM FAVORITES ----
   app.get("/api/favorites", requireAuth, (req: Request, res: Response) => {
-    const session = storage.getSession(req.headers.authorization!.replace("Bearer ", ""));
-    if (!session) return res.status(401).json({ error: "Unauthorized" });
-    const user = storage.getAllPmUsers().find(u => u.id === session.pmUserId);
+    const user = storage.getAllPmUsers().find(u => u.id === (req as any).pmUserId);
     if (!user) return res.status(404).json({ error: "User not found" });
     const favs = db.select().from(pmFavorites).where(eq(pmFavorites.pmEmail, user.email)).all();
     res.json(favs.map(f => f.freelancerCode));
@@ -1422,9 +1429,7 @@ const freelancers = (Array.isArray(data) ? data : [])
   app.post("/api/favorites", requireAuth, (req: Request, res: Response) => {
     const { freelancerCode } = req.body;
     if (!freelancerCode) return res.status(400).json({ error: "Missing freelancerCode" });
-    const session = storage.getSession(req.headers.authorization!.replace("Bearer ", ""));
-    if (!session) return res.status(401).json({ error: "Unauthorized" });
-    const user = storage.getAllPmUsers().find(u => u.id === session.pmUserId);
+    const user = storage.getAllPmUsers().find(u => u.id === (req as any).pmUserId);
     if (!user) return res.status(404).json({ error: "User not found" });
     const existing = db.select().from(pmFavorites)
       .where(and(eq(pmFavorites.pmEmail, user.email), eq(pmFavorites.freelancerCode, freelancerCode))).get();
@@ -1697,10 +1702,8 @@ const freelancers = (Array.isArray(data) ? data : [])
   // ---- SEQUENCE PRESETS ----
 
   app.get("/api/presets", requireAuth, (req: Request, res: Response) => {
-    const session = storage.getSession(req.headers.authorization!.replace("Bearer ", ""));
-    if (!session) return res.status(401).json({ error: "Unauthorized" });
     const allUsers = storage.getAllPmUsers();
-    const user = allUsers.find(u => u.id === session.pmUserId);
+    const user = allUsers.find(u => u.id === (req as any).pmUserId);
     if (!user) return res.status(404).json({ error: "User not found" });
     res.json(storage.getPresetsByPm(user.email));
   });
@@ -1708,10 +1711,8 @@ const freelancers = (Array.isArray(data) ? data : [])
   app.post("/api/presets", requireAuth, (req: Request, res: Response) => {
     const { name, role, freelancerCodes, assignmentType } = req.body;
     if (!name || !role || !freelancerCodes) return res.status(400).json({ error: "Missing fields" });
-    const session = storage.getSession(req.headers.authorization!.replace("Bearer ", ""));
-    if (!session) return res.status(401).json({ error: "Unauthorized" });
     const allUsers = storage.getAllPmUsers();
-    const user = allUsers.find(u => u.id === session.pmUserId);
+    const user = allUsers.find(u => u.id === (req as any).pmUserId);
     if (!user) return res.status(404).json({ error: "User not found" });
     const preset = storage.createPreset({
       name,
@@ -1963,9 +1964,7 @@ const freelancers = (Array.isArray(data) ? data : [])
   // Update PM preferences (default filter, my projects)
   app.post("/api/pm-users/preferences", requireAuth, (req: Request, res: Response) => {
     const { defaultFilter, defaultMyProjects, defaultSource, defaultAccount } = req.body;
-    const session = storage.getSession(req.headers.authorization!.replace("Bearer ", ""));
-    if (!session) return res.status(401).json({ error: "Unauthorized" });
-    const user = storage.getAllPmUsers().find(u => u.id === session.pmUserId);
+    const user = storage.getAllPmUsers().find(u => u.id === (req as any).pmUserId);
     if (!user) return res.status(404).json({ error: "User not found" });
     const updates: any = {};
     if (defaultFilter !== undefined) updates.defaultFilter = defaultFilter;
@@ -2078,9 +2077,7 @@ const freelancers = (Array.isArray(data) ? data : [])
   app.post("/api/auto-assign-rules", requireAuth, (req: Request, res: Response) => {
     const { name, source, account, languagePair, role, freelancerCodes, assignmentType } = req.body;
     if (!name || !role || !freelancerCodes) return res.status(400).json({ error: "Missing fields" });
-    const session = storage.getSession(req.headers.authorization!.replace("Bearer ", ""));
-    if (!session) return res.status(401).json({ error: "Unauthorized" });
-    const user = storage.getAllPmUsers().find(u => u.id === session.pmUserId);
+    const user = storage.getAllPmUsers().find(u => u.id === (req as any).pmUserId);
     const rule = storage.createAutoAssignRule({
       name, source: source || null, account: account || null,
       languagePair: languagePair || null, role,
