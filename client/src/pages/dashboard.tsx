@@ -15,7 +15,7 @@ import {
   CheckCircle2, Pencil, Save, Eye, Code, ListOrdered, Trash2,
   Ban, Clock, XCircle, UserCheck, CheckSquare,
   FileSpreadsheet, ArrowUpDown, StickyNote, GripVertical, Mail, Filter,
-  Star, Volume2, VolumeX, CalendarClock, Undo2,
+  Star, Volume2, VolumeX, CalendarClock, Undo2, UserX,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -1521,6 +1521,27 @@ export default function DashboardPage() {
     },
   });
 
+  // Unassign from sheet (write XX + cancel dispatch)
+  const unassignMutation = useMutation({
+    mutationFn: async ({ role: unRole }: { role: "translator" | "reviewer" }) => {
+      if (!selectedTask) throw new Error("No task selected");
+      await apiRequest("POST", "/api/tasks/unassign", {
+        source: selectedTask.source,
+        sheet: selectedTask.sheet,
+        projectId: selectedTask.projectId,
+        role: unRole,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/assignments"] });
+      toast({ title: "Freelancer unassigned", description: "Sheet updated to XX. Task is now available for reassignment." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
   // Withdraw offer mutation
   const withdrawOfferMutation = useMutation({
     mutationFn: async (offerId: number) => {
@@ -2496,6 +2517,40 @@ export default function DashboardPage() {
                     </div>
                   )}
                 </div>
+
+                {/* Unassign buttons */}
+                {selectedTask && (
+                  <div className="p-4 border-t border-white/[0.06] space-y-2">
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Unassign</p>
+                    <div className="flex gap-2">
+                      {selectedTask.translator && selectedTask.translator.trim() && !isXX(selectedTask.translator) && !isRevCompleted(selectedTask) && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1 h-7 text-[10px] text-orange-400 border-orange-500/20 hover:bg-orange-500/10"
+                          disabled={unassignMutation.isPending}
+                          onClick={() => unassignMutation.mutate({ role: "translator" })}
+                        >
+                          {unassignMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <UserX className="w-3 h-3 mr-1" />}
+                          TR: {selectedTask.translator}
+                        </Button>
+                      )}
+                      {selectedTask.reviewer && selectedTask.reviewer.trim() && !isXX(selectedTask.reviewer) && !isRevCompleted(selectedTask) && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1 h-7 text-[10px] text-blue-400 border-blue-500/20 hover:bg-blue-500/10"
+                          disabled={unassignMutation.isPending}
+                          onClick={() => unassignMutation.mutate({ role: "reviewer" })}
+                        >
+                          {unassignMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <UserX className="w-3 h-3 mr-1" />}
+                          REV: {selectedTask.reviewer}
+                        </Button>
+                      )}
+                    </div>
+                    <p className="text-[9px] text-muted-foreground/60">Writes XX to sheet and cancels dispatch assignment</p>
+                  </div>
+                )}
               </div>
             ) : (
               /* ── Assignment Form ── */

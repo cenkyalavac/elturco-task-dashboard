@@ -1941,6 +1941,70 @@ const freelancers = (Array.isArray(data) ? data : [])
     res.json({ success: true });
   });
 
+  // ---- UNASSIGN (clear TR or REV from sheet + cancel assignment if exists) ----
+  app.post("/api/tasks/unassign", requireAuth, async (req: Request, res: Response) => {
+    const { source, sheet, projectId, role } = req.body;
+    if (!source || !projectId || !role) return res.status(400).json({ error: "Missing fields" });
+
+    try {
+      // 1. Write XX to the sheet column
+      const configs = storage.getAllSheetConfigs();
+      const config = configs.find(c => c.source === source && c.sheet === (sheet || ""));
+      if (config?.sheetDbId) {
+        const apiId = config.sheetDbId;
+        const sheetName = sheet || "";
+
+        // Fetch sample row for column discovery
+        const sampleRes = await fetch(`https://sheetdb.io/api/v1/${apiId}?sheet=${encodeURIComponent(sheetName)}&limit=1`, { headers: sheetDbHeaders() });
+        if (sampleRes.ok) {
+          const sampleRows = await sampleRes.json();
+          if (Array.isArray(sampleRows) && sampleRows.length > 0) {
+            const keys = Object.keys(sampleRows[0]);
+            const idCol = findCol(keys, "Project ID", "ProjectID", "ID", "ATMS ID", "Project code", "Job ID", "Job Code", "Task Name");
+            const targetCol = role === "translator"
+              ? findCol(keys, "TR ", "TR", "Translator", "Tra", "TER")
+              : findCol(keys, "Rev", "REV", "Reviewer", "Rev.");
+
+            if (idCol && targetCol) {
+              const writeUrl = `https://sheetdb.io/api/v1/${apiId}/${encodeURIComponent(idCol)}/${encodeURIComponent(projectId)}?sheet=${encodeURIComponent(sheetName)}`;
+              await fetch(writeUrl, {
+                method: "PATCH",
+                headers: sheetDbHeaders(),
+                body: JSON.stringify({ data: { [targetCol]: "XX" } }),
+              });
+              console.log(`Unassign OK: ${targetCol}=XX for ${projectId}`);
+            }
+          }
+        }
+      }
+
+      // 2. Cancel any matching dispatch assignment
+      const allAssignments = storage.getAllAssignments();
+      const matching = allAssignments.filter(a =>
+        a.source === source && a.projectId === projectId &&
+        a.role === role &&
+        a.status !== "cancelled" && a.status !== "completed"
+      );
+      for (const a of matching) {
+        storage.updateAssignment(a.id, { status: "cancelled" });
+        const offers = storage.getOffersByAssignment(a.id);
+        for (const o of offers) {
+          if (o.status === "pending") {
+            storage.updateOffer(o.id, { status: "withdrawn", respondedAt: new Date().toISOString() });
+          }
+        }
+      }
+
+      // 3. Invalidate task cache
+      setCache("allTasks", null as any);
+
+      res.json({ success: true, message: `${role} unassigned from ${projectId}` });
+    } catch (e: any) {
+      console.error("Unassign error:", e);
+      res.status(500).json({ error: "Unassign failed" });
+    }
+  });
+
   // ---- BULK COMPLETE ----
   app.post("/api/tasks/bulk-complete", requireAuth, (req: Request, res: Response) => {
     const { tasks: taskList, revCompleteValue, distributeTime } = req.body;
