@@ -187,7 +187,6 @@ const ACCOUNT_MATCH: Record<string, string[]> = {
   WhatsApp: ["Whatsapp"],
   TikTok: ["TikTok"],
   Facebook: ["Facebook"],
-  Inditex: ["Across"],
 };
 
 // Specialization-based matching: filter by freelancer specialization instead of account
@@ -492,6 +491,7 @@ export default function DashboardPage() {
   const [assignmentType, setAssignmentType] = useState<"direct" | "sequence" | "broadcast">("sequence");
   const [selectedFreelancers, setSelectedFreelancers] = useState<Freelancer[]>([]);
   const [freelancerSearch, setFreelancerSearch] = useState("");
+  const [showAllLangOnly, setShowAllLangOnly] = useState(false);
   const [editingEmail, setEditingEmail] = useState(false);
   const [emailPreviewMode, setEmailPreviewMode] = useState(false);
   const [customSubject, setCustomSubject] = useState("");
@@ -1151,6 +1151,7 @@ export default function DashboardPage() {
     setSelectedTaskKey(key);
     setSelectedFreelancers([]);
     setFreelancerSearch("");
+    setShowAllLangOnly(false);
     setEditingEmail(false);
     setEmailPreviewMode(false);
     setCustomSubject("");
@@ -1246,29 +1247,29 @@ export default function DashboardPage() {
   // Freelancer filtering (single task mode)
   const filteredFreelancers = useMemo(() => {
     if (!freelancers || !selectedTask) return [];
-    const matchAccounts = ACCOUNT_MATCH[selectedTask.source] || [];
     const selectedIds = new Set(selectedFreelancers.map((f) => f.id));
-
-    // Determine effective language pair: task-level detection > sheet config
     const effectiveLang = selectedTask.languagePair || taskLangPair;
+    const matchAccounts = ACCOUNT_MATCH[selectedTask.source] || [];
+    const specMatch = SPECIALIZATION_MATCH[selectedTask.source] || [];
 
     return freelancers
       .filter((f) => {
         if (selectedIds.has(f.id)) return false;
-        // Bypass account/language filters for test freelancers
-        if (!BYPASS_FILTER_CODES.includes(f.resourceCode)) {
-          // PRIMARY FILTER: Language pair (hard filter when available)
-          if (effectiveLang && effectiveLang !== "Multi" && f.languagePairs?.length > 0) {
-            if (!f.languagePairs.includes(effectiveLang)) return false;
-          }
-          // SECONDARY FILTER: Account or specialization (only when no lang pair detected)
-          if (!effectiveLang || effectiveLang === "Multi") {
-            const matchesAccount = matchAccounts.length === 0 || f.accounts?.some((a: string) => matchAccounts.includes(a));
-            const specMatch = SPECIALIZATION_MATCH[selectedTask.source] || [];
-            const matchesSpec = specMatch.length > 0 && f.specializations?.some((s: string) => specMatch.includes(s));
-            if (!matchesAccount && !matchesSpec) return false;
-          }
+        if (BYPASS_FILTER_CODES.includes(f.resourceCode)) return true;
+
+        // LANGUAGE PAIR FILTER (always applied when available)
+        if (effectiveLang && effectiveLang !== "Multi" && f.languagePairs?.length > 0) {
+          if (!f.languagePairs.includes(effectiveLang)) return false;
         }
+
+        // ACCOUNT/SPECIALIZATION FILTER (default on, PM can toggle off)
+        if (!showAllLangOnly && (matchAccounts.length > 0 || specMatch.length > 0)) {
+          const acctOk = matchAccounts.length > 0 && f.accounts?.some((a: string) => matchAccounts.includes(a));
+          const specOk = specMatch.length > 0 && f.specializations?.some((s: string) => specMatch.includes(s));
+          if (!acctOk && !specOk) return false;
+        }
+
+        // Text search
         if (freelancerSearch) {
           const q = freelancerSearch.toLowerCase();
           return [f.fullName, f.resourceCode, f.email]
@@ -1286,23 +1287,24 @@ export default function DashboardPage() {
         // +30: Available today
         if (todayAvail?.status !== "unavailable") score += 30;
         if (todayAvail?.status === "partially_available") score += 15;
-        // +25: Low active workload (fewer active = better)
+        // +25: Low active workload
         const activeCount = fSt?.activeCount || 0;
         score += Math.max(0, 25 - activeCount * 5);
-        // +20: High QS (account-specific or general)
+        // +20: High QS
         const qs = acctQ?.qs ?? eltsQ?.generalQs ?? fSt?.avgQs ?? 0;
         if (qs >= 4.5) score += 20;
         else if (qs >= 4) score += 15;
         else if (qs >= 3.5) score += 10;
         else if (qs > 0) score += 5;
-        // +15: Has experience with this account
+        // +15: Has experience with this account (from ELTS quality reports)
         if (acctQ && acctQ.count > 0) score += 15;
-        // +12: Account match (freelancer has the matching account in ELTS)
-        const matchAccts = ACCOUNT_MATCH[selectedTask.source] || [];
-        if (matchAccts.length > 0 && f.accounts?.some((a: string) => matchAccts.includes(a))) score += 12;
+        // +12: Account tag match in ELTS profile
+        if (matchAccounts.length > 0 && f.accounts?.some((a: string) => matchAccounts.includes(a))) score += 12;
+        // +8: Specialization match
+        if (specMatch.length > 0 && f.specializations?.some((s: string) => specMatch.includes(s))) score += 8;
         // +10: Favorite
         if (favoritesSet.has(f.resourceCode)) score += 10;
-        return { ...f, _score: score };
+        return { ...f, _score: score, _hasAccountTag: matchAccounts.length > 0 && f.accounts?.some((a: string) => matchAccounts.includes(a)) };
       })
       .sort((a, b) => {
         // Unavailable sort to bottom
@@ -1313,7 +1315,7 @@ export default function DashboardPage() {
         if (b._score !== a._score) return b._score - a._score;
         return a.fullName.localeCompare(b.fullName);
       });
-  }, [freelancers, selectedTask, freelancerSearch, selectedFreelancers, taskLangPair, freelancerStats, favoritesSet, eltsAvailability, eltsQuality]);
+  }, [freelancers, selectedTask, freelancerSearch, selectedFreelancers, taskLangPair, freelancerStats, favoritesSet, eltsAvailability, eltsQuality, showAllLangOnly]);
 
   // Use bulkFilteredFreelancers in bulk mode, filteredFreelancers otherwise
   const displayFreelancers = bulkMode ? bulkFilteredFreelancers : filteredFreelancers;
@@ -2973,10 +2975,29 @@ export default function DashboardPage() {
                       data-testid="input-freelancer-search"
                     />
                   </div>
-                  {selectedTask && (selectedTask.languagePair || taskLangPair) && (
-                    <p className="text-[10px] text-muted-foreground mt-1">
-                      Filtering: {selectedTask.languagePair || taskLangPair}{selectedTask.languagePair && selectedTask.languagePair !== taskLangPair ? " (detected)" : ""}{ACCOUNT_MATCH[selectedTask.source] ? ` · ${ACCOUNT_MATCH[selectedTask.source]?.join(", ")} (bonus)` : ""}{SPECIALIZATION_MATCH[selectedTask.source] ? ` · Spec: ${SPECIALIZATION_MATCH[selectedTask.source]?.[0]}...` : ""}
-                    </p>
+                  {selectedTask && (
+                    <div className="flex items-center justify-between mt-1.5 gap-2">
+                      <p className="text-[10px] text-muted-foreground">
+                        {(selectedTask.languagePair || taskLangPair) ? (
+                          <>{selectedTask.languagePair || taskLangPair}{" "}· {displayFreelancers.length} freelancer{displayFreelancers.length !== 1 ? "s" : ""}</>
+                        ) : (
+                          <>{displayFreelancers.length} freelancers</>
+                        )}
+                      </p>
+                      {(ACCOUNT_MATCH[selectedTask.source] || SPECIALIZATION_MATCH[selectedTask.source]) && (
+                        <button
+                          onClick={() => setShowAllLangOnly(!showAllLangOnly)}
+                          data-testid="button-toggle-all-lang"
+                          className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
+                            showAllLangOnly
+                              ? "bg-blue-500/15 text-blue-400 border-blue-500/30"
+                              : "bg-white/[0.03] text-muted-foreground border-white/[0.08] hover:border-white/[0.15]"
+                          }`}
+                        >
+                          {showAllLangOnly ? "Showing all" : "Show all"}
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
 

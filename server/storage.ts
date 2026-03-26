@@ -114,6 +114,8 @@ sqlite.exec(`
 // Migrate existing DB: add new columns if missing
 try { sqlite.exec(`ALTER TABLE pm_users ADD COLUMN default_source TEXT DEFAULT 'all'`); } catch {}
 try { sqlite.exec(`ALTER TABLE pm_users ADD COLUMN default_account TEXT DEFAULT 'all'`); } catch {}
+// Fix Inditex config: was EN>TR, should be ES>TR (the sheet contains multiple language pairs, ES>TR is the primary)
+try { sqlite.exec(`UPDATE sheet_configs SET language_pair = 'ES>TR' WHERE source = 'Inditex' AND language_pair = 'EN>TR'`); } catch {}
 
 export const db = drizzle(sqlite);
 

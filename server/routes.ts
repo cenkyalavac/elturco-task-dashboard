@@ -39,7 +39,6 @@ const ACCOUNT_MATCH: Record<string, string[]> = {
   "WhatsApp": ["Whatsapp"],
   "TikTok": ["TikTok"],
   "Facebook": ["Facebook"],
-  "Inditex": ["Across"],
 };
 
 // Specialization-based matching: when source doesn't map to an account, filter by specialization
