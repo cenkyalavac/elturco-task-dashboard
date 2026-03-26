@@ -188,6 +188,16 @@ export class DatabaseStorage implements IStorage {
       { source: "AppleCare", sheet: "Assignments", languagePair: "EN>TR", sheetDbId: "v6i82rdrqa34n", assignedPms: null, googleSheetUrl: null },
       { source: "AppleCare", sheet: "RU Assignments", languagePair: "EN>RU", sheetDbId: "v6i82rdrqa34n", assignedPms: null, googleSheetUrl: null },
       { source: "AppleCare", sheet: "AR Assignments", languagePair: "EN>AR", sheetDbId: "v6i82rdrqa34n", assignedPms: null, googleSheetUrl: null },
+      { source: "Inditex", sheet: "Assignments", languagePair: "EN>TR", sheetDbId: "ayv4m7o5lbe1r", assignedPms: null, googleSheetUrl: null },
+      { source: "Games", sheet: "GamesTracker", languagePair: "EN>TR", sheetDbId: "qyg6b74ds65hd", assignedPms: null, googleSheetUrl: null },
+      { source: "SONY", sheet: "Sheet1", languagePair: "EN>TR", sheetDbId: "puf2i6du3igu9", assignedPms: null, googleSheetUrl: null },
+      { source: "Facebook", sheet: "JobTracker", languagePair: "EN>TR", sheetDbId: "t3acsw7tx8tan", assignedPms: null, googleSheetUrl: null },
+      { source: "Facebook", sheet: "CMS", languagePair: "EN>TR", sheetDbId: "t3acsw7tx8tan", assignedPms: null, googleSheetUrl: null },
+      { source: "Facebook", sheet: "Offline", languagePair: "EN>TR", sheetDbId: "t3acsw7tx8tan", assignedPms: null, googleSheetUrl: null },
+      { source: "Arabic", sheet: "Translation", languagePair: "EN>AR", sheetDbId: "sl3nyrnj8lbsg", assignedPms: null, googleSheetUrl: null },
+      { source: "TikTok", sheet: "Assignments", languagePair: "EN>TR", sheetDbId: "37qdu0ciovlrp", assignedPms: null, googleSheetUrl: null },
+      { source: "WhatsApp", sheet: "JobTracker", languagePair: "EN>TR", sheetDbId: "xb3a5ry6aiks1", assignedPms: null, googleSheetUrl: null },
+      { source: "L-Google", sheet: "JobTracker", languagePair: "EN>TR", sheetDbId: "nyv5veup2tabu", assignedPms: null, googleSheetUrl: null },
     ];
     for (const c of defaultConfigs) {
       const existing = db.select().from(sheetConfigs)
@@ -199,19 +209,27 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
-    // Seed default email templates
+    // Seed default email templates (upsert — always ensure they exist)
     const defaultTemplates = [
       {
         key: "offer_translator",
         subject: "Translation Task — {{account}} — {{projectId}}",
         body: `<p>Hello <strong>{{freelancerName}}</strong>,</p>
 <p>We'd like to know if you're available for the following translation task.</p>
-<table style="width:100%;border-collapse:collapse;margin:16px 0">
-<tr><td style="padding:8px 12px;background:#f8f9fa;font-weight:600;color:#666;border-bottom:1px solid #eee;width:140px">Account</td><td style="padding:8px 12px;background:#f8f9fa;border-bottom:1px solid #eee">{{account}}</td></tr>
-<tr><td style="padding:8px 12px;font-weight:600;color:#666;border-bottom:1px solid #eee">Source / Tab</td><td style="padding:8px 12px;border-bottom:1px solid #eee">{{source}} / {{sheet}}</td></tr>
-<tr><td style="padding:8px 12px;background:#f8f9fa;font-weight:600;color:#666;border-bottom:1px solid #eee">Project ID</td><td style="padding:8px 12px;background:#f8f9fa;border-bottom:1px solid #eee">{{projectId}}</td></tr>
-<tr><td style="padding:8px 12px;font-weight:600;color:#666;border-bottom:1px solid #eee">Deadline</td><td style="padding:8px 12px;color:#e74c3c;font-weight:600;border-bottom:1px solid #eee">{{deadline}}</td></tr>
-<tr><td style="padding:8px 12px;background:#f8f9fa;font-weight:600;color:#666;border-bottom:1px solid #eee">Total / WWC</td><td style="padding:8px 12px;background:#f8f9fa;border-bottom:1px solid #eee">{{total}} / {{wwc}}</td></tr>
+<table style="width:100%;border-collapse:collapse;margin:16px 0;border:1px solid #eee">
+<tr><td style="padding:10px 14px;background:#f8f9fa;font-weight:600;color:#555;border-bottom:1px solid #eee;width:140px">Account</td><td style="padding:10px 14px;background:#f8f9fa;border-bottom:1px solid #eee">{{account}}</td></tr>
+<tr><td style="padding:10px 14px;font-weight:600;color:#555;border-bottom:1px solid #eee">Project</td><td style="padding:10px 14px;border-bottom:1px solid #eee">{{projectTitle}}</td></tr>
+<tr><td style="padding:10px 14px;background:#f8f9fa;font-weight:600;color:#555;border-bottom:1px solid #eee">Project ID</td><td style="padding:10px 14px;background:#f8f9fa;border-bottom:1px solid #eee">{{projectId}}</td></tr>
+<tr><td style="padding:10px 14px;font-weight:600;color:#555;border-bottom:1px solid #eee">TR Deadline</td><td style="padding:10px 14px;color:#e74c3c;font-weight:700;border-bottom:1px solid #eee">{{deadline}}</td></tr>
+<tr><td style="padding:10px 14px;background:#f8f9fa;font-weight:600;color:#555;border-bottom:1px solid #eee">Total / WWC</td><td style="padding:10px 14px;background:#f8f9fa;border-bottom:1px solid #eee">{{total}} / {{wwc}}</td></tr>
+<tr><td style="padding:10px 14px;font-weight:600;color:#555;border-bottom:1px solid #eee">ICE/CM</td><td style="padding:10px 14px;border-bottom:1px solid #eee">{{ice}}</td></tr>
+<tr><td style="padding:10px 14px;background:#f8f9fa;font-weight:600;color:#555;border-bottom:1px solid #eee">Repetitions</td><td style="padding:10px 14px;background:#f8f9fa;border-bottom:1px solid #eee">{{rep}}</td></tr>
+<tr><td style="padding:10px 14px;font-weight:600;color:#555;border-bottom:1px solid #eee">100%</td><td style="padding:10px 14px;border-bottom:1px solid #eee">{{match100}}</td></tr>
+<tr><td style="padding:10px 14px;background:#f8f9fa;font-weight:600;color:#555;border-bottom:1px solid #eee">95-99%</td><td style="padding:10px 14px;background:#f8f9fa;border-bottom:1px solid #eee">{{fuzzy95}}</td></tr>
+<tr><td style="padding:10px 14px;font-weight:600;color:#555;border-bottom:1px solid #eee">85-94%</td><td style="padding:10px 14px;border-bottom:1px solid #eee">{{fuzzy85}}</td></tr>
+<tr><td style="padding:10px 14px;background:#f8f9fa;font-weight:600;color:#555;border-bottom:1px solid #eee">75-84%</td><td style="padding:10px 14px;background:#f8f9fa;border-bottom:1px solid #eee">{{fuzzy75}}</td></tr>
+<tr><td style="padding:10px 14px;font-weight:600;color:#555;border-bottom:1px solid #eee">No Match</td><td style="padding:10px 14px;border-bottom:1px solid #eee">{{noMatch}}</td></tr>
+<tr><td style="padding:10px 14px;background:#f8f9fa;font-weight:600;color:#555;border-bottom:1px solid #eee">MT</td><td style="padding:10px 14px;background:#f8f9fa;border-bottom:1px solid #eee">{{mt}}</td></tr>
 </table>`,
       },
       {
@@ -219,18 +237,19 @@ export class DatabaseStorage implements IStorage {
         subject: "Review Task — {{account}} — {{projectId}}",
         body: `<p>Hello <strong>{{freelancerName}}</strong>,</p>
 <p>We'd like to know if you're available for the following review task.</p>
-<table style="width:100%;border-collapse:collapse;margin:16px 0">
-<tr><td style="padding:8px 12px;background:#f8f9fa;font-weight:600;color:#666;border-bottom:1px solid #eee;width:140px">Account</td><td style="padding:8px 12px;background:#f8f9fa;border-bottom:1px solid #eee">{{account}}</td></tr>
-<tr><td style="padding:8px 12px;font-weight:600;color:#666;border-bottom:1px solid #eee">Source / Tab</td><td style="padding:8px 12px;border-bottom:1px solid #eee">{{source}} / {{sheet}}</td></tr>
-<tr><td style="padding:8px 12px;background:#f8f9fa;font-weight:600;color:#666;border-bottom:1px solid #eee">Project ID</td><td style="padding:8px 12px;background:#f8f9fa;border-bottom:1px solid #eee">{{projectId}}</td></tr>
-<tr><td style="padding:8px 12px;font-weight:600;color:#666;border-bottom:1px solid #eee">Deadline</td><td style="padding:8px 12px;color:#e74c3c;font-weight:600;border-bottom:1px solid #eee">{{deadline}}</td></tr>
-<tr><td style="padding:8px 12px;background:#f8f9fa;font-weight:600;color:#666;border-bottom:1px solid #eee">Total / WWC</td><td style="padding:8px 12px;background:#f8f9fa;border-bottom:1px solid #eee">{{total}} / {{wwc}}</td></tr>
+<table style="width:100%;border-collapse:collapse;margin:16px 0;border:1px solid #eee">
+<tr><td style="padding:10px 14px;background:#f8f9fa;font-weight:600;color:#555;border-bottom:1px solid #eee;width:140px">Account</td><td style="padding:10px 14px;background:#f8f9fa;border-bottom:1px solid #eee">{{account}}</td></tr>
+<tr><td style="padding:10px 14px;font-weight:600;color:#555;border-bottom:1px solid #eee">Project</td><td style="padding:10px 14px;border-bottom:1px solid #eee">{{projectTitle}}</td></tr>
+<tr><td style="padding:10px 14px;background:#f8f9fa;font-weight:600;color:#555;border-bottom:1px solid #eee">Project ID</td><td style="padding:10px 14px;background:#f8f9fa;border-bottom:1px solid #eee">{{projectId}}</td></tr>
+<tr><td style="padding:10px 14px;font-weight:600;color:#555;border-bottom:1px solid #eee">Review Deadline</td><td style="padding:10px 14px;color:#e74c3c;font-weight:700;border-bottom:1px solid #eee">{{deadline}}</td></tr>
+<tr><td style="padding:10px 14px;background:#f8f9fa;font-weight:600;color:#555;border-bottom:1px solid #eee">Total WC</td><td style="padding:10px 14px;background:#f8f9fa;border-bottom:1px solid #eee">{{total}}</td></tr>
+<tr><td style="padding:10px 14px;font-weight:600;color:#555;border-bottom:1px solid #eee">Review Type</td><td style="padding:10px 14px;border-bottom:1px solid #eee">{{revType}}</td></tr>
 </table>`,
       },
     ];
-    const existingTemplates = db.select().from(emailTemplates).all();
-    if (existingTemplates.length === 0) {
-      for (const t of defaultTemplates) {
+    for (const t of defaultTemplates) {
+      const existing = db.select().from(emailTemplates).where(eq(emailTemplates.key, t.key)).get();
+      if (!existing) {
         db.insert(emailTemplates).values(t).run();
       }
     }
