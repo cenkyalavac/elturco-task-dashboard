@@ -1066,18 +1066,35 @@ export default function DashboardPage() {
 
   // Bulk filtered freelancers: must match ALL sources
   const bulkFilteredFreelancers = useMemo(() => {
-    if (!freelancers || !bulkMode) return [];
+    if (!freelancers || !bulkMode || !tasks) return [];
     const selectedIds = new Set(selectedFreelancers.map((f) => f.id));
+    // Collect language pairs from checked tasks
+    const checkedTasks = tasks.filter(t => checkedKeys.has(taskKey(t)));
+    const bulkLangs = new Set<string>();
+    checkedTasks.forEach(t => {
+      const lp = t.languagePair || sheetConfigs?.find(c => c.source === t.source && c.sheet === t.sheet)?.languagePair || "";
+      if (lp && lp !== "Multi") bulkLangs.add(lp);
+    });
     return freelancers.filter(f => {
       if (selectedIds.has(f.id)) return false;
-      return bulkSources.every(source => {
-        const matchAccts = ACCOUNT_MATCH[source] || [];
-        const specMatch = SPECIALIZATION_MATCH[source] || [];
-        if (matchAccts.length === 0 && specMatch.length === 0) return true;
-        const acctOk = matchAccts.length > 0 && f.accounts?.some((a: string) => matchAccts.includes(a));
-        const specOk = specMatch.length > 0 && f.specializations?.some((s: string) => specMatch.includes(s));
-        return acctOk || specOk;
-      });
+      if (BYPASS_FILTER_CODES.includes(f.resourceCode)) return true;
+      // PRIMARY: Language pair filter
+      if (bulkLangs.size > 0 && f.languagePairs?.length > 0) {
+        const matchesLang = [...bulkLangs].some(lp => f.languagePairs.includes(lp));
+        if (!matchesLang) return false;
+      }
+      // SECONDARY: If no lang pairs detected, fall back to account/specialization
+      if (bulkLangs.size === 0) {
+        return bulkSources.every(source => {
+          const matchAccts = ACCOUNT_MATCH[source] || [];
+          const specMatch = SPECIALIZATION_MATCH[source] || [];
+          if (matchAccts.length === 0 && specMatch.length === 0) return true;
+          const acctOk = matchAccts.length > 0 && f.accounts?.some((a: string) => matchAccts.includes(a));
+          const specOk = specMatch.length > 0 && f.specializations?.some((s: string) => specMatch.includes(s));
+          return acctOk || specOk;
+        });
+      }
+      return true;
     }).sort((a, b) => {
       // Unavailable freelancers sort to bottom
       const aUnavail = getAvailabilityToday(eltsAvailability?.[a.resourceCode])?.status === "unavailable" ? 1 : 0;
@@ -1092,7 +1109,7 @@ export default function DashboardPage() {
       if (sb !== sa) return sb - sa;
       return a.fullName.localeCompare(b.fullName);
     });
-  }, [freelancers, bulkMode, bulkSources, selectedFreelancers, freelancerStats, favoritesSet, eltsAvailability]);
+  }, [freelancers, bulkMode, bulkSources, selectedFreelancers, freelancerStats, favoritesSet, eltsAvailability, tasks, checkedKeys, sheetConfigs]);
 
   // XLSX export handler
   const [exporting, setExporting] = useState(false);
@@ -1232,18 +1249,24 @@ export default function DashboardPage() {
     const matchAccounts = ACCOUNT_MATCH[selectedTask.source] || [];
     const selectedIds = new Set(selectedFreelancers.map((f) => f.id));
 
+    // Determine effective language pair: task-level detection > sheet config
+    const effectiveLang = selectedTask.languagePair || taskLangPair;
+
     return freelancers
       .filter((f) => {
         if (selectedIds.has(f.id)) return false;
         // Bypass account/language filters for test freelancers
         if (!BYPASS_FILTER_CODES.includes(f.resourceCode)) {
-          // Check account match OR specialization match (for Games etc.)
-          const matchesAccount = matchAccounts.length === 0 || f.accounts?.some((a: string) => matchAccounts.includes(a));
-          const specMatch = SPECIALIZATION_MATCH[selectedTask.source] || [];
-          const matchesSpec = specMatch.length > 0 && f.specializations?.some((s: string) => specMatch.includes(s));
-          if (!matchesAccount && !matchesSpec) return false;
-          if (taskLangPair && taskLangPair !== "Multi" && f.languagePairs?.length > 0) {
-            if (!f.languagePairs.includes(taskLangPair)) return false;
+          // PRIMARY FILTER: Language pair (hard filter when available)
+          if (effectiveLang && effectiveLang !== "Multi" && f.languagePairs?.length > 0) {
+            if (!f.languagePairs.includes(effectiveLang)) return false;
+          }
+          // SECONDARY FILTER: Account or specialization (only when no lang pair detected)
+          if (!effectiveLang || effectiveLang === "Multi") {
+            const matchesAccount = matchAccounts.length === 0 || f.accounts?.some((a: string) => matchAccounts.includes(a));
+            const specMatch = SPECIALIZATION_MATCH[selectedTask.source] || [];
+            const matchesSpec = specMatch.length > 0 && f.specializations?.some((s: string) => specMatch.includes(s));
+            if (!matchesAccount && !matchesSpec) return false;
           }
         }
         if (freelancerSearch) {
@@ -1274,6 +1297,9 @@ export default function DashboardPage() {
         else if (qs > 0) score += 5;
         // +15: Has experience with this account
         if (acctQ && acctQ.count > 0) score += 15;
+        // +12: Account match (freelancer has the matching account in ELTS)
+        const matchAccts = ACCOUNT_MATCH[selectedTask.source] || [];
+        if (matchAccts.length > 0 && f.accounts?.some((a: string) => matchAccts.includes(a))) score += 12;
         // +10: Favorite
         if (favoritesSet.has(f.resourceCode)) score += 10;
         return { ...f, _score: score };
@@ -2947,9 +2973,9 @@ export default function DashboardPage() {
                       data-testid="input-freelancer-search"
                     />
                   </div>
-                  {selectedTask && taskLangPair && (
+                  {selectedTask && (selectedTask.languagePair || taskLangPair) && (
                     <p className="text-[10px] text-muted-foreground mt-1">
-                      Filtering: {taskLangPair} {ACCOUNT_MATCH[selectedTask.source] && `· ${ACCOUNT_MATCH[selectedTask.source]?.join(", ")}`}{SPECIALIZATION_MATCH[selectedTask.source] && ` · Spec: ${SPECIALIZATION_MATCH[selectedTask.source]?.[0]}...`}
+                      Filtering: {selectedTask.languagePair || taskLangPair}{selectedTask.languagePair && selectedTask.languagePair !== taskLangPair ? " (detected)" : ""}{ACCOUNT_MATCH[selectedTask.source] ? ` · ${ACCOUNT_MATCH[selectedTask.source]?.join(", ")} (bonus)` : ""}{SPECIALIZATION_MATCH[selectedTask.source] ? ` · Spec: ${SPECIALIZATION_MATCH[selectedTask.source]?.[0]}...` : ""}
                     </p>
                   )}
                 </div>

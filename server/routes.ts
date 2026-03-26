@@ -349,18 +349,21 @@ function extractLanguagePair(row: any, sheet: string, source: string): string {
   const lang = getCol(row, "Language", "Target", "Target Language", "target");
   if (lang) {
     const lv = lang.toLowerCase().trim();
-    // Format: "ES-ES ► TR" or "es-ES > tr-TR" or "en-US" or "tr-TR"
-    if (lv.includes("►") || lv.includes(">")) {
-      const parts = lv.split(/[►>]/).map(s => s.trim());
-      if (parts.length === 2) {
+    // Format: "ES-ES ► TR" or "ES-ES ▸ TR" or "es-ES > tr-TR" or "EN → TR"
+    // Match all common arrow/separator characters: ► ▸ ▶ → > ➜ ➤ ⇒
+    const arrowRegex = /[►▸▶→>➜➤⇒]/;
+    if (arrowRegex.test(lv)) {
+      const parts = lv.split(arrowRegex).map(s => s.trim());
+      if (parts.length === 2 && parts[0] && parts[1]) {
         const src = parts[0].split("-")[0].toUpperCase();
         const tgt = parts[1].split("-")[0].toUpperCase();
-        return `${src}>${tgt}`;
+        if (src && tgt) return `${src}>${tgt}`;
       }
     }
     // Just target language: "tr-TR" → assume EN>TR
+    // But only if it looks like a locale code (2 chars or 2-2 format)
     const tgt = lv.split("-")[0].toUpperCase();
-    if (tgt && tgt !== "EN") return `EN>${tgt}`;
+    if (tgt && tgt.length === 2 && tgt !== "EN") return `EN>${tgt}`;
   }
   return ""; // empty = use sheet config default
 }

@@ -213,7 +213,7 @@ export class DatabaseStorage implements IStorage {
       { source: "AppleCare", sheet: "Assignments", languagePair: "EN>TR", sheetDbId: "v6i82rdrqa34n", assignedPms: null, googleSheetUrl: null },
       { source: "AppleCare", sheet: "RU Assignments", languagePair: "EN>RU", sheetDbId: "v6i82rdrqa34n", assignedPms: null, googleSheetUrl: null },
       { source: "AppleCare", sheet: "AR Assignments", languagePair: "EN>AR", sheetDbId: "v6i82rdrqa34n", assignedPms: null, googleSheetUrl: null },
-      { source: "Inditex", sheet: "Assignments", languagePair: "EN>TR", sheetDbId: "ayv4m7o5lbe1r", assignedPms: null, googleSheetUrl: null },
+      { source: "Inditex", sheet: "Assignments", languagePair: "ES>TR", sheetDbId: "ayv4m7o5lbe1r", assignedPms: null, googleSheetUrl: null },
       { source: "Games", sheet: "GamesTracker", languagePair: "EN>TR", sheetDbId: "qyg6b74ds65hd", assignedPms: null, googleSheetUrl: null },
       { source: "SONY", sheet: "Sheet1", languagePair: "EN>TR", sheetDbId: "puf2i6du3igu9", assignedPms: null, googleSheetUrl: null },
       { source: "Facebook", sheet: "JobTracker", languagePair: "EN>TR", sheetDbId: "t3acsw7tx8tan", assignedPms: null, googleSheetUrl: null },
