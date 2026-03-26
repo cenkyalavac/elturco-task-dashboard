@@ -1090,7 +1090,8 @@ export default function DashboardPage() {
       if (selectedIds.has(f.id)) return false;
       if (BYPASS_FILTER_CODES.includes(f.resourceCode)) return true;
       // PRIMARY: Language pair filter
-      if (bulkLangs.size > 0 && f.languagePairs?.length > 0) {
+      if (bulkLangs.size > 0) {
+        if (!f.languagePairs || f.languagePairs.length === 0) return false;
         const matchesLang = [...bulkLangs].some(lp => f.languagePairs.includes(lp));
         if (!matchesLang) return false;
       }
@@ -1269,8 +1270,10 @@ export default function DashboardPage() {
         if (BYPASS_FILTER_CODES.includes(f.resourceCode)) return true;
 
         // LANGUAGE PAIR FILTER (always applied when available)
-        if (effectiveLang && effectiveLang !== "Multi" && f.languagePairs?.length > 0) {
-          if (!f.languagePairs.includes(effectiveLang)) return false;
+        if (effectiveLang && effectiveLang !== "Multi") {
+          // Freelancer must have the matching language pair
+          // If freelancer has no language pairs defined, they don't match
+          if (!f.languagePairs || f.languagePairs.length === 0 || !f.languagePairs.includes(effectiveLang)) return false;
         }
 
         // ACCOUNT/SPECIALIZATION FILTER (default on, PM can toggle off)
