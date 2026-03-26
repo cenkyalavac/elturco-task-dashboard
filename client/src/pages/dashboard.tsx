@@ -17,6 +17,7 @@ import {
   FileSpreadsheet, ArrowUpDown, StickyNote, GripVertical, Mail, Filter,
   Star, Volume2, VolumeX, CalendarClock, Undo2, UserX,
 } from "lucide-react";
+import VisualEmailEditor from "@/components/VisualEmailEditor";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { useIsMobile } from "@/hooks/use-mobile";
 
@@ -841,6 +842,12 @@ export default function DashboardPage() {
     );
   }, [assignments]);
 
+  // Unique sources for filter dropdown (dynamic from actual data)
+  const uniqueSources = useMemo(() => {
+    if (!tasks) return [];
+    return [...new Set(tasks.map(t => t.source))].filter(Boolean).sort();
+  }, [tasks]);
+
   // Unique accounts for filter dropdown
   const uniqueAccounts = useMemo(() => {
     if (!tasks) return [];
@@ -898,7 +905,12 @@ export default function DashboardPage() {
         const d = parseDeadline(t.deadline);
         if (!d || d >= new Date() || isRevCompleted(t) || isTerminal) return false;
       }
-      if (["delivered", "all", "ongoing", "needs_tr", "needs_rev", "unassigned", "assigned", "overdue", "rev_done"].indexOf(statusFilter) === -1 && t.delivered === "Delivered") return false;
+      if (statusFilter === "my_assigned") {
+        const pmInit = user?.initial || "";
+        if (!pmInit || (t.translator !== pmInit && t.reviewer !== pmInit)) return false;
+        if (isTerminal) return false;
+      }
+      if (["delivered", "all", "ongoing", "needs_tr", "needs_rev", "unassigned", "assigned", "overdue", "rev_done", "my_assigned"].indexOf(statusFilter) === -1 && t.delivered === "Delivered") return false;
 
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
@@ -1021,7 +1033,7 @@ export default function DashboardPage() {
 
   // Stats — computed from baseFilteredTasks so counts match visible filter context
   const stats = useMemo(() => {
-    if (!baseFilteredTasks.length) return { total: 0, ongoing: 0, needsTR: 0, needsREV: 0, assigned: 0, completed: 0, pastDeadline: 0 };
+    if (!baseFilteredTasks.length) return { total: 0, ongoing: 0, needsTR: 0, needsREV: 0, assigned: 0, completed: 0, pastDeadline: 0, myAssigned: 0 };
     const nonDelivered = baseFilteredTasks.filter((t) => t.delivered !== "Delivered" && t.delivered !== "Cancelled" && t.delivered !== "On Hold" && !isEffectivelyCancelled(t));
     const ongoing = nonDelivered.filter(t => !isRevCompleted(t)).length;
     const nTR = nonDelivered.filter(needsTranslator).length;
@@ -1031,6 +1043,11 @@ export default function DashboardPage() {
       const d = parseDeadline(t.deadline);
       return d && d < new Date() && !isRevCompleted(t);
     }).length;
+    // Count tasks where current PM's initial is in TR or REV column
+    const pmInitial = user?.initial || "";
+    const myAssigned = pmInitial ? nonDelivered.filter(t =>
+      t.translator === pmInitial || t.reviewer === pmInitial
+    ).length : 0;
     return {
       total: nonDelivered.length,
       ongoing,
@@ -1039,8 +1056,9 @@ export default function DashboardPage() {
       assigned: ongoing - nTR - nREV,
       completed: completedCount,
       pastDeadline,
+      myAssigned,
     };
-  }, [baseFilteredTasks, assignments]);
+  }, [baseFilteredTasks, assignments, user]);
 
   // Selected task
   const selectedTask = useMemo(() => {
@@ -1860,6 +1878,7 @@ export default function DashboardPage() {
           <StatPill label="Unassigned" value={stats.needsTR + stats.needsREV} loading={tasksLoading} color="red" active={statusFilter === "unassigned"} onClick={() => setStatusFilter("unassigned")} />
           <StatPill label="Overdue" value={stats.pastDeadline} loading={tasksLoading} color="red" active={statusFilter === "overdue"} onClick={() => setStatusFilter("overdue")} />
           <StatPill label="Assigned" value={stats.assigned} loading={tasksLoading} color="emerald" active={statusFilter === "assigned"} onClick={() => setStatusFilter("assigned")} />
+          {user?.initial && <StatPill label="Mine" value={stats.myAssigned} loading={tasksLoading} color="purple" active={statusFilter === "my_assigned"} onClick={() => setStatusFilter("my_assigned")} />}
           <StatPill label="Rev Done" value={stats.completed} loading={tasksLoading} color="green" active={statusFilter === "rev_done"} onClick={() => setStatusFilter("rev_done")} />
           <StatPill label="All" value={stats.total} loading={tasksLoading} color="gray" active={statusFilter === "all"} onClick={() => setStatusFilter("all")} />
           {/* Feature 1: Sound toggle */}
@@ -2097,8 +2116,9 @@ export default function DashboardPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Sources</SelectItem>
-                    <SelectItem value="Amazon">Amazon</SelectItem>
-                    <SelectItem value="AppleCare">AppleCare</SelectItem>
+                    {uniqueSources.map((src) => (
+                      <SelectItem key={src} value={src}>{src}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 <Select value={accountFilter} onValueChange={setAccountFilter}>
@@ -2936,32 +2956,13 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 {editingEmail ? (
-                  <div className="space-y-2">
-                    <Input
-                      value={customSubject}
-                      onChange={(e) => setCustomSubject(e.target.value)}
-                      placeholder="Subject..."
-                      className="h-7 text-xs"
-                      data-testid="input-email-subject"
-                    />
-                    {emailPreviewMode ? (
-                      <div className="border border-white/[0.06] rounded-lg p-2 bg-white/[0.02] text-xs max-h-[200px] overflow-y-auto">
-                        <p className="text-xs font-medium mb-1 text-foreground">{replacePreviewVars(customSubject)}</p>
-                        <div dangerouslySetInnerHTML={{ __html: replacePreviewVars(customBody) }} />
-                      </div>
-                    ) : (
-                      <Textarea
-                        value={customBody}
-                        onChange={(e) => setCustomBody(e.target.value)}
-                        placeholder="Body HTML..."
-                        className="text-xs font-mono min-h-[200px]"
-                        data-testid="input-email-body"
-                      />
-                    )}
-                    <p className="text-[10px] text-muted-foreground">
-                      Placeholders: {"{{freelancerName}}"}, {"{{account}}"}, {"{{projectId}}"}, {"{{deadline}}"}, {"{{total}}"}, {"{{wwc}}"}, {"{{source}}"}, {"{{sheet}}"}
-                    </p>
-                  </div>
+                  <VisualEmailEditor
+                    subject={customSubject}
+                    body={customBody}
+                    onSubjectChange={setCustomSubject}
+                    onBodyChange={setCustomBody}
+                    compact
+                  />
                 ) : (
                   <div className="text-xs text-muted-foreground">
                     {currentTemplate ? (
@@ -3587,6 +3588,7 @@ const STAT_COLORS: Record<string, { dot: string; text: string; activeBg: string;
   red: { dot: "bg-red-400", text: "text-red-400", activeBg: "bg-red-500/[0.12]", activeRing: "ring-red-500/30" },
   emerald: { dot: "bg-emerald-400", text: "text-emerald-400", activeBg: "bg-emerald-500/[0.12]", activeRing: "ring-emerald-500/30" },
   green: { dot: "bg-green-400", text: "text-green-400", activeBg: "bg-green-500/[0.12]", activeRing: "ring-green-500/30" },
+  purple: { dot: "bg-purple-400", text: "text-purple-400", activeBg: "bg-purple-500/[0.12]", activeRing: "ring-purple-500/30" },
   gray: { dot: "bg-gray-400", text: "text-gray-400", activeBg: "bg-gray-500/[0.12]", activeRing: "ring-gray-500/30" },
 };
 

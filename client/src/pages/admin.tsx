@@ -5,6 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import VisualEmailEditor from "@/components/VisualEmailEditor";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -831,6 +832,15 @@ function TemplateEditor({ template }: { template: EmailTemplate }) {
         </div>
       </div>
       <div className="space-y-2">
+        <VisualEmailEditor
+          subject={subject}
+          body={body}
+          onSubjectChange={setSubject}
+          onBodyChange={setBody}
+        />
+      </div>
+      {false && /* Old editor kept for reference */ (
+      <div className="space-y-2-old hidden">
         <div>
           <label className="text-xs text-muted-foreground mb-1 block">Subject</label>
           {previewMode ? (
@@ -921,6 +931,7 @@ function TemplateEditor({ template }: { template: EmailTemplate }) {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

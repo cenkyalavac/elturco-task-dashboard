@@ -886,6 +886,9 @@ const freelancers = (Array.isArray(data) ? data : [])
       safeWriteDeadlineToSheet(assignment, req.body.customDeadline);
     }
 
+    // Invalidate task cache so next fetch reflects the write
+    delete cache["allTasks"];
+
     res.json({ success: true, assignment });
   });
 
@@ -934,6 +937,9 @@ const freelancers = (Array.isArray(data) ? data : [])
     if (req.body.customDeadline && role === "translator") {
       safeWriteDeadlineToSheet(assignment, req.body.customDeadline);
     }
+
+    // Invalidate task cache
+    delete cache["allTasks"];
 
     res.json({ success: true, assignment });
   });
