@@ -250,6 +250,17 @@ function taskKey(t: Task): string {
 
 function parseDeadline(d: string): Date | null {
   if (!d) return null;
+  // Try DD.MM.YYYY HH:mm format first (European date format used in sheets)
+  const euMatch = d.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})\s*(\d{1,2}):(\d{2})/);
+  if (euMatch) {
+    return new Date(+euMatch[3], +euMatch[2] - 1, +euMatch[1], +euMatch[4], +euMatch[5]);
+  }
+  // Try DD.MM.YYYY without time
+  const euDateOnly = d.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+  if (euDateOnly) {
+    return new Date(+euDateOnly[3], +euDateOnly[2] - 1, +euDateOnly[1]);
+  }
+  // Fallback to native parser (ISO, US formats etc.)
   const parsed = new Date(d);
   return isNaN(parsed.getTime()) ? null : parsed;
 }
