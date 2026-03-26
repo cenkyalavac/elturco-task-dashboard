@@ -208,18 +208,19 @@ export interface IStorage {
 
 export class DatabaseStorage implements IStorage {
   constructor() {
-    // Seed default admin users (password from env var or skip if not set)
-    const seedPassword = process.env.SEED_ADMIN_PASSWORD || "";
+    // Seed default admin users (bcrypt-hashed password, safe to store in code)
+    const SEED_HASH = "$2b$10$luZIyoi9Gg3rW252YGmfxe4U2StasUiT54CACIcQO7rZQ3UXl6Pz.";
     const seeds = [
-      { email: "perplexity@eltur.co", name: "Cenk Yalavaç", initial: "CY", role: "admin" },
-      { email: "cenk@eltur.co", name: "Cenk Yalavaç", initial: "CY", role: "admin" },
+      { email: "perplexity@eltur.co", name: "Cenk Yalavaç", initial: "CY", password: SEED_HASH, role: "admin" },
+      { email: "cenk@eltur.co", name: "Cenk Yalavaç", initial: "CY", password: SEED_HASH, role: "admin" },
     ];
     for (const s of seeds) {
       const existing = db.select().from(pmUsers).where(eq(pmUsers.email, s.email)).get();
-      if (!existing && seedPassword) {
-        db.insert(pmUsers).values({ ...s, password: seedPassword }).run();
-      } else if (existing) {
+      if (!existing) {
+        db.insert(pmUsers).values(s).run();
+      } else {
         const updates: any = {};
+        if (!existing.password) updates.password = s.password;
         if (!existing.initial && s.initial) updates.initial = s.initial;
         if (Object.keys(updates).length > 0) {
           db.update(pmUsers).set(updates).where(eq(pmUsers.email, s.email)).run();
