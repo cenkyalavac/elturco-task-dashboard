@@ -133,6 +133,8 @@ export const sheetConfigs = sqliteTable("sheet_configs", {
   sheetDbId: text("sheetdb_id"),    // SheetDB API ID (e.g. "mukq6ww3ssuk0")
   googleSheetUrl: text("google_sheet_url"), // Original Google Sheet URL for reference
   assignedPms: text("assigned_pms"), // JSON array of PM emails, e.g. ["cenk@eltur.co"]. null = visible to all.
+  googleSheetId: text("google_sheet_id"), // Google Sheets spreadsheet ID for direct API writes
+  worksheetId: integer("worksheet_id"),   // Google Sheets worksheet/tab ID (gid)
 });
 
 // PM internal notes on tasks (stored in DB, not sheet)

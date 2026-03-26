@@ -3,6 +3,7 @@ import type { Server } from "http";
 import { storage, db } from "./storage";
 import { taskNotes, pmFavorites } from "@shared/schema";
 import { wsBroadcast } from "./ws";
+import { gsWriteToColumn, gsIsAvailable, type SheetWriteConfig } from "./gsheets";
 import { eq, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import bcrypt from "bcryptjs";
@@ -1321,17 +1322,46 @@ const freelancers = (Array.isArray(data) ? data : [])
     return null;
   }
 
+  // ---- Sheet Write Helper ----
+  // Uses Google Sheets API (via service account) when available.
+  // Falls back to SheetDB only when GS API is not configured.
+  function getSheetWriteConfig(assignment: any): SheetWriteConfig | null {
+    const configs = storage.getAllSheetConfigs();
+    const config = configs.find(c => c.source === assignment.source && c.sheet === assignment.sheet);
+    if (!config) return null;
+    const gsId = (config as any).googleSheetId;
+    if (gsId) return { googleSheetId: gsId, tabName: assignment.sheet, projectId: assignment.projectId };
+    return null;
+  }
+
+  const TR_CANDIDATES = ["TR ", "TR", "Translator", "Tra", "TER"];
+  const REV_CANDIDATES = ["Rev", "REV", "Reviewer", "Rev."];
+  const TR_DONE_CANDIDATES = ["TR\nDone?", "TR Done?", "TR Dlvr", "TR Dlvr?", "TR Dlv?", "TR Delivered?", "TR delivered?", "TR Compl?", "Tra Dlv?"];
+  const REV_COMPLETE_CANDIDATES = ["Rev\nDone?", "Rev Done?", "Rev Complete? (in minutes)", "Rev Complete?", "Rev Completed? (in minutes)", "Rev Compl?", "Time Spent\n(in minutes)", "Time Spent (in minutes)", "Time Spent", "Rev Time (min.)", "Rev. Dlv?", "Rev QA"];
+  const QS_CANDIDATES = ["QS", "QS (Num)"];
+  const TR_DEADLINE_CANDIDATES = ["TR\nDeadline", "TR Deadline", "Deadline"];
+
   async function safeWriteToSheet(assignment: any, freelancerCode: string, columnType: "translator" | "reviewer") {
+    const candidates = columnType === "translator" ? TR_CANDIDATES : REV_CANDIDATES;
+    const gsConfig = getSheetWriteConfig(assignment);
+
+    // Try Google Sheets API first (always correct, no prefix-matching bug)
+    if (gsConfig) {
+      const result = await gsWriteToColumn(gsConfig, candidates, freelancerCode);
+      console.log(`Sheet write [${assignment.source}/${assignment.sheet}]: ${result.message}`);
+      if (result.ok) return;
+      // If GS fails, fall through to SheetDB
+    }
+
+    // Fallback: SheetDB (works for sheets without column name conflicts)
     try {
       const configs = storage.getAllSheetConfigs();
       const config = configs.find(c => c.source === assignment.source && c.sheet === assignment.sheet);
       if (!config?.sheetDbId) return;
-
       const apiId = config.sheetDbId;
       const sheet = assignment.sheet;
       const projectId = assignment.projectId;
 
-      // 1. Fetch one row to discover actual column names
       const sampleUrl = `https://sheetdb.io/api/v1/${apiId}?sheet=${encodeURIComponent(sheet)}&limit=1`;
       const sampleRes = await fetch(sampleUrl, { headers: sheetDbHeaders() });
       if (!sampleRes.ok) return;
@@ -1339,117 +1369,95 @@ const freelancers = (Array.isArray(data) ? data : [])
       if (!Array.isArray(sampleRows) || sampleRows.length === 0) return;
       const keys = Object.keys(sampleRows[0]);
 
-      // 2. Resolve ID column dynamically
       const idCol = findCol(keys, "Project ID", "ProjectID", "ID", "ATMS ID", "Project code", "Job ID", "Job Code", "Task Name");
-      if (!idCol) { console.log(`Sheet write SKIP: no ID column found for ${sheet}`); return; }
+      if (!idCol) return;
+      const targetCol = findCol(keys, ...candidates);
+      if (!targetCol) return;
 
-      // 3. Resolve TR/REV column dynamically
-      const trCol = findCol(keys, "TR ", "TR", "Translator", "Tra", "TER");
-      const revCol = findCol(keys, "Rev", "REV", "Reviewer", "Rev.");
-      const targetCol = columnType === "translator" ? trCol : revCol;
-      if (!targetCol) { console.log(`Sheet write SKIP: no ${columnType} column found for ${sheet}`); return; }
-
-      // 4. Search for the specific row
+      // Safety check
       const readUrl = `https://sheetdb.io/api/v1/${apiId}/search?${encodeURIComponent(idCol)}=${encodeURIComponent(projectId)}&sheet=${encodeURIComponent(sheet)}`;
       const readRes = await fetch(readUrl, { headers: sheetDbHeaders() });
       if (!readRes.ok) return;
       const rows = await readRes.json();
       if (!Array.isArray(rows) || rows.length === 0) return;
-
       const currentValue = (rows[0][targetCol] || "").toString().trim();
-      
-      // SAFETY CHECK: Only write if cell is empty or XX
       if (currentValue && currentValue.toUpperCase() !== "XX") {
-        console.log(`Sheet write BLOCKED: ${targetCol} already has '${currentValue}' for project ${projectId}`);
+        console.log(`SheetDB write BLOCKED: ${targetCol} already has '${currentValue}' for ${projectId}`);
         return;
       }
 
-      // 5. Write the value
       const writeUrl = `https://sheetdb.io/api/v1/${apiId}/${encodeURIComponent(idCol)}/${encodeURIComponent(projectId)}?sheet=${encodeURIComponent(sheet)}`;
-      await fetch(writeUrl, {
-        method: "PATCH",
-        headers: sheetDbHeaders(),
-        body: JSON.stringify({ data: { [targetCol]: freelancerCode } }),
-      });
-      console.log(`Sheet write OK: ${targetCol}=${freelancerCode} for project ${projectId} (idCol=${idCol})`);
+      await fetch(writeUrl, { method: "PATCH", headers: sheetDbHeaders(), body: JSON.stringify({ data: { [targetCol]: freelancerCode } }) });
+      console.log(`SheetDB write OK: ${targetCol}=${freelancerCode} for ${projectId}`);
     } catch (e) {
       console.error("Sheet write error (non-fatal):", e);
     }
   }
 
-  // Write status values (TR Done, Rev Complete) to sheet — dynamic column resolution
+  // Write status values (TR Done, Rev Complete) to sheet
   async function safeWriteStatusToSheet(assignment: any, columnType: "trDone" | "revComplete", value: string) {
+    const candidates = columnType === "trDone" ? TR_DONE_CANDIDATES : REV_COMPLETE_CANDIDATES;
+    const gsConfig = getSheetWriteConfig(assignment);
+    if (gsConfig) {
+      const result = await gsWriteToColumn(gsConfig, candidates, value, { skipSafetyCheck: true });
+      console.log(`Status write [${assignment.source}/${assignment.sheet}]: ${result.message}`);
+      if (result.ok) return;
+    }
+    // SheetDB fallback
     try {
       const configs = storage.getAllSheetConfigs();
       const config = configs.find(c => c.source === assignment.source && c.sheet === assignment.sheet);
       if (!config?.sheetDbId) return;
-
       const apiId = config.sheetDbId;
       const sheet = assignment.sheet;
       const projectId = assignment.projectId;
-
-      // Fetch sample row to discover columns
       const sampleRes = await fetch(`https://sheetdb.io/api/v1/${apiId}?sheet=${encodeURIComponent(sheet)}&limit=1`, { headers: sheetDbHeaders() });
       if (!sampleRes.ok) return;
       const sampleRows = await sampleRes.json();
       if (!Array.isArray(sampleRows) || sampleRows.length === 0) return;
       const keys = Object.keys(sampleRows[0]);
-
       const idCol = findCol(keys, "Project ID", "ProjectID", "ID", "ATMS ID", "Project code", "Job ID", "Job Code", "Task Name");
       if (!idCol) return;
-
-      let targetCol: string | null;
-      if (columnType === "trDone") {
-        targetCol = findCol(keys, "TR\nDone?", "TR Done?", "TR Dlvr", "TR Dlvr?", "TR Dlv?", "TR Delivered?", "TR delivered?", "TR Compl?", "Tra Dlv?");
-      } else {
-        targetCol = findCol(keys, "Rev\nDone?", "Rev Done?", "Rev Complete? (in minutes)", "Rev Complete?", "Rev Completed? (in minutes)", "Rev Compl?", "Time Spent\n(in minutes)", "Time Spent (in minutes)", "Time Spent", "Rev Time (min.)", "Rev. Dlv?", "Rev QA");
-      }
-      if (!targetCol) { console.log(`Sheet status write SKIP: no ${columnType} column found for ${sheet}`); return; }
-
+      const targetCol = findCol(keys, ...candidates);
+      if (!targetCol) return;
       const writeUrl = `https://sheetdb.io/api/v1/${apiId}/${encodeURIComponent(idCol)}/${encodeURIComponent(projectId)}?sheet=${encodeURIComponent(sheet)}`;
-      await fetch(writeUrl, {
-        method: "PATCH",
-        headers: sheetDbHeaders(),
-        body: JSON.stringify({ data: { [targetCol]: value } }),
-      });
-      console.log(`Sheet status write OK: ${targetCol}=${value} for project ${projectId}`);
+      await fetch(writeUrl, { method: "PATCH", headers: sheetDbHeaders(), body: JSON.stringify({ data: { [targetCol]: value } }) });
+      console.log(`SheetDB status write OK: ${targetCol}=${value} for ${projectId}`);
     } catch (e) {
-      console.error("Sheet status write error (non-fatal):", e);
+      console.error("Status write error (non-fatal):", e);
     }
   }
 
-  // Write TR Deadline to sheet — dynamic column resolution
+  // Write TR Deadline to sheet
   async function safeWriteDeadlineToSheet(assignment: any, deadlineValue: string) {
+    const gsConfig = getSheetWriteConfig(assignment);
+    if (gsConfig) {
+      const result = await gsWriteToColumn(gsConfig, TR_DEADLINE_CANDIDATES, deadlineValue, { skipSafetyCheck: true });
+      console.log(`Deadline write [${assignment.source}/${assignment.sheet}]: ${result.message}`);
+      if (result.ok) return;
+    }
+    // SheetDB fallback
     try {
       const configs = storage.getAllSheetConfigs();
       const config = configs.find(c => c.source === assignment.source && c.sheet === assignment.sheet);
       if (!config?.sheetDbId) return;
-
       const apiId = config.sheetDbId;
       const sheet = assignment.sheet;
       const projectId = assignment.projectId;
-
       const sampleRes = await fetch(`https://sheetdb.io/api/v1/${apiId}?sheet=${encodeURIComponent(sheet)}&limit=1`, { headers: sheetDbHeaders() });
       if (!sampleRes.ok) return;
       const sampleRows = await sampleRes.json();
       if (!Array.isArray(sampleRows) || sampleRows.length === 0) return;
       const keys = Object.keys(sampleRows[0]);
-
       const idCol = findCol(keys, "Project ID", "ProjectID", "ID", "ATMS ID", "Project code", "Job ID", "Job Code", "Task Name");
       if (!idCol) return;
-
-      const deadlineCol = findCol(keys, "TR\nDeadline", "TR Deadline", "Deadline");
+      const deadlineCol = findCol(keys, ...TR_DEADLINE_CANDIDATES);
       if (!deadlineCol) return;
-
       const writeUrl = `https://sheetdb.io/api/v1/${apiId}/${encodeURIComponent(idCol)}/${encodeURIComponent(projectId)}?sheet=${encodeURIComponent(sheet)}`;
-      await fetch(writeUrl, {
-        method: "PATCH",
-        headers: sheetDbHeaders(),
-        body: JSON.stringify({ data: { [deadlineCol]: deadlineValue } }),
-      });
-      console.log(`Sheet deadline write OK: ${deadlineCol}=${deadlineValue} for project ${projectId}`);
+      await fetch(writeUrl, { method: "PATCH", headers: sheetDbHeaders(), body: JSON.stringify({ data: { [deadlineCol]: deadlineValue } }) });
+      console.log(`SheetDB deadline write OK: ${deadlineCol}=${deadlineValue} for ${projectId}`);
     } catch (e) {
-      console.error("Sheet deadline write error (non-fatal):", e);
+      console.error("Deadline write error (non-fatal):", e);
     }
   }
 
@@ -1588,6 +1596,13 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   // Write QS to sheet
   async function safeWriteQsToSheet(assignment: any, qsValue: string) {
+    const gsConfig = getSheetWriteConfig(assignment);
+    if (gsConfig) {
+      const result = await gsWriteToColumn(gsConfig, QS_CANDIDATES, qsValue, { skipSafetyCheck: true });
+      console.log(`QS write [${assignment.source}/${assignment.sheet}]: ${result.message}`);
+      if (result.ok) return;
+    }
+    // SheetDB fallback
     try {
       const configs = storage.getAllSheetConfigs();
       const config = configs.find(c => c.source === assignment.source && c.sheet === assignment.sheet);
@@ -1595,26 +1610,19 @@ const freelancers = (Array.isArray(data) ? data : [])
       const apiId = config.sheetDbId;
       const sheet = assignment.sheet;
       const projectId = assignment.projectId;
-
       const sampleRes = await fetch(`https://sheetdb.io/api/v1/${apiId}?sheet=${encodeURIComponent(sheet)}&limit=1`, { headers: sheetDbHeaders() });
       if (!sampleRes.ok) return;
       const sampleRows = await sampleRes.json();
       if (!Array.isArray(sampleRows) || sampleRows.length === 0) return;
       const keys = Object.keys(sampleRows[0]);
-
       const idCol = findCol(keys, "Project ID", "ProjectID", "ID", "ATMS ID", "Project code", "Job ID", "Job Code", "Task Name");
       if (!idCol) return;
-      const qsCol = findCol(keys, "QS", "QS (Num)") || "QS";
-
+      const qsCol = findCol(keys, ...QS_CANDIDATES) || "QS";
       const writeUrl = `https://sheetdb.io/api/v1/${apiId}/${encodeURIComponent(idCol)}/${encodeURIComponent(projectId)}?sheet=${encodeURIComponent(sheet)}`;
-      await fetch(writeUrl, {
-        method: "PATCH",
-        headers: sheetDbHeaders(),
-        body: JSON.stringify({ data: { [qsCol]: qsValue } }),
-      });
-      console.log(`Sheet QS write OK: ${qsCol}=${qsValue} for project ${projectId}`);
+      await fetch(writeUrl, { method: "PATCH", headers: sheetDbHeaders(), body: JSON.stringify({ data: { [qsCol]: qsValue } }) });
+      console.log(`SheetDB QS write OK: ${qsCol}=${qsValue} for ${projectId}`);
     } catch (e) {
-      console.error("Sheet QS write error (non-fatal):", e);
+      console.error("QS write error (non-fatal):", e);
     }
   }
 
@@ -2074,32 +2082,32 @@ const freelancers = (Array.isArray(data) ? data : [])
     if (!source || !projectId || !role) return res.status(400).json({ error: "Missing fields" });
 
     try {
-      // 1. Write XX to the sheet column
-      const configs = storage.getAllSheetConfigs();
-      const config = configs.find(c => c.source === source && c.sheet === (sheet || ""));
-      if (config?.sheetDbId) {
-        const apiId = config.sheetDbId;
-        const sheetName = sheet || "";
-
-        // Fetch sample row for column discovery
-        const sampleRes = await fetch(`https://sheetdb.io/api/v1/${apiId}?sheet=${encodeURIComponent(sheetName)}&limit=1`, { headers: sheetDbHeaders() });
-        if (sampleRes.ok) {
-          const sampleRows = await sampleRes.json();
-          if (Array.isArray(sampleRows) && sampleRows.length > 0) {
-            const keys = Object.keys(sampleRows[0]);
-            const idCol = findCol(keys, "Project ID", "ProjectID", "ID", "ATMS ID", "Project code", "Job ID", "Job Code", "Task Name");
-            const targetCol = role === "translator"
-              ? findCol(keys, "TR ", "TR", "Translator", "Tra", "TER")
-              : findCol(keys, "Rev", "REV", "Reviewer", "Rev.");
-
-            if (idCol && targetCol) {
-              const writeUrl = `https://sheetdb.io/api/v1/${apiId}/${encodeURIComponent(idCol)}/${encodeURIComponent(projectId)}?sheet=${encodeURIComponent(sheetName)}`;
-              await fetch(writeUrl, {
-                method: "PATCH",
-                headers: sheetDbHeaders(),
-                body: JSON.stringify({ data: { [targetCol]: "XX" } }),
-              });
-              console.log(`Unassign OK: ${targetCol}=XX for ${projectId}`);
+      // 1. Write XX to the sheet column via Google Sheets API
+      const candidates = role === "translator" ? TR_CANDIDATES : REV_CANDIDATES;
+      const gsConfig = getSheetWriteConfig({ source, sheet: sheet || "" });
+      if (gsConfig) {
+        gsConfig.projectId = projectId;
+        const result = await gsWriteToColumn(gsConfig, candidates, "XX", { skipSafetyCheck: true });
+        console.log(`Unassign [${source}/${sheet}]: ${result.message}`);
+      } else {
+        // SheetDB fallback for unassign
+        const configs = storage.getAllSheetConfigs();
+        const config = configs.find(c => c.source === source && c.sheet === (sheet || ""));
+        if (config?.sheetDbId) {
+          const apiId = config.sheetDbId;
+          const sheetName = sheet || "";
+          const sampleRes = await fetch(`https://sheetdb.io/api/v1/${apiId}?sheet=${encodeURIComponent(sheetName)}&limit=1`, { headers: sheetDbHeaders() });
+          if (sampleRes.ok) {
+            const sampleRows = await sampleRes.json();
+            if (Array.isArray(sampleRows) && sampleRows.length > 0) {
+              const keys = Object.keys(sampleRows[0]);
+              const idCol = findCol(keys, "Project ID", "ProjectID", "ID", "ATMS ID", "Project code", "Job ID", "Job Code", "Task Name");
+              const targetCol = findCol(keys, ...candidates);
+              if (idCol && targetCol) {
+                const writeUrl = `https://sheetdb.io/api/v1/${apiId}/${encodeURIComponent(idCol)}/${encodeURIComponent(projectId)}?sheet=${encodeURIComponent(sheetName)}`;
+                await fetch(writeUrl, { method: "PATCH", headers: sheetDbHeaders(), body: JSON.stringify({ data: { [targetCol]: "XX" } }) });
+                console.log(`SheetDB unassign OK: ${targetCol}=XX for ${projectId}`);
+              }
             }
           }
         }

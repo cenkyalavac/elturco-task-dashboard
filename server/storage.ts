@@ -114,8 +114,32 @@ sqlite.exec(`
 // Migrate existing DB: add new columns if missing
 try { sqlite.exec(`ALTER TABLE pm_users ADD COLUMN default_source TEXT DEFAULT 'all'`); } catch {}
 try { sqlite.exec(`ALTER TABLE pm_users ADD COLUMN default_account TEXT DEFAULT 'all'`); } catch {}
-// Fix Inditex config: was EN>TR, should be ES>TR (the sheet contains multiple language pairs, ES>TR is the primary)
+try { sqlite.exec(`ALTER TABLE sheet_configs ADD COLUMN google_sheet_id TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE sheet_configs ADD COLUMN worksheet_id INTEGER`); } catch {}
+// Fix Inditex config: was EN>TR, should be ES>TR
 try { sqlite.exec(`UPDATE sheet_configs SET language_pair = 'ES>TR' WHERE source = 'Inditex' AND language_pair = 'EN>TR'`); } catch {}
+
+// Populate Google Sheet IDs for all configured sheets
+const gsMapping: Record<string, { gsId: string; tabs: Record<string, number> }> = {
+  "Amazon": { gsId: "1Un0dUbaacL7a13zniNtKfJwpFX5FlPYqbCtFmJCICo8", tabs: { "non-AFT": 0, "TPT": 1056910041, "AFT": 1971341819, "Non-EN": 704947960, "DPX": 217988936 } },
+  "AppleCare": { gsId: "1Yeh8pYLEmVZOkYdUIDFurEFE-KfL8_8leZZXIm7lz0g", tabs: { "Assignments": 0, "RU Assignments": 393238430, "AR Assignments": 437911328 } },
+  "Inditex": { gsId: "1yszjnsHgJdVTVdHpks1G8EYjFQap0_VdTb2zGS_Jv44", tabs: { "Assignments": 0 } },
+  "Games": { gsId: "19cGmmmeZt6-hXt-e8dgP3wFdQEJdzPhMFSjaZ4vfavw", tabs: { "GamesTracker": 56737965 } },
+  "SONY": { gsId: "1EaEMWv8WFfoRj7qb_zWhTLNVfi6GfktavtgQgA6rmTA", tabs: { "Sheet1": 0 } },
+  "Facebook": { gsId: "16amViPdinvXOQKC2BkjZhHYl1aiASYDsfaNExB9JV1Q", tabs: { "JobTracker": 181660365, "CMS": 0, "Offline": 0 } }, // CMS and Offline tab IDs need verification
+  "Arabic": { gsId: "1jEXX9VPCGw-UoXe96j__Hn0DlqQrM75o71cJbxwIXa0", tabs: { "Translation": 745537975 } },
+  "TikTok": { gsId: "1oyG0er-3tR1pyB0mTjul8BfZglyaGA6COjyj6-s0nwE", tabs: { "Assignments": 0 } },
+  "WhatsApp": { gsId: "19dRyVr0kNbz0nLepsHHP1qP9fmYFEPpXF8p55beLetA", tabs: { "JobTracker": 0 } },
+  "L-Google": { gsId: "1PJYeBDpkdeTzLQ1Psp2IqFUlyLqOwkV0VVnmqCWDhmk", tabs: { "JobTracker": 211892049 } },
+};
+for (const [source, info] of Object.entries(gsMapping)) {
+  if (!info.gsId) continue;
+  for (const [tab, wsId] of Object.entries(info.tabs)) {
+    try {
+      sqlite.exec(`UPDATE sheet_configs SET google_sheet_id = '${info.gsId}', worksheet_id = ${wsId} WHERE source = '${source}' AND sheet = '${tab}' AND (google_sheet_id IS NULL OR google_sheet_id = '')`);
+    } catch {}
+  }
+}
 
 export const db = drizzle(sqlite);
 
