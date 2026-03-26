@@ -119,26 +119,26 @@ try { sqlite.exec(`ALTER TABLE sheet_configs ADD COLUMN worksheet_id INTEGER`); 
 // Fix Inditex config: was EN>TR, should be ES>TR
 try { sqlite.exec(`UPDATE sheet_configs SET language_pair = 'ES>TR' WHERE source = 'Inditex' AND language_pair = 'EN>TR'`); } catch {}
 
-// Populate Google Sheet IDs for all configured sheets
+// Google Sheet ID mapping — used by seed data and migration
 const gsMapping: Record<string, { gsId: string; tabs: Record<string, number> }> = {
   "Amazon": { gsId: "1Un0dUbaacL7a13zniNtKfJwpFX5FlPYqbCtFmJCICo8", tabs: { "non-AFT": 0, "TPT": 1056910041, "AFT": 1971341819, "Non-EN": 704947960, "DPX": 217988936 } },
   "AppleCare": { gsId: "1Yeh8pYLEmVZOkYdUIDFurEFE-KfL8_8leZZXIm7lz0g", tabs: { "Assignments": 0, "RU Assignments": 393238430, "AR Assignments": 437911328 } },
   "Inditex": { gsId: "1yszjnsHgJdVTVdHpks1G8EYjFQap0_VdTb2zGS_Jv44", tabs: { "Assignments": 0 } },
   "Games": { gsId: "19cGmmmeZt6-hXt-e8dgP3wFdQEJdzPhMFSjaZ4vfavw", tabs: { "GamesTracker": 56737965 } },
   "SONY": { gsId: "1EaEMWv8WFfoRj7qb_zWhTLNVfi6GfktavtgQgA6rmTA", tabs: { "Sheet1": 0 } },
-  "Facebook": { gsId: "16amViPdinvXOQKC2BkjZhHYl1aiASYDsfaNExB9JV1Q", tabs: { "JobTracker": 181660365, "CMS": 0, "Offline": 0 } }, // CMS and Offline tab IDs need verification
+  "Facebook": { gsId: "16amViPdinvXOQKC2BkjZhHYl1aiASYDsfaNExB9JV1Q", tabs: { "JobTracker": 181660365, "CMS": 0, "Offline": 0 } },
   "Arabic": { gsId: "1jEXX9VPCGw-UoXe96j__Hn0DlqQrM75o71cJbxwIXa0", tabs: { "Translation": 745537975 } },
   "TikTok": { gsId: "1oyG0er-3tR1pyB0mTjul8BfZglyaGA6COjyj6-s0nwE", tabs: { "Assignments": 0 } },
   "WhatsApp": { gsId: "19dRyVr0kNbz0nLepsHHP1qP9fmYFEPpXF8p55beLetA", tabs: { "JobTracker": 0 } },
   "L-Google": { gsId: "1PJYeBDpkdeTzLQ1Psp2IqFUlyLqOwkV0VVnmqCWDhmk", tabs: { "JobTracker": 211892049 } },
 };
-for (const [source, info] of Object.entries(gsMapping)) {
-  if (!info.gsId) continue;
-  for (const [tab, wsId] of Object.entries(info.tabs)) {
-    try {
-      sqlite.exec(`UPDATE sheet_configs SET google_sheet_id = '${info.gsId}', worksheet_id = ${wsId} WHERE source = '${source}' AND sheet = '${tab}' AND (google_sheet_id IS NULL OR google_sheet_id = '')`);
-    } catch {}
-  }
+
+// Helper: look up Google Sheet ID for a source+tab
+function getGsId(source: string, tab: string): string | null {
+  return gsMapping[source]?.gsId || null;
+}
+function getWsId(source: string, tab: string): number | null {
+  return gsMapping[source]?.tabs?.[tab] ?? null;
 }
 
 export const db = drizzle(sqlite);
@@ -229,34 +229,41 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
-    // Seed default sheet configs with language pairs and SheetDB IDs
+    // Seed default sheet configs with language pairs, SheetDB IDs, and Google Sheet IDs
     const defaultConfigs = [
-      { source: "Amazon", sheet: "non-AFT", languagePair: "EN>TR", sheetDbId: "mukq6ww3ssuk0", assignedPms: null, googleSheetUrl: null },
-      { source: "Amazon", sheet: "TPT", languagePair: "EN>TR", sheetDbId: "mukq6ww3ssuk0", assignedPms: null, googleSheetUrl: null },
-      { source: "Amazon", sheet: "AFT", languagePair: "EN>TR", sheetDbId: "mukq6ww3ssuk0", assignedPms: null, googleSheetUrl: null },
-      { source: "Amazon", sheet: "Non-EN", languagePair: "Multi", sheetDbId: "mukq6ww3ssuk0", assignedPms: null, googleSheetUrl: null },
-      { source: "Amazon", sheet: "DPX", languagePair: "EN>TR", sheetDbId: "mukq6ww3ssuk0", assignedPms: null, googleSheetUrl: null },
-      { source: "AppleCare", sheet: "Assignments", languagePair: "EN>TR", sheetDbId: "v6i82rdrqa34n", assignedPms: null, googleSheetUrl: null },
-      { source: "AppleCare", sheet: "RU Assignments", languagePair: "EN>RU", sheetDbId: "v6i82rdrqa34n", assignedPms: null, googleSheetUrl: null },
-      { source: "AppleCare", sheet: "AR Assignments", languagePair: "EN>AR", sheetDbId: "v6i82rdrqa34n", assignedPms: null, googleSheetUrl: null },
-      { source: "Inditex", sheet: "Assignments", languagePair: "ES>TR", sheetDbId: "ayv4m7o5lbe1r", assignedPms: null, googleSheetUrl: null },
-      { source: "Games", sheet: "GamesTracker", languagePair: "EN>TR", sheetDbId: "qyg6b74ds65hd", assignedPms: null, googleSheetUrl: null },
-      { source: "SONY", sheet: "Sheet1", languagePair: "EN>TR", sheetDbId: "puf2i6du3igu9", assignedPms: null, googleSheetUrl: null },
-      { source: "Facebook", sheet: "JobTracker", languagePair: "EN>TR", sheetDbId: "t3acsw7tx8tan", assignedPms: null, googleSheetUrl: null },
-      { source: "Facebook", sheet: "CMS", languagePair: "EN>TR", sheetDbId: "t3acsw7tx8tan", assignedPms: null, googleSheetUrl: null },
-      { source: "Facebook", sheet: "Offline", languagePair: "EN>TR", sheetDbId: "t3acsw7tx8tan", assignedPms: null, googleSheetUrl: null },
-      { source: "Arabic", sheet: "Translation", languagePair: "EN>AR", sheetDbId: "sl3nyrnj8lbsg", assignedPms: null, googleSheetUrl: null },
-      { source: "TikTok", sheet: "Assignments", languagePair: "EN>TR", sheetDbId: "37qdu0ciovlrp", assignedPms: null, googleSheetUrl: null },
-      { source: "WhatsApp", sheet: "JobTracker", languagePair: "EN>TR", sheetDbId: "xb3a5ry6aiks1", assignedPms: null, googleSheetUrl: null },
-      { source: "L-Google", sheet: "JobTracker", languagePair: "EN>TR", sheetDbId: "nyv5veup2tabu", assignedPms: null, googleSheetUrl: null },
+      { source: "Amazon", sheet: "non-AFT", languagePair: "EN>TR", sheetDbId: "mukq6ww3ssuk0", assignedPms: null, googleSheetUrl: null, googleSheetId: getGsId("Amazon", "non-AFT"), worksheetId: getWsId("Amazon", "non-AFT") },
+      { source: "Amazon", sheet: "TPT", languagePair: "EN>TR", sheetDbId: "mukq6ww3ssuk0", assignedPms: null, googleSheetUrl: null, googleSheetId: getGsId("Amazon", "TPT"), worksheetId: getWsId("Amazon", "TPT") },
+      { source: "Amazon", sheet: "AFT", languagePair: "EN>TR", sheetDbId: "mukq6ww3ssuk0", assignedPms: null, googleSheetUrl: null, googleSheetId: getGsId("Amazon", "AFT"), worksheetId: getWsId("Amazon", "AFT") },
+      { source: "Amazon", sheet: "Non-EN", languagePair: "Multi", sheetDbId: "mukq6ww3ssuk0", assignedPms: null, googleSheetUrl: null, googleSheetId: getGsId("Amazon", "Non-EN"), worksheetId: getWsId("Amazon", "Non-EN") },
+      { source: "Amazon", sheet: "DPX", languagePair: "EN>TR", sheetDbId: "mukq6ww3ssuk0", assignedPms: null, googleSheetUrl: null, googleSheetId: getGsId("Amazon", "DPX"), worksheetId: getWsId("Amazon", "DPX") },
+      { source: "AppleCare", sheet: "Assignments", languagePair: "EN>TR", sheetDbId: "v6i82rdrqa34n", assignedPms: null, googleSheetUrl: null, googleSheetId: getGsId("AppleCare", "Assignments"), worksheetId: getWsId("AppleCare", "Assignments") },
+      { source: "AppleCare", sheet: "RU Assignments", languagePair: "EN>RU", sheetDbId: "v6i82rdrqa34n", assignedPms: null, googleSheetUrl: null, googleSheetId: getGsId("AppleCare", "RU Assignments"), worksheetId: getWsId("AppleCare", "RU Assignments") },
+      { source: "AppleCare", sheet: "AR Assignments", languagePair: "EN>AR", sheetDbId: "v6i82rdrqa34n", assignedPms: null, googleSheetUrl: null, googleSheetId: getGsId("AppleCare", "AR Assignments"), worksheetId: getWsId("AppleCare", "AR Assignments") },
+      { source: "Inditex", sheet: "Assignments", languagePair: "ES>TR", sheetDbId: "ayv4m7o5lbe1r", assignedPms: null, googleSheetUrl: null, googleSheetId: getGsId("Inditex", "Assignments"), worksheetId: getWsId("Inditex", "Assignments") },
+      { source: "Games", sheet: "GamesTracker", languagePair: "EN>TR", sheetDbId: "qyg6b74ds65hd", assignedPms: null, googleSheetUrl: null, googleSheetId: getGsId("Games", "GamesTracker"), worksheetId: getWsId("Games", "GamesTracker") },
+      { source: "SONY", sheet: "Sheet1", languagePair: "EN>TR", sheetDbId: "puf2i6du3igu9", assignedPms: null, googleSheetUrl: null, googleSheetId: getGsId("SONY", "Sheet1"), worksheetId: getWsId("SONY", "Sheet1") },
+      { source: "Facebook", sheet: "JobTracker", languagePair: "EN>TR", sheetDbId: "t3acsw7tx8tan", assignedPms: null, googleSheetUrl: null, googleSheetId: getGsId("Facebook", "JobTracker"), worksheetId: getWsId("Facebook", "JobTracker") },
+      { source: "Facebook", sheet: "CMS", languagePair: "EN>TR", sheetDbId: "t3acsw7tx8tan", assignedPms: null, googleSheetUrl: null, googleSheetId: getGsId("Facebook", "CMS"), worksheetId: getWsId("Facebook", "CMS") },
+      { source: "Facebook", sheet: "Offline", languagePair: "EN>TR", sheetDbId: "t3acsw7tx8tan", assignedPms: null, googleSheetUrl: null, googleSheetId: getGsId("Facebook", "Offline"), worksheetId: getWsId("Facebook", "Offline") },
+      { source: "Arabic", sheet: "Translation", languagePair: "EN>AR", sheetDbId: "sl3nyrnj8lbsg", assignedPms: null, googleSheetUrl: null, googleSheetId: getGsId("Arabic", "Translation"), worksheetId: getWsId("Arabic", "Translation") },
+      { source: "TikTok", sheet: "Assignments", languagePair: "EN>TR", sheetDbId: "37qdu0ciovlrp", assignedPms: null, googleSheetUrl: null, googleSheetId: getGsId("TikTok", "Assignments"), worksheetId: getWsId("TikTok", "Assignments") },
+      { source: "WhatsApp", sheet: "JobTracker", languagePair: "EN>TR", sheetDbId: "xb3a5ry6aiks1", assignedPms: null, googleSheetUrl: null, googleSheetId: getGsId("WhatsApp", "JobTracker"), worksheetId: getWsId("WhatsApp", "JobTracker") },
+      { source: "L-Google", sheet: "JobTracker", languagePair: "EN>TR", sheetDbId: "nyv5veup2tabu", assignedPms: null, googleSheetUrl: null, googleSheetId: getGsId("L-Google", "JobTracker"), worksheetId: getWsId("L-Google", "JobTracker") },
     ];
     for (const c of defaultConfigs) {
       const existing = db.select().from(sheetConfigs)
         .where(and(eq(sheetConfigs.source, c.source), eq(sheetConfigs.sheet, c.sheet))).get();
       if (!existing) {
         db.insert(sheetConfigs).values(c).run();
-      } else if (!existing.sheetDbId) {
-        db.update(sheetConfigs).set({ sheetDbId: c.sheetDbId }).where(eq(sheetConfigs.id, existing.id)).run();
+      } else {
+        // Always update googleSheetId if missing (fixes existing DBs from before migration)
+        const updates: any = {};
+        if (!existing.sheetDbId && c.sheetDbId) updates.sheetDbId = c.sheetDbId;
+        if (!existing.googleSheetId && c.googleSheetId) updates.googleSheetId = c.googleSheetId;
+        if (existing.worksheetId == null && c.worksheetId != null) updates.worksheetId = c.worksheetId;
+        if (Object.keys(updates).length > 0) {
+          db.update(sheetConfigs).set(updates).where(eq(sheetConfigs.id, existing.id)).run();
+        }
       }
     }
 
