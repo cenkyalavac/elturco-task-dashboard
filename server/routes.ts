@@ -1157,9 +1157,15 @@ const freelancers = (Array.isArray(data) ? data : [])
           const revValue = timeSpent ? String(timeSpent) : "Yes";
           await safeWriteStatusToSheet(assignment, "revComplete", revValue);
         }
-        // Write QS score to sheet if provided (reviewer only)
+        // Write QS score to sheet + ELTS if provided (reviewer only)
         if (qsScore && role === "reviewer") {
           await safeWriteQsToSheet(assignment, String(qsScore));
+          // Also send to ELTS as QualityReport
+          try {
+            await writeQsToElts(assignment, offer, parseFloat(String(qsScore)));
+          } catch (e) {
+            console.error("ELTS QS write error (non-fatal):", e);
+          }
         }
       }
     } catch (e) {
@@ -1482,6 +1488,62 @@ const freelancers = (Array.isArray(data) ? data : [])
       console.log(`Sheet QS write OK: ${qsCol}=${qsValue} for project ${projectId}`);
     } catch (e) {
       console.error("Sheet QS write error (non-fatal):", e);
+    }
+  }
+
+  // ---- WRITE QS TO ELTS (QualityReport entity) ----
+  async function writeQsToElts(assignment: any, offer: any, qsScore: number) {
+    if (!BASE44_KEY) return;
+    try {
+      // 1. Resolve freelancer resource_code → freelancer_id
+      const flRes = await fetch(BASE44_API, {
+        headers: { "Content-Type": "application/json", "api_key": BASE44_KEY },
+      });
+      const freelancers = await flRes.json();
+      const fl = Array.isArray(freelancers)
+        ? freelancers.find((f: any) => f.resource_code === offer.freelancerCode)
+        : null;
+      if (!fl) {
+        console.log(`ELTS QS: freelancer ${offer.freelancerCode} not found in ELTS`);
+        return;
+      }
+
+      // 2. Resolve reviewer (the PM who set up the assignment)
+      const pmUser = storage.getAllPmUsers().find(u => u.id === assignment.assignedBy);
+
+      // 3. Build QualityReport payload
+      const taskDetails = JSON.parse(assignment.taskDetails || "{}");
+      const reportUrl = BASE44_API.replace("/entities/Freelancer", "/entities/QualityReport");
+      const payload = {
+        freelancer_id: fl.id,
+        client_account: assignment.account || taskDetails.account || assignment.source || "Unknown",
+        qs_score: qsScore,
+        report_type: "QS",
+        job_id: assignment.projectId,
+        project_name: taskDetails.projectTitle || assignment.projectId,
+        source_language: "en",
+        target_language: "tr",
+        report_date: new Date().toISOString().slice(0, 10).split("-").reverse().join("."),
+        reviewer_name: pmUser?.initial || pmUser?.name || "PM",
+        status: "finalized",
+        content_type: assignment.source || "",
+        word_count: parseFloat((taskDetails.wwc || "0").toString().replace(/[^\d.,]/g, "").replace(",", ".")) || 0,
+      };
+
+      const res = await fetch(reportUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "api_key": BASE44_KEY },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        console.log(`ELTS QS write OK: ${offer.freelancerCode} QS=${qsScore} account=${payload.client_account} project=${assignment.projectId}`);
+      } else {
+        const err = await res.text();
+        console.error(`ELTS QS write failed ${res.status}: ${err}`);
+      }
+    } catch (e) {
+      console.error("ELTS QS write error:", e);
     }
   }
 
