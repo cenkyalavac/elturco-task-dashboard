@@ -5,13 +5,13 @@
 
 import crypto from "crypto";
 
-// Secret: prefer env var, fall back to deterministic default.
-// WARNING: Set JWT_SECRET env var in production for security.
+// Secret: MUST be set via env var. Random fallback for dev only (sessions won't persist).
 const JWT_SECRET = process.env.JWT_SECRET || (() => {
   if (process.env.NODE_ENV === "production") {
-    console.warn("WARNING: JWT_SECRET env var not set. Using default secret. Set JWT_SECRET in Railway for security.");
+    console.error("CRITICAL: JWT_SECRET env var not set in production!");
   }
-  return "elturco-dispatch-default-jwt-secret-2026";
+  // Dev-only: random per-process (sessions reset on restart, which is fine for dev)
+  return require("crypto").randomBytes(32).toString("hex");
 })();
 
 const ALGORITHM = "HS256";

@@ -83,7 +83,7 @@ function param(req: Request, name: string): string {
 // CONFIG
 // ============================================
 const BASE44_API = process.env.BASE44_API || "https://elts.base44.app/api/apps/694868412332f081649b2833/entities/Freelancer";
-const BASE44_KEY = process.env.BASE44_KEY || "bf9b19a625ae4083ba38b8585fb5a78f";
+const BASE44_KEY = process.env.BASE44_KEY || "";
 const FROM_EMAIL = process.env.FROM_EMAIL || "ElTurco Projects <projects@eltur.co>";
 const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
 const SHEETDB_API_KEY = process.env.SHEETDB_API_KEY || "";

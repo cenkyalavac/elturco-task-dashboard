@@ -208,20 +208,18 @@ export interface IStorage {
 
 export class DatabaseStorage implements IStorage {
   constructor() {
-    // Seed default PM user
-    // Seed default admin users with passwords
+    // Seed default admin users (password from env var or skip if not set)
+    const seedPassword = process.env.SEED_ADMIN_PASSWORD || "";
     const seeds = [
-      { email: "perplexity@eltur.co", name: "Cenk Yalavaç", initial: "CY", password: "elturco2026", role: "admin" },
-      { email: "cenk@eltur.co", name: "Cenk Yalavaç", initial: "CY", password: "elturco2026", role: "admin" },
+      { email: "perplexity@eltur.co", name: "Cenk Yalavaç", initial: "CY", role: "admin" },
+      { email: "cenk@eltur.co", name: "Cenk Yalavaç", initial: "CY", role: "admin" },
     ];
     for (const s of seeds) {
       const existing = db.select().from(pmUsers).where(eq(pmUsers.email, s.email)).get();
-      if (!existing) {
-        db.insert(pmUsers).values(s).run();
-      } else {
-        // Update password and initial if missing
+      if (!existing && seedPassword) {
+        db.insert(pmUsers).values({ ...s, password: seedPassword }).run();
+      } else if (existing) {
         const updates: any = {};
-        if (!existing.password) updates.password = s.password;
         if (!existing.initial && s.initial) updates.initial = s.initial;
         if (Object.keys(updates).length > 0) {
           db.update(pmUsers).set(updates).where(eq(pmUsers.email, s.email)).run();
