@@ -15,7 +15,7 @@ import {
   CheckCircle2, Pencil, Save, Eye, Code, ListOrdered, Trash2,
   Ban, Clock, XCircle, UserCheck, CheckSquare,
   FileSpreadsheet, ArrowUpDown, StickyNote, GripVertical, Mail, Filter,
-  Star, Volume2, VolumeX, CalendarClock, Undo2, UserX,
+  Star, Volume2, VolumeX, CalendarClock, Undo2, UserX, ExternalLink,
 } from "lucide-react";
 import VisualEmailEditor from "@/components/VisualEmailEditor";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -125,6 +125,16 @@ interface SheetConfig {
   assignedPms?: string | null;
   googleSheetId?: string | null;
   worksheetId?: number | null;
+}
+
+// Build Google Sheets URL from config
+function getSheetUrl(configs: SheetConfig[] | undefined, source: string, sheet: string): string | null {
+  if (!configs) return null;
+  const cfg = configs.find(c => c.source === source && c.sheet === sheet);
+  if (!cfg?.googleSheetId) return null;
+  let url = `https://docs.google.com/spreadsheets/d/${cfg.googleSheetId}`;
+  if (cfg.worksheetId) url += `/edit#gid=${cfg.worksheetId}`;
+  return url;
 }
 
 interface EmailTemplate {
@@ -1830,9 +1840,20 @@ export default function DashboardPage() {
           </span>
         </td>
         <td className="px-2 py-2 hidden md:table-cell">
-          <Badge variant="secondary" className="text-[10px] font-normal px-1.5 py-0 bg-white/[0.04] border border-white/[0.06]">
-            {task.source}/{task.sheet}
-          </Badge>
+          {(() => {
+            const sheetUrl = getSheetUrl(sheetConfigs as SheetConfig[] | undefined, task.source, task.sheet);
+            return sheetUrl ? (
+              <a href={sheetUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} title="Open Google Sheet">
+                <Badge variant="secondary" className="text-[10px] font-normal px-1.5 py-0 bg-white/[0.04] border border-white/[0.06] hover:bg-blue-500/10 hover:border-blue-500/20 cursor-pointer transition-colors">
+                  {task.source}/{task.sheet} <ExternalLink className="w-2.5 h-2.5 ml-0.5 inline opacity-40" />
+                </Badge>
+              </a>
+            ) : (
+              <Badge variant="secondary" className="text-[10px] font-normal px-1.5 py-0 bg-white/[0.04] border border-white/[0.06]">
+                {task.source}/{task.sheet}
+              </Badge>
+            );
+          })()}
         </td>
         <td className="px-2 py-2 text-muted-foreground text-xs truncate max-w-[120px]">{task.account}</td>
         <td className="px-2 py-2 text-xs hidden md:table-cell">
@@ -2325,7 +2346,18 @@ export default function DashboardPage() {
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
                         <h3 className="font-semibold text-sm text-foreground">{selectedTask.projectId}</h3>
-                        <Badge variant="secondary" className="text-[10px] bg-white/[0.04] border border-white/[0.06]">{selectedTask.source}/{selectedTask.sheet}</Badge>
+                        {(() => {
+                          const sheetUrl = getSheetUrl(sheetConfigs as SheetConfig[] | undefined, selectedTask.source, selectedTask.sheet);
+                          return sheetUrl ? (
+                            <a href={sheetUrl} target="_blank" rel="noopener noreferrer" title="Open Google Sheet">
+                              <Badge variant="secondary" className="text-[10px] bg-white/[0.04] border border-white/[0.06] hover:bg-blue-500/10 hover:border-blue-500/20 cursor-pointer transition-colors">
+                                {selectedTask.source}/{selectedTask.sheet} <ExternalLink className="w-2.5 h-2.5 ml-0.5 inline opacity-40" />
+                              </Badge>
+                            </a>
+                          ) : (
+                            <Badge variant="secondary" className="text-[10px] bg-white/[0.04] border border-white/[0.06]">{selectedTask.source}/{selectedTask.sheet}</Badge>
+                          );
+                        })()}
                       </div>
                       <Button variant="ghost" size="sm" onClick={() => setSelectedTaskKey(null)} data-testid="button-close-panel" className="h-6 w-6 p-0 hover:bg-white/[0.06]">
                         <X className="w-4 h-4" />
