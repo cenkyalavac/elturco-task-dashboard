@@ -1848,9 +1848,12 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   // ---- PROJECT COMPLETE (PM action) ----
 
-  app.post("/api/tasks/complete", requireAuth, (req: Request, res: Response) => {
+  app.post("/api/tasks/complete", requireAuth, async (req: Request, res: Response) => {
     const { source, sheet, projectId, revCompleteValue } = req.body;
     if (!source || !projectId) return res.status(400).json({ error: "Missing fields" });
+    const valueToWrite = revCompleteValue || "Yes";
+
+    // Update local assignment if exists
     const all = storage.getAllAssignments();
     const assignment = all.find(a =>
       a.source === source && a.projectId === projectId &&
@@ -1862,7 +1865,27 @@ const freelancers = (Array.isArray(data) ? data : [])
         completedAt: new Date().toISOString(),
       });
     }
-    res.json({ success: true, revCompleteValue: revCompleteValue || "Yes" });
+
+    // Write Rev Complete value to Google Sheet
+    try {
+      const configs = storage.getAllSheetConfigs();
+      const config = configs.find(c => c.source === source && c.sheet === (sheet || ""));
+      if (config && config.googleSheetId) {
+        const gsConfig: SheetWriteConfig = {
+          googleSheetId: config.googleSheetId,
+          tabName: sheet || config.sheet,
+          projectId,
+        };
+        const result = await gsWriteToColumn(gsConfig, REV_COMPLETE_CANDIDATES, valueToWrite, { skipSafetyCheck: true });
+        console.log(`Mark complete [${source}/${sheet}/${projectId}]: ${result.message}`);
+      } else {
+        console.error(`Mark complete SKIPPED [${source}/${sheet}/${projectId}]: No Google Sheet config`);
+      }
+    } catch (e) {
+      console.error(`Mark complete sheet write error (non-fatal):`, e);
+    }
+
+    res.json({ success: true, revCompleteValue: valueToWrite });
   });
 
   // ---- ELTS QUALITY SCORES (account-based from QualityReport entity) ----
