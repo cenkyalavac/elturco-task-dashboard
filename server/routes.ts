@@ -283,7 +283,7 @@ function buildApiBase(req: Request): string {
 }
 
 // Auth middleware — supports JWT tokens (survive deploys) and legacy DB sessions
-function requireAuth(req: Request, res: Response, next: NextFunction) {
+async function requireAuth(req: Request, res: Response, next: NextFunction) {
   const token = req.headers.authorization?.replace("Bearer ", "");
   if (!token) return res.status(401).json({ error: "No token provided" });
 
@@ -295,10 +295,10 @@ function requireAuth(req: Request, res: Response, next: NextFunction) {
   }
 
   // 2. Fallback: legacy DB session (for tokens issued before JWT migration)
-  const session = storage.getSession(token);
+  const session = await storage.getSession(token);
   if (!session) return res.status(401).json({ error: "Invalid session" });
   if (new Date(session.expiresAt) < new Date()) {
-    storage.deleteSession(token);
+    await storage.deleteSession(token);
     return res.status(401).json({ error: "Session expired" });
   }
   (req as any).pmUserId = session.pmUserId;
@@ -592,7 +592,7 @@ ${revTypeRow}
 </table>`;
 }
 
-function buildOfferEmailHtml(task: any, offer: any, assignment: any, customSubject?: string, customBody?: string): { subject: string; html: string } {
+async function buildOfferEmailHtml(task: any, offer: any, assignment: any, customSubject?: string, customBody?: string): Promise<{ subject: string; html: string }> {
   // Use clientBaseUrl (direct proxy URL) for the accept link — avoids hash fragment
   // loss when Perplexity loads the page in an iframe. Falls back to SITE_PUBLIC_URL.
   const base = offer.clientBaseUrl || SITE_PUBLIC_URL;
@@ -633,7 +633,7 @@ function buildOfferEmailHtml(task: any, offer: any, assignment: any, customSubje
     subject = replaceVars(customSubject, vars);
   } else {
     const templateKey = assignment.role === "translator" ? "offer_translator" : "offer_reviewer";
-    const tpl = storage.getEmailTemplate(templateKey);
+    const tpl = await storage.getEmailTemplate(templateKey);
     subject = tpl ? replaceVars(tpl.subject, vars) : `${role} Task — ${task.account} — ${task.projectId}`;
   }
 
@@ -643,7 +643,7 @@ function buildOfferEmailHtml(task: any, offer: any, assignment: any, customSubje
     bodyContent = replaceVars(customBody, vars);
   } else {
     const templateKey = assignment.role === "translator" ? "offer_translator" : "offer_reviewer";
-    const tpl = storage.getEmailTemplate(templateKey);
+    const tpl = await storage.getEmailTemplate(templateKey);
     bodyContent = tpl ? replaceVars(tpl.body, vars) : buildDefaultOfferBody(vars, task);
   }
 
@@ -715,9 +715,9 @@ function setCache<T>(key: string, data: T): void {
 }
 
 // Helper to create notification + broadcast
-function notify(type: string, title: string, message: string, metadata?: any) {
+async function notify(type: string, title: string, message: string, metadata?: any) {
   try {
-    const n = storage.createNotification({
+    const n = await storage.createNotification({
       type, title, message,
       metadata: metadata ? JSON.stringify(metadata) : null,
       read: 0,
@@ -730,6 +730,10 @@ function notify(type: string, title: string, message: string, metadata?: any) {
 }
 
 export async function registerRoutes(server: Server, app: Express) {
+
+  // Initialize storage (seed data, run migrations)
+  await storage.init();
+
 
   // ---- HEALTH CHECK ----
   app.get("/api/health", (_req: Request, res: Response) => {
@@ -760,7 +764,7 @@ export async function registerRoutes(server: Server, app: Express) {
     if (!body) return;
 
     const emailNorm = body.email.toLowerCase().trim();
-    const pmUser = storage.getPmUserByEmail(emailNorm);
+    const pmUser = await storage.getPmUserByEmail(emailNorm);
     if (!pmUser) return res.status(401).json({ error: "Invalid email or password." });
     // Support both bcrypt hashed and legacy plaintext passwords
     const isHashed = pmUser.password.startsWith("$2");
@@ -771,7 +775,7 @@ export async function registerRoutes(server: Server, app: Express) {
     // Auto-upgrade plaintext password to bcrypt on successful login
     if (!isHashed) {
       const hashed = await bcrypt.hash(body.password, 10);
-      storage.updatePmUser(pmUser.id, { password: hashed });
+      await storage.updatePmUser(pmUser.id, { password: hashed });
     }
 
     // Issue a JWT — survives server restarts and deploys (no DB lookup needed)
@@ -785,8 +789,8 @@ export async function registerRoutes(server: Server, app: Express) {
   // Magic-link redirect: email links point here.
   // We serve an HTML page that does a client-side redirect so the hash
   // fragment is preserved (302 redirects drop the hash in most browsers).
-  app.get("/api/auth/redirect/:token", (req: Request, res: Response) => {
-    const authToken = storage.getAuthToken(param(req, "token"));
+  app.get("/api/auth/redirect/:token", async (req: Request, res: Response) => {
+    const authToken = await storage.getAuthToken(param(req, "token"));
     if (!authToken || !authToken.clientBaseUrl) {
       return res.status(404).send("Invalid or expired link.");
     }
@@ -795,8 +799,8 @@ export async function registerRoutes(server: Server, app: Express) {
   });
 
   // Offer redirect: freelancer email links point here
-  app.get("/api/offers/redirect/:token", (req: Request, res: Response) => {
-    const offer = storage.getOfferByToken(param(req, "token"));
+  app.get("/api/offers/redirect/:token", async (req: Request, res: Response) => {
+    const offer = await storage.getOfferByToken(param(req, "token"));
     if (!offer) {
       return res.status(404).send("Offer not found or expired.");
     }
@@ -806,20 +810,20 @@ export async function registerRoutes(server: Server, app: Express) {
   });
 
   // Get current user
-  app.get("/api/auth/me", requireAuth, (req: Request, res: Response) => {
+  app.get("/api/auth/me", requireAuth, async (req: Request, res: Response) => {
     const pmUserId = (req as any).pmUserId;
-    const allUsers = storage.getAllPmUsers();
+    const allUsers = await storage.getAllPmUsers();
     const user = allUsers.find(u => u.id === pmUserId);
     if (!user) return res.status(404).json({ error: "User not found" });
     res.json({ id: user.id, email: user.email, name: user.name, role: user.role });
   });
 
-  app.post("/api/auth/logout", (req: Request, res: Response) => {
+  app.post("/api/auth/logout", async (req: Request, res: Response) => {
     // JWT is stateless — logout just acknowledges. Client clears its stored token.
     // Also delete legacy DB session if it exists.
     const token = req.headers.authorization?.replace("Bearer ", "");
     if (token) {
-      try { storage.deleteSession(token); } catch {}
+      try { await storage.deleteSession(token); } catch {}
     }
     res.json({ success: true });
   });
@@ -871,7 +875,7 @@ const freelancers = (Array.isArray(data) ? data : [])
     const cached = getCached<any[]>("allTasks", 300000); // 5 min
     if (cached) return cached;
 
-    const configs = storage.getAllSheetConfigs();
+    const configs = await storage.getAllSheetConfigs();
     const allTasks: any[] = [];
 
     // Fetch all sheets in parallel (Google Sheets API has generous rate limits)
@@ -898,14 +902,14 @@ const freelancers = (Array.isArray(data) ? data : [])
       const allTasks = await getAllTasksCached();
 
       // PM-specific filtering
-      const pmEmail = (() => {
+      const pmEmail = await (async () => {
         const pmUserId = (req as any).pmUserId;
         if (!pmUserId) return null;
-        const allUsers = storage.getAllPmUsers();
+        const allUsers = await storage.getAllPmUsers();
         const user = allUsers.find(u => u.id === pmUserId);
         return user?.email || null;
       })();
-      const configs = storage.getAllSheetConfigs();
+      const configs = await storage.getAllSheetConfigs();
       const visibleSheets = new Set(
         configs.filter(c => {
           if (!c.assignedPms) return true;
@@ -919,7 +923,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       const filtered = includeDelivered ? pmTasks : pmTasks.filter((t: any) => t.delivered !== "Delivered");
 
       // Overlay local assignment data onto tasks (covers SheetDB propagation delay)
-      const allAssignments = storage.getAllAssignments();
+      const allAssignments = await storage.getAllAssignments();
       const assignMap = new Map<string, any[]>();
       for (const a of allAssignments) {
         if (a.status !== "accepted" && a.status !== "completed") continue;
@@ -950,45 +954,45 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   // ---- ASSIGNMENT ROUTES ----
 
-  app.get("/api/assignments", requireAuth, (_req: Request, res: Response) => {
-    const all = storage.getAllAssignments();
-    const enriched = all.map(a => ({
+  app.get("/api/assignments", requireAuth, async (_req: Request, res: Response) => {
+    const all = await storage.getAllAssignments();
+    const enriched = await Promise.all(all.map(async a => ({
       ...a,
       taskDetails: JSON.parse(a.taskDetails || "{}"),
       sequenceList: a.sequenceList ? JSON.parse(a.sequenceList) : null,
       broadcastList: a.broadcastList ? JSON.parse(a.broadcastList) : null,
-      offers: storage.getOffersByAssignment(a.id),
-    }));
+      offers: await storage.getOffersByAssignment(a.id),
+    })));
     res.json(enriched);
   });
 
-  app.get("/api/assignments/:id", requireAuth, (req: Request, res: Response) => {
-    const a = storage.getAssignment(+param(req, "id"));
+  app.get("/api/assignments/:id", requireAuth, async (req: Request, res: Response) => {
+    const a = await storage.getAssignment(+param(req, "id"));
     if (!a) return res.status(404).json({ error: "Assignment not found" });
     res.json({
       ...a,
       taskDetails: JSON.parse(a.taskDetails || "{}"),
       sequenceList: a.sequenceList ? JSON.parse(a.sequenceList) : null,
       broadcastList: a.broadcastList ? JSON.parse(a.broadcastList) : null,
-      offers: storage.getOffersByAssignment(a.id),
+      offers: await storage.getOffersByAssignment(a.id),
     });
   });
 
   // Cancel assignment and withdraw all pending offers
-  app.post("/api/assignments/:id/cancel", requireAuth, (req: Request, res: Response) => {
-    const assignment = storage.getAssignment(+param(req, "id"));
+  app.post("/api/assignments/:id/cancel", requireAuth, async (req: Request, res: Response) => {
+    const assignment = await storage.getAssignment(+param(req, "id"));
     if (!assignment) return res.status(404).json({ error: "Assignment not found" });
     if (assignment.status === "completed") {
       return res.status(400).json({ error: "Cannot cancel a completed assignment" });
     }
 
     const now = new Date().toISOString();
-    storage.updateAssignment(assignment.id, { status: "cancelled" });
+    await storage.updateAssignment(assignment.id, { status: "cancelled" });
 
-    const offers = storage.getOffersByAssignment(assignment.id);
+    const offers = await storage.getOffersByAssignment(assignment.id);
     for (const offer of offers) {
       if (offer.status === "pending") {
-        storage.updateOffer(offer.id, { status: "withdrawn", respondedAt: now });
+        await storage.updateOffer(offer.id, { status: "withdrawn", respondedAt: now });
       }
     }
 
@@ -996,28 +1000,28 @@ const freelancers = (Array.isArray(data) ? data : [])
   });
 
   // Withdraw a specific offer
-  app.post("/api/offers/:id/withdraw", requireAuth, (req: Request, res: Response) => {
-    const offer = storage.getOffer(+param(req, "id"));
+  app.post("/api/offers/:id/withdraw", requireAuth, async (req: Request, res: Response) => {
+    const offer = await storage.getOffer(+param(req, "id"));
     if (!offer) return res.status(404).json({ error: "Offer not found" });
     if (offer.status !== "pending") {
       return res.status(400).json({ error: "Only pending offers can be withdrawn" });
     }
-    storage.updateOffer(offer.id, { status: "withdrawn", respondedAt: new Date().toISOString() });
+    await storage.updateOffer(offer.id, { status: "withdrawn", respondedAt: new Date().toISOString() });
     res.json({ success: true, message: "Offer withdrawn." });
   });
 
   // ---- ASSIGN TO ME ----
-  app.post("/api/assignments/self-assign", requireAuth, (req: Request, res: Response) => {
+  app.post("/api/assignments/self-assign", requireAuth, async (req: Request, res: Response) => {
     const body = validate(selfAssignSchema, req.body, res);
     if (!body) return;
     const { source, sheet, projectId, account, taskDetails, role } = body;
 
     const pmUserId = (req as any).pmUserId;
-    const user = storage.getAllPmUsers().find(u => u.id === pmUserId);
+    const user = (await storage.getAllPmUsers()).find(u => u.id === pmUserId);
     if (!user) return res.status(404).json({ error: "User not found" });
 
     const now = new Date().toISOString();
-    const assignment = storage.createAssignment({
+    const assignment = await storage.createAssignment({
       source, sheet: sheet || "", projectId, account: account || "",
       taskDetails: JSON.stringify(taskDetails || {}),
       assignmentType: "direct", role, status: "accepted",
@@ -1056,7 +1060,7 @@ const freelancers = (Array.isArray(data) ? data : [])
     if (!source || !projectId || !role || !freelancerCode) return res.status(400).json({ error: "Missing fields" });
 
     const now = new Date().toISOString();
-    const assignment = storage.createAssignment({
+    const assignment = await storage.createAssignment({
       source, sheet: sheet || "", projectId, account: account || "",
       taskDetails: JSON.stringify(taskDetails || {}),
       assignmentType: "direct", role, status: "accepted",
@@ -1074,7 +1078,7 @@ const freelancers = (Array.isArray(data) ? data : [])
     // Create a pre-accepted offer
     const token = randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "");
     const clientBase = resolveBaseUrl(req);
-    storage.createOffer({
+    await storage.createOffer({
       assignmentId: assignment.id,
       freelancerCode,
       freelancerName: freelancerName || freelancerCode,
@@ -1118,7 +1122,7 @@ const freelancers = (Array.isArray(data) ? data : [])
 
     const now = new Date().toISOString();
 
-    const assignment = storage.createAssignment({
+    const assignment = await storage.createAssignment({
       source,
       sheet: sheet || "",
       projectId,
@@ -1153,7 +1157,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       // Send to all freelancers at once
       for (const f of freelancers) {
         const offerToken = generateToken();
-        const offer = storage.createOffer({
+        const offer = await storage.createOffer({
           assignmentId: assignment.id,
           freelancerCode: f.resourceCode,
           freelancerName: f.fullName,
@@ -1166,7 +1170,7 @@ const freelancers = (Array.isArray(data) ? data : [])
         });
 
         try {
-          const email = buildOfferEmailHtml(task, offer, assignment, emailSubject, emailBody);
+          const email = await buildOfferEmailHtml(task, offer, assignment, emailSubject, emailBody);
           sendEmail([f.email], email.subject, email.html);
         } catch (e) {
           console.error(`Failed to send email to ${f.email}:`, e);
@@ -1177,7 +1181,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       const first = freelancers[0];
       if (first) {
         const offerToken = generateToken();
-        const offer = storage.createOffer({
+        const offer = await storage.createOffer({
           assignmentId: assignment.id,
           freelancerCode: first.resourceCode,
           freelancerName: first.fullName,
@@ -1190,7 +1194,7 @@ const freelancers = (Array.isArray(data) ? data : [])
         });
 
         try {
-          const email = buildOfferEmailHtml(task, offer, assignment, emailSubject, emailBody);
+          const email = await buildOfferEmailHtml(task, offer, assignment, emailSubject, emailBody);
           sendEmail([first.email], email.subject, email.html);
         } catch (e) {
           console.error(`Failed to send email to ${first.email}:`, e);
@@ -1206,7 +1210,7 @@ const freelancers = (Array.isArray(data) ? data : [])
     const enriched = {
       ...assignment,
       taskDetails: JSON.parse(assignment.taskDetails || "{}"),
-      offers: storage.getOffersByAssignment(assignment.id),
+      offers: await storage.getOffersByAssignment(assignment.id),
     };
     res.json(enriched);
   });
@@ -1217,10 +1221,10 @@ const freelancers = (Array.isArray(data) ? data : [])
   app.get("/api/offers/:token", offerLimiter, async (req: Request, res: Response) => {
     // Validate token format (64-char hex) to prevent enumeration
     if (!/^[a-f0-9]{64}$/.test(param(req, "token"))) return res.status(404).json({ error: "Offer not found." });
-    const offer = storage.getOfferByToken(param(req, "token"));
+    const offer = await storage.getOfferByToken(param(req, "token"));
     if (!offer) return res.status(404).json({ error: "Offer not found." });
 
-    const assignment = storage.getAssignment(offer.assignmentId);
+    const assignment = await storage.getAssignment(offer.assignmentId);
     if (!assignment) return res.status(404).json({ error: "Task not found." });
 
     const taskDetails = JSON.parse(assignment.taskDetails || "{}");
@@ -1251,27 +1255,27 @@ const freelancers = (Array.isArray(data) ? data : [])
   // Accept offer
   app.post("/api/offers/:token/accept", offerLimiter, async (req: Request, res: Response) => {
     if (!/^[a-f0-9]{64}$/.test(param(req, "token"))) return res.status(404).json({ error: "Offer not found." });
-    const offer = storage.getOfferByToken(param(req, "token"));
+    const offer = await storage.getOfferByToken(param(req, "token"));
     if (!offer) return res.status(404).json({ error: "Offer not found." });
     if (offer.status !== "pending") {
       return res.status(400).json({ error: "This offer is no longer valid.", currentStatus: offer.status });
     }
 
-    const assignment = storage.getAssignment(offer.assignmentId);
+    const assignment = await storage.getAssignment(offer.assignmentId);
     if (!assignment) return res.status(404).json({ error: "Task not found." });
     if (assignment.status === "accepted" || assignment.status === "completed") {
       // Already taken by someone else
-      storage.updateOffer(offer.id, { status: "withdrawn", respondedAt: new Date().toISOString() });
+      await storage.updateOffer(offer.id, { status: "withdrawn", respondedAt: new Date().toISOString() });
       return res.status(400).json({ error: "This task has already been accepted by another translator." });
     }
 
     const now = new Date().toISOString();
 
     // Accept this offer
-    storage.updateOffer(offer.id, { status: "accepted", respondedAt: now });
+    await storage.updateOffer(offer.id, { status: "accepted", respondedAt: now });
 
     // Update assignment
-    storage.updateAssignment(assignment.id, {
+    await storage.updateAssignment(assignment.id, {
       status: "accepted",
       acceptedBy: offer.freelancerCode,
       acceptedByName: offer.freelancerName,
@@ -1280,10 +1284,10 @@ const freelancers = (Array.isArray(data) ? data : [])
     });
 
     // Withdraw all other pending offers for this assignment
-    const allOffers = storage.getOffersByAssignment(assignment.id);
+    const allOffers = await storage.getOffersByAssignment(assignment.id);
     for (const o of allOffers) {
       if (o.id !== offer.id && o.status === "pending") {
-        storage.updateOffer(o.id, { status: "withdrawn", respondedAt: now });
+        await storage.updateOffer(o.id, { status: "withdrawn", respondedAt: now });
       }
     }
 
@@ -1298,7 +1302,7 @@ const freelancers = (Array.isArray(data) ? data : [])
     notifySlackAccepted(assignment.projectId, offer.freelancerName, assignment.role);
 
     // In-app notification + WebSocket
-    notify("offer_accepted", `${offer.freelancerName} accepted`,
+    await notify("offer_accepted", `${offer.freelancerName} accepted`,
       `${offer.freelancerName} accepted ${assignment.role} for ${assignment.projectId}`,
       { projectId: assignment.projectId, freelancerCode: offer.freelancerCode, role: assignment.role });
     wsBroadcast("offer_accepted", { assignmentId: assignment.id, freelancerName: offer.freelancerName, projectId: assignment.projectId });
@@ -1309,16 +1313,16 @@ const freelancers = (Array.isArray(data) ? data : [])
   // Reject offer
   app.post("/api/offers/:token/reject", offerLimiter, async (req: Request, res: Response) => {
     if (!/^[a-f0-9]{64}$/.test(param(req, "token"))) return res.status(404).json({ error: "Offer not found." });
-    const offer = storage.getOfferByToken(param(req, "token"));
+    const offer = await storage.getOfferByToken(param(req, "token"));
     if (!offer) return res.status(404).json({ error: "Offer not found." });
     if (offer.status !== "pending") {
       return res.status(400).json({ error: "This offer is no longer valid.", currentStatus: offer.status });
     }
 
     const now = new Date().toISOString();
-    storage.updateOffer(offer.id, { status: "rejected", respondedAt: now });
+    await storage.updateOffer(offer.id, { status: "rejected", respondedAt: now });
 
-    const assignment = storage.getAssignment(offer.assignmentId);
+    const assignment = await storage.getAssignment(offer.assignmentId);
     if (!assignment) return res.json({ success: true });
 
     // If sequence, move to next freelancer
@@ -1327,7 +1331,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       const nextIndex = (assignment.currentSequenceIndex || 0) + 1;
 
       if (nextIndex < sequenceList.length) {
-        storage.updateAssignment(assignment.id, { currentSequenceIndex: nextIndex });
+        await storage.updateAssignment(assignment.id, { currentSequenceIndex: nextIndex });
 
         // Fetch freelancers to get next person's details
         try {
@@ -1344,7 +1348,7 @@ const freelancers = (Array.isArray(data) ? data : [])
             const clientBase = resolveBaseUrl(req);
             const taskDetails = JSON.parse(assignment.taskDetails || "{}");
 
-            const newOffer = storage.createOffer({
+            const newOffer = await storage.createOffer({
               assignmentId: assignment.id,
               freelancerCode: nextFreelancer.resource_code,
               freelancerName: nextFreelancer.full_name,
@@ -1356,7 +1360,7 @@ const freelancers = (Array.isArray(data) ? data : [])
               clientBaseUrl: clientBase,
             });
 
-            const email = buildOfferEmailHtml(taskDetails, newOffer, assignment);
+            const email = await buildOfferEmailHtml(taskDetails, newOffer, assignment);
             sendEmail([nextFreelancer.email], email.subject, email.html);
           }
         } catch (e) {
@@ -1364,7 +1368,7 @@ const freelancers = (Array.isArray(data) ? data : [])
         }
       } else {
         // No more freelancers in sequence
-        storage.updateAssignment(assignment.id, { status: "expired" });
+        await storage.updateAssignment(assignment.id, { status: "expired" });
       }
     }
 
@@ -1372,7 +1376,7 @@ const freelancers = (Array.isArray(data) ? data : [])
     notifySlackRejected(assignment.projectId, offer.freelancerName, assignment.role);
 
     // In-app notification + WebSocket
-    notify("offer_rejected", `${offer.freelancerName} declined`,
+    await notify("offer_rejected", `${offer.freelancerName} declined`,
       `${offer.freelancerName} declined ${assignment.role} for ${assignment.projectId}`,
       { projectId: assignment.projectId, freelancerCode: offer.freelancerCode, role: assignment.role });
     wsBroadcast("offer_rejected", { assignmentId: assignment.id, freelancerName: offer.freelancerName, projectId: assignment.projectId });
@@ -1383,17 +1387,17 @@ const freelancers = (Array.isArray(data) ? data : [])
   // Mark task as completed by freelancer
   app.post("/api/offers/:token/complete", offerLimiter, async (req: Request, res: Response) => {
     if (!/^[a-f0-9]{64}$/.test(param(req, "token"))) return res.status(404).json({ error: "Offer not found." });
-    const offer = storage.getOfferByToken(param(req, "token"));
+    const offer = await storage.getOfferByToken(param(req, "token"));
     if (!offer) return res.status(404).json({ error: "Offer not found." });
     if (offer.status !== "accepted") {
       return res.status(400).json({ error: "Only accepted tasks can be completed." });
     }
 
-    const assignment = storage.getAssignment(offer.assignmentId);
+    const assignment = await storage.getAssignment(offer.assignmentId);
     if (!assignment) return res.status(404).json({ error: "Task not found." });
 
     const now = new Date().toISOString();
-    storage.updateAssignment(assignment.id, { status: "completed", completedAt: now });
+    await storage.updateAssignment(assignment.id, { status: "completed", completedAt: now });
 
     // Write-back to sheet: mark task as done
     const { timeSpent, qsScore } = req.body || {};
@@ -1427,7 +1431,7 @@ const freelancers = (Array.isArray(data) ? data : [])
     }
 
     // In-app notification + WebSocket
-    notify("task_completed", `Task completed`,
+    await notify("task_completed", `Task completed`,
       `${offer.freelancerName} completed ${assignment.role} for ${assignment.projectId}`,
       { projectId: assignment.projectId, freelancerCode: offer.freelancerCode, role: assignment.role });
     wsBroadcast("task_completed", { assignmentId: assignment.id, projectId: assignment.projectId });
@@ -1457,8 +1461,8 @@ const freelancers = (Array.isArray(data) ? data : [])
   // ---- Sheet Write Helper ----
   // Uses Google Sheets API (via service account) when available.
   // Falls back to SheetDB only when GS API is not configured.
-  function getSheetWriteConfig(assignment: any): SheetWriteConfig | null {
-    const configs = storage.getAllSheetConfigs();
+  async function getSheetWriteConfig(assignment: any): Promise<SheetWriteConfig | null> {
+    const configs = await storage.getAllSheetConfigs();
     const config = configs.find(c => c.source === assignment.source && c.sheet === assignment.sheet);
     if (!config) return null;
     const gsId = config.googleSheetId;
@@ -1475,7 +1479,7 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   async function safeWriteToSheet(assignment: any, freelancerCode: string, columnType: "translator" | "reviewer") {
     const candidates = columnType === "translator" ? TR_CANDIDATES : REV_CANDIDATES;
-    const gsConfig = getSheetWriteConfig(assignment);
+    const gsConfig = await getSheetWriteConfig(assignment);
 
     if (!gsConfig) {
       console.error(`Sheet write SKIPPED [${assignment.source}/${assignment.sheet}]: No Google Sheet config. SheetDB fallback disabled to prevent prefix-matching bug.`);
@@ -1489,7 +1493,7 @@ const freelancers = (Array.isArray(data) ? data : [])
   // Write status values (TR Done, Rev Complete) to sheet
   async function safeWriteStatusToSheet(assignment: any, columnType: "trDone" | "revComplete", value: string) {
     const candidates = columnType === "trDone" ? TR_DONE_CANDIDATES : REV_COMPLETE_CANDIDATES;
-    const gsConfig = getSheetWriteConfig(assignment);
+    const gsConfig = await getSheetWriteConfig(assignment);
 
     if (!gsConfig) {
       console.error(`Status write SKIPPED [${assignment.source}/${assignment.sheet}]: No Google Sheet config. SheetDB fallback disabled.`);
@@ -1502,7 +1506,7 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   // Write TR Deadline to sheet
   async function safeWriteDeadlineToSheet(assignment: any, deadlineValue: string) {
-    const gsConfig = getSheetWriteConfig(assignment);
+    const gsConfig = await getSheetWriteConfig(assignment);
 
     if (!gsConfig) {
       console.error(`Deadline write SKIPPED [${assignment.source}/${assignment.sheet}]: No Google Sheet config. SheetDB fallback disabled.`);
@@ -1514,52 +1518,51 @@ const freelancers = (Array.isArray(data) ? data : [])
   }
 
   // ---- TASK NOTES (PM internal) ----
-  app.get("/api/task-notes", requireAuth, (req: Request, res: Response) => {
-    const notes = db.select().from(taskNotes).all();
+  app.get("/api/task-notes", requireAuth, async (req: Request, res: Response) => {
+    const notes = await db.select().from(taskNotes);
     res.json(notes);
   });
 
-  app.post("/api/task-notes", requireAuth, (req: Request, res: Response) => {
+  app.post("/api/task-notes", requireAuth, async (req: Request, res: Response) => {
     const { source, sheet, projectId, note } = req.body;
     if (!source || !projectId) return res.status(400).json({ error: "Missing fields" });
-    const user = storage.getAllPmUsers().find(u => u.id === (req as any).pmUserId);
+    const user = (await storage.getAllPmUsers()).find(u => u.id === (req as any).pmUserId);
     if (!user) return res.status(404).json({ error: "User not found" });
     const now = new Date().toISOString();
     // Upsert: update if exists, create if not
-    const existing = db.select().from(taskNotes)
-      .where(and(eq(taskNotes.source, source), eq(taskNotes.sheet, sheet || ""), eq(taskNotes.projectId, projectId), eq(taskNotes.pmEmail, user.email)))
-      .get();
+    const [existing] = await db.select().from(taskNotes)
+      .where(and(eq(taskNotes.source, source), eq(taskNotes.sheet, sheet || ""), eq(taskNotes.projectId, projectId), eq(taskNotes.pmEmail, user.email)));
     if (existing) {
-      db.update(taskNotes).set({ note, updatedAt: now }).where(eq(taskNotes.id, existing.id)).run();
+      await db.update(taskNotes).set({ note, updatedAt: now }).where(eq(taskNotes.id, existing.id));
       res.json({ ...existing, note, updatedAt: now });
     } else {
-      const created = db.insert(taskNotes).values({ source, sheet: sheet || "", projectId, pmEmail: user.email, note, createdAt: now, updatedAt: now }).returning().get();
+      const [created] = await db.insert(taskNotes).values({ source, sheet: sheet || "", projectId, pmEmail: user.email, note, createdAt: now, updatedAt: now }).returning();
       res.json(created);
     }
   });
 
   // ---- PM FAVORITES ----
-  app.get("/api/favorites", requireAuth, (req: Request, res: Response) => {
-    const user = storage.getAllPmUsers().find(u => u.id === (req as any).pmUserId);
+  app.get("/api/favorites", requireAuth, async (req: Request, res: Response) => {
+    const user = (await storage.getAllPmUsers()).find(u => u.id === (req as any).pmUserId);
     if (!user) return res.status(404).json({ error: "User not found" });
-    const favs = db.select().from(pmFavorites).where(eq(pmFavorites.pmEmail, user.email)).all();
+    const favs = await db.select().from(pmFavorites).where(eq(pmFavorites.pmEmail, user.email));
     res.json(favs.map(f => f.freelancerCode));
   });
 
-  app.post("/api/favorites", requireAuth, (req: Request, res: Response) => {
+  app.post("/api/favorites", requireAuth, async (req: Request, res: Response) => {
     const { freelancerCode } = req.body;
     if (!freelancerCode) return res.status(400).json({ error: "Missing freelancerCode" });
-    const user = storage.getAllPmUsers().find(u => u.id === (req as any).pmUserId);
+    const user = (await storage.getAllPmUsers()).find(u => u.id === (req as any).pmUserId);
     if (!user) return res.status(404).json({ error: "User not found" });
-    const existing = db.select().from(pmFavorites)
-      .where(and(eq(pmFavorites.pmEmail, user.email), eq(pmFavorites.freelancerCode, freelancerCode))).get();
+    const [existing] = await db.select().from(pmFavorites)
+      .where(and(eq(pmFavorites.pmEmail, user.email), eq(pmFavorites.freelancerCode, freelancerCode)));
     if (existing) {
       // Toggle off
-      db.delete(pmFavorites).where(eq(pmFavorites.id, existing.id)).run();
+      await db.delete(pmFavorites).where(eq(pmFavorites.id, existing.id));
       res.json({ favorited: false });
     } else {
       // Toggle on
-      db.insert(pmFavorites).values({ pmEmail: user.email, freelancerCode, createdAt: new Date().toISOString() }).run();
+      await db.insert(pmFavorites).values({ pmEmail: user.email, freelancerCode, createdAt: new Date().toISOString() });
       res.json({ favorited: true });
     }
   });
@@ -1583,8 +1586,8 @@ const freelancers = (Array.isArray(data) ? data : [])
   });
 
   // ---- UNDO ASSIGNMENT (cancel within 10s) ----
-  app.post("/api/assignments/:id/undo", requireAuth, (req: Request, res: Response) => {
-    const assignment = storage.getAssignment(+param(req, "id"));
+  app.post("/api/assignments/:id/undo", requireAuth, async (req: Request, res: Response) => {
+    const assignment = await storage.getAssignment(+param(req, "id"));
     if (!assignment) return res.status(404).json({ error: "Assignment not found" });
     // Only allow undo within 15 seconds of creation
     const createdTime = new Date(assignment.createdAt).getTime();
@@ -1593,19 +1596,19 @@ const freelancers = (Array.isArray(data) ? data : [])
       return res.status(400).json({ error: "Undo window expired (15 seconds)" });
     }
     // Cancel all offers
-    const offers = storage.getOffersByAssignment(assignment.id);
+    const offers = await storage.getOffersByAssignment(assignment.id);
     const now = new Date().toISOString();
     for (const offer of offers) {
       if (offer.status === "pending") {
-        storage.updateOffer(offer.id, { status: "withdrawn", respondedAt: now });
+        await storage.updateOffer(offer.id, { status: "withdrawn", respondedAt: now });
       }
     }
-    storage.updateAssignment(assignment.id, { status: "cancelled" });
+    await storage.updateAssignment(assignment.id, { status: "cancelled" });
     res.json({ success: true, message: "Assignment undone." });
   });
 
   // ---- XLSX EXPORT ----
-  app.post("/api/export/xlsx", requireAuth, (req: Request, res: Response) => {
+  app.post("/api/export/xlsx", requireAuth, async (req: Request, res: Response) => {
     try {
       const XLSX = require("xlsx");
       const { tasks: taskList } = req.body;
@@ -1642,7 +1645,7 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   // Write QS to sheet
   async function safeWriteQsToSheet(assignment: any, qsValue: string) {
-    const gsConfig = getSheetWriteConfig(assignment);
+    const gsConfig = await getSheetWriteConfig(assignment);
 
     if (!gsConfig) {
       console.error(`QS write SKIPPED [${assignment.source}/${assignment.sheet}]: No Google Sheet config. SheetDB fallback disabled.`);
@@ -1671,7 +1674,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       }
 
       // 2. Resolve reviewer (the PM who set up the assignment)
-      const pmUser = storage.getAllPmUsers().find(u => u.id === assignment.assignedBy);
+      const pmUser = (await storage.getAllPmUsers()).find(u => u.id === assignment.assignedBy);
 
       // 3. Build QualityReport payload
       const taskDetails = JSON.parse(assignment.taskDetails || "{}");
@@ -1790,51 +1793,51 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   // ---- ADMIN: SHEET CONFIG ----
 
-  app.get("/api/sheet-configs", requireAuth, (_req: Request, res: Response) => {
-    res.json(storage.getAllSheetConfigs());
+  app.get("/api/sheet-configs", requireAuth, async (_req: Request, res: Response) => {
+    res.json(await storage.getAllSheetConfigs());
   });
 
-  app.post("/api/sheet-configs", requireAuth, (req: Request, res: Response) => {
+  app.post("/api/sheet-configs", requireAuth, async (req: Request, res: Response) => {
     const { source, sheet, languagePair, sheetDbId, googleSheetUrl, assignedPms } = req.body;
     if (!source || !sheet || !languagePair) return res.status(400).json({ error: "Missing fields" });
-    const config = storage.upsertSheetConfig(source, sheet, languagePair, sheetDbId || undefined, googleSheetUrl || undefined, assignedPms || undefined);
+    const config = await storage.upsertSheetConfig(source, sheet, languagePair, sheetDbId || undefined, googleSheetUrl || undefined, assignedPms || undefined);
     res.json(config);
   });
 
-  app.delete("/api/sheet-configs/:id", requireAuth, (req: Request, res: Response) => {
-    storage.deleteSheetConfig(+param(req, "id"));
+  app.delete("/api/sheet-configs/:id", requireAuth, async (req: Request, res: Response) => {
+    await storage.deleteSheetConfig(+param(req, "id"));
     res.json({ success: true });
   });
 
   // ---- ADMIN: EMAIL TEMPLATES ----
 
-  app.get("/api/email-templates", requireAuth, (_req: Request, res: Response) => {
-    res.json(storage.getAllEmailTemplates());
+  app.get("/api/email-templates", requireAuth, async (_req: Request, res: Response) => {
+    res.json(await storage.getAllEmailTemplates());
   });
 
-  app.post("/api/email-templates", requireAuth, (req: Request, res: Response) => {
+  app.post("/api/email-templates", requireAuth, async (req: Request, res: Response) => {
     const { key, subject, body } = req.body;
     if (!key || !subject || !body) return res.status(400).json({ error: "Missing fields" });
-    const template = storage.upsertEmailTemplate(key, subject, body);
+    const template = await storage.upsertEmailTemplate(key, subject, body);
     res.json(template);
   });
 
   // ---- SEQUENCE PRESETS ----
 
-  app.get("/api/presets", requireAuth, (req: Request, res: Response) => {
-    const allUsers = storage.getAllPmUsers();
+  app.get("/api/presets", requireAuth, async (req: Request, res: Response) => {
+    const allUsers = await storage.getAllPmUsers();
     const user = allUsers.find(u => u.id === (req as any).pmUserId);
     if (!user) return res.status(404).json({ error: "User not found" });
-    res.json(storage.getPresetsByPm(user.email));
+    res.json(await storage.getPresetsByPm(user.email));
   });
 
-  app.post("/api/presets", requireAuth, (req: Request, res: Response) => {
+  app.post("/api/presets", requireAuth, async (req: Request, res: Response) => {
     const { name, role, freelancerCodes, assignmentType } = req.body;
     if (!name || !role || !freelancerCodes) return res.status(400).json({ error: "Missing fields" });
-    const allUsers = storage.getAllPmUsers();
+    const allUsers = await storage.getAllPmUsers();
     const user = allUsers.find(u => u.id === (req as any).pmUserId);
     if (!user) return res.status(404).json({ error: "User not found" });
-    const preset = storage.createPreset({
+    const preset = await storage.createPreset({
       name,
       pmEmail: user.email,
       role,
@@ -1844,8 +1847,8 @@ const freelancers = (Array.isArray(data) ? data : [])
     res.json(preset);
   });
 
-  app.delete("/api/presets/:id", requireAuth, (req: Request, res: Response) => {
-    storage.deletePreset(+param(req, "id"));
+  app.delete("/api/presets/:id", requireAuth, async (req: Request, res: Response) => {
+    await storage.deletePreset(+param(req, "id"));
     res.json({ success: true });
   });
 
@@ -1857,13 +1860,13 @@ const freelancers = (Array.isArray(data) ? data : [])
     const valueToWrite = revCompleteValue || "Yes";
 
     // Update local assignment if exists
-    const all = storage.getAllAssignments();
+    const all = await storage.getAllAssignments();
     const assignment = all.find(a =>
       a.source === source && a.projectId === projectId &&
       a.status !== "cancelled" && a.status !== "expired"
     );
     if (assignment) {
-      storage.updateAssignment(assignment.id, {
+      await storage.updateAssignment(assignment.id, {
         status: "completed",
         completedAt: new Date().toISOString(),
       });
@@ -1871,7 +1874,7 @@ const freelancers = (Array.isArray(data) ? data : [])
 
     // Write Rev Complete value to Google Sheet
     try {
-      const configs = storage.getAllSheetConfigs();
+      const configs = await storage.getAllSheetConfigs();
       const config = configs.find(c => c.source === source && c.sheet === (sheet || ""));
       if (config && config.googleSheetId) {
         const gsConfig: SheetWriteConfig = {
@@ -2070,18 +2073,18 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   // ---- PM MANAGEMENT ----
 
-  app.get("/api/pm-users", requireAuth, (_req: Request, res: Response) => {
-    res.json(storage.getAllPmUsers().map(u => ({ ...u, password: undefined })));
+  app.get("/api/pm-users", requireAuth, async (_req: Request, res: Response) => {
+    res.json((await storage.getAllPmUsers()).map(u => ({ ...u, password: undefined })));
   });
 
   app.post("/api/pm-users", requireAuth, async (req: Request, res: Response) => {
     const { email, name, initial, password, role } = req.body;
     if (!email || !name || !password) return res.status(400).json({ error: "Email, name, and password required" });
     if (password.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
-    const existing = storage.getPmUserByEmail(email.toLowerCase().trim());
+    const existing = await storage.getPmUserByEmail(email.toLowerCase().trim());
     if (existing) return res.status(400).json({ error: "This email is already registered." });
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = storage.createPmUser({ email: email.toLowerCase().trim(), name, initial: initial || "", password: hashedPassword, role: role || "pm" });
+    const user = await storage.createPmUser({ email: email.toLowerCase().trim(), name, initial: initial || "", password: hashedPassword, role: role || "pm" });
     res.json(user);
   });
 
@@ -2089,7 +2092,7 @@ const freelancers = (Array.isArray(data) ? data : [])
   app.put("/api/pm-users/:id", requireAuth, async (req: Request, res: Response) => {
     const { name, initial, role, password } = req.body;
     const id = +param(req, "id");
-    const user = storage.getAllPmUsers().find(u => u.id === id);
+    const user = (await storage.getAllPmUsers()).find(u => u.id === id);
     if (!user) return res.status(404).json({ error: "User not found" });
     const updates: any = {};
     if (name) updates.name = name;
@@ -2099,15 +2102,15 @@ const freelancers = (Array.isArray(data) ? data : [])
       updates.password = await bcrypt.hash(password, 10);
     }
     if (Object.keys(updates).length > 0) {
-      storage.updatePmUser(id, updates);
+      await storage.updatePmUser(id, updates);
     }
     res.json({ success: true });
   });
 
   // Update PM preferences (default filter, my projects)
-  app.post("/api/pm-users/preferences", requireAuth, (req: Request, res: Response) => {
+  app.post("/api/pm-users/preferences", requireAuth, async (req: Request, res: Response) => {
     const { defaultFilter, defaultMyProjects, defaultSource, defaultAccount } = req.body;
-    const user = storage.getAllPmUsers().find(u => u.id === (req as any).pmUserId);
+    const user = (await storage.getAllPmUsers()).find(u => u.id === (req as any).pmUserId);
     if (!user) return res.status(404).json({ error: "User not found" });
     const updates: any = {};
     if (defaultFilter !== undefined) updates.defaultFilter = defaultFilter;
@@ -2115,7 +2118,7 @@ const freelancers = (Array.isArray(data) ? data : [])
     if (defaultSource !== undefined) updates.defaultSource = defaultSource;
     if (defaultAccount !== undefined) updates.defaultAccount = defaultAccount;
     if (Object.keys(updates).length > 0) {
-      storage.updatePmUser(user.id, updates);
+      await storage.updatePmUser(user.id, updates);
     }
     res.json({ success: true });
   });
@@ -2128,7 +2131,7 @@ const freelancers = (Array.isArray(data) ? data : [])
     try {
       // 1. Write XX to the sheet column via Google Sheets API
       const candidates = role === "translator" ? TR_CANDIDATES : REV_CANDIDATES;
-      const gsConfig = getSheetWriteConfig({ source, sheet: sheet || "" });
+      const gsConfig = await getSheetWriteConfig({ source, sheet: sheet || "" });
       if (gsConfig) {
         gsConfig.projectId = projectId;
         const result = await gsWriteToColumn(gsConfig, candidates, "XX", { skipSafetyCheck: true });
@@ -2138,18 +2141,18 @@ const freelancers = (Array.isArray(data) ? data : [])
       }
 
       // 2. Cancel any matching dispatch assignment
-      const allAssignments = storage.getAllAssignments();
+      const allAssignments = await storage.getAllAssignments();
       const matching = allAssignments.filter(a =>
         a.source === source && a.projectId === projectId &&
         a.role === role &&
         a.status !== "cancelled" && a.status !== "completed"
       );
       for (const a of matching) {
-        storage.updateAssignment(a.id, { status: "cancelled" });
-        const offers = storage.getOffersByAssignment(a.id);
+        await storage.updateAssignment(a.id, { status: "cancelled" });
+        const offers = await storage.getOffersByAssignment(a.id);
         for (const o of offers) {
           if (o.status === "pending") {
-            storage.updateOffer(o.id, { status: "withdrawn", respondedAt: new Date().toISOString() });
+            await storage.updateOffer(o.id, { status: "withdrawn", respondedAt: new Date().toISOString() });
           }
         }
       }
@@ -2165,7 +2168,7 @@ const freelancers = (Array.isArray(data) ? data : [])
   });
 
   // ---- BULK COMPLETE ----
-  app.post("/api/tasks/bulk-complete", requireAuth, (req: Request, res: Response) => {
+  app.post("/api/tasks/bulk-complete", requireAuth, async (req: Request, res: Response) => {
     const { tasks: taskList, revCompleteValue, distributeTime } = req.body;
     if (!taskList || !Array.isArray(taskList) || taskList.length === 0) {
       return res.status(400).json({ error: "No tasks provided" });
@@ -2177,7 +2180,7 @@ const freelancers = (Array.isArray(data) ? data : [])
     }
 
     const now = new Date().toISOString();
-    const allAssignments = storage.getAllAssignments();
+    const allAssignments = await storage.getAllAssignments();
 
     for (const t of taskList) {
       const assignment = allAssignments.find((a: any) =>
@@ -2185,7 +2188,7 @@ const freelancers = (Array.isArray(data) ? data : [])
         a.status !== "cancelled" && a.status !== "expired"
       );
       if (assignment) {
-        storage.updateAssignment(assignment.id, { status: "completed", completedAt: now });
+        await storage.updateAssignment(assignment.id, { status: "completed", completedAt: now });
       }
     }
 
@@ -2193,15 +2196,15 @@ const freelancers = (Array.isArray(data) ? data : [])
   });
 
   // ---- AUTO-ASSIGN RULES ----
-  app.get("/api/auto-assign-rules", requireAuth, (_req: Request, res: Response) => {
-    res.json(storage.getAllAutoAssignRules());
+  app.get("/api/auto-assign-rules", requireAuth, async (_req: Request, res: Response) => {
+    res.json(await storage.getAllAutoAssignRules());
   });
 
-  app.post("/api/auto-assign-rules", requireAuth, (req: Request, res: Response) => {
+  app.post("/api/auto-assign-rules", requireAuth, async (req: Request, res: Response) => {
     const { name, source, account, languagePair, role, freelancerCodes, assignmentType } = req.body;
     if (!name || !role || !freelancerCodes) return res.status(400).json({ error: "Missing fields" });
-    const user = storage.getAllPmUsers().find(u => u.id === (req as any).pmUserId);
-    const rule = storage.createAutoAssignRule({
+    const user = (await storage.getAllPmUsers()).find(u => u.id === (req as any).pmUserId);
+    const rule = await storage.createAutoAssignRule({
       name, source: source || null, account: account || null,
       languagePair: languagePair || null, role,
       freelancerCodes: typeof freelancerCodes === "string" ? freelancerCodes : JSON.stringify(freelancerCodes),
@@ -2211,7 +2214,7 @@ const freelancers = (Array.isArray(data) ? data : [])
     res.json(rule);
   });
 
-  app.put("/api/auto-assign-rules/:id", requireAuth, (req: Request, res: Response) => {
+  app.put("/api/auto-assign-rules/:id", requireAuth, async (req: Request, res: Response) => {
     const { name, source, account, languagePair, role, freelancerCodes, assignmentType, maxWwc, enabled } = req.body;
     const updates: any = {};
     if (name !== undefined) updates.name = name;
@@ -2223,12 +2226,12 @@ const freelancers = (Array.isArray(data) ? data : [])
     if (assignmentType !== undefined) updates.assignmentType = assignmentType;
     if (maxWwc !== undefined) updates.maxWwc = maxWwc || null;
     if (enabled !== undefined) updates.enabled = enabled ? 1 : 0;
-    storage.updateAutoAssignRule(+param(req, "id"), updates);
+    await storage.updateAutoAssignRule(+param(req, "id"), updates);
     res.json({ success: true });
   });
 
-  app.delete("/api/auto-assign-rules/:id", requireAuth, (req: Request, res: Response) => {
-    storage.deleteAutoAssignRule(+param(req, "id"));
+  app.delete("/api/auto-assign-rules/:id", requireAuth, async (req: Request, res: Response) => {
+    await storage.deleteAutoAssignRule(+param(req, "id"));
     res.json({ success: true });
   });
 
@@ -2253,17 +2256,17 @@ const freelancers = (Array.isArray(data) ? data : [])
       return res.status(409).json({ error: "Auto-dispatch is already running. Please wait." });
     }
     try {
-      const rules = storage.getAllAutoAssignRules().filter(r => r.enabled);
+      const rules = (await storage.getAllAutoAssignRules()).filter(r => r.enabled);
       if (rules.length === 0) { releaseLock("auto-dispatch"); return res.json({ dispatched: 0, message: "No enabled rules" }); }
 
-      const allAssignments = storage.getAllAssignments();
+      const allAssignments = await storage.getAllAssignments();
       const assignedKeys = new Set(
         allAssignments.filter(a => a.status !== "cancelled" && a.status !== "expired")
           .map(a => `${a.source}|${a.sheet}|${a.projectId}|${a.role}`)
       );
 
       // Get current tasks
-      const allConfigs = storage.getAllSheetConfigs();
+      const allConfigs = await storage.getAllSheetConfigs();
       let dispatched = 0;
       const results: any[] = [];
 
@@ -2296,14 +2299,14 @@ const freelancers = (Array.isArray(data) ? data : [])
       return res.status(409).json({ error: "Sequence advance is already running. Please wait." });
     }
     try {
-      const assignments = storage.getAllAssignments().filter(a => 
+      const assignments = (await storage.getAllAssignments()).filter(a =>
         a.status === "offered" && a.assignmentType === "sequence"
       );
       let advanced = 0;
       const now = Date.now();
 
       for (const assignment of assignments) {
-        const offers = storage.getOffersByAssignment(assignment.id);
+        const offers = await storage.getOffersByAssignment(assignment.id);
         const pendingOffer = offers.find(o => o.status === "pending");
         if (!pendingOffer || !pendingOffer.sentAt) continue;
 
@@ -2312,7 +2315,7 @@ const freelancers = (Array.isArray(data) ? data : [])
 
         if (now - sentTime > timeoutMs) {
           // Withdraw the expired offer
-          storage.updateOffer(pendingOffer.id, { status: "expired", respondedAt: new Date().toISOString() });
+          await storage.updateOffer(pendingOffer.id, { status: "expired", respondedAt: new Date().toISOString() });
 
           // Advance to next in sequence
           const seqList = JSON.parse(assignment.sequenceList || "[]") as string[];
@@ -2325,12 +2328,12 @@ const freelancers = (Array.isArray(data) ? data : [])
 
             if (nextOffer) {
               // Send the offer
-              storage.updateOffer(nextOffer.id, { status: "pending", sentAt: new Date().toISOString() });
-              storage.updateAssignment(assignment.id, { currentSequenceIndex: nextIdx });
+              await storage.updateOffer(nextOffer.id, { status: "pending", sentAt: new Date().toISOString() });
+              await storage.updateAssignment(assignment.id, { currentSequenceIndex: nextIdx });
 
               // Send email
               const taskDetails = JSON.parse(assignment.taskDetails || "{}");
-              const email = buildOfferEmailHtml(taskDetails, nextOffer, assignment);
+              const email = await buildOfferEmailHtml(taskDetails, nextOffer, assignment);
               try {
                 await sendEmail([nextOffer.freelancerEmail], email.subject, email.html);
                 sendSlackNotification(`\u23f0 Sequence timeout: ${pendingOffer.freelancerName} didn't respond. Offered to ${nextOffer.freelancerName} for ${assignment.projectId}.`);
@@ -2341,7 +2344,7 @@ const freelancers = (Array.isArray(data) ? data : [])
             }
           } else {
             // No more freelancers in sequence — expire the assignment
-            storage.updateAssignment(assignment.id, { status: "expired" });
+            await storage.updateAssignment(assignment.id, { status: "expired" });
             sendSlackNotification(`\u274c Sequence exhausted for ${assignment.projectId} (${assignment.role}). No freelancer accepted.`);
           }
         }
@@ -2356,9 +2359,9 @@ const freelancers = (Array.isArray(data) ? data : [])
   });
 
   // ---- FREELANCER STATS (for predictive deadline) ----
-  app.get("/api/freelancer-delivery-stats", requireAuth, (_req: Request, res: Response) => {
+  app.get("/api/freelancer-delivery-stats", requireAuth, async (_req: Request, res: Response) => {
     // Calculate average delivery speed per freelancer based on historical data
-    const allAssignments = storage.getAllAssignments();
+    const allAssignments = await storage.getAllAssignments();
     const stats: Record<string, { avgHoursToComplete: number; taskCount: number; avgWwcPerHour: number }> = {};
 
     for (const a of allAssignments) {
@@ -2504,7 +2507,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       }
 
       // Dispatch assignment analytics
-      const allAssignmentsRaw = storage.getAllAssignments();
+      const allAssignmentsRaw = await storage.getAllAssignments();
       const allAssignments = allAssignmentsRaw.filter((a: any) => {
         if (fSource && !fSource.includes(a.source)) return false;
         if (fAccount && !fAccount.includes(a.account)) return false;
@@ -2553,7 +2556,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       // Average response time (from offer sent to accept/reject)
       const allOffers: any[] = [];
       for (const a of allAssignments) {
-        const assignmentOffers = storage.getOffersByAssignment(a.id);
+        const assignmentOffers = await storage.getOffersByAssignment(a.id);
         allOffers.push(...assignmentOffers);
       }
 
@@ -2636,21 +2639,21 @@ const freelancers = (Array.isArray(data) ? data : [])
   // NOTIFICATION CENTER
   // ============================================
 
-  app.get("/api/notifications", requireAuth, (_req: Request, res: Response) => {
-    const recent = storage.getRecentNotifications(50);
+  app.get("/api/notifications", requireAuth, async (_req: Request, res: Response) => {
+    const recent = await storage.getRecentNotifications(50);
     // Only return last 24h
     const cutoff = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
     const filtered = recent.filter(n => n.createdAt >= cutoff);
-    res.json({ notifications: filtered, unreadCount: storage.getUnreadCount() });
+    res.json({ notifications: filtered, unreadCount: await storage.getUnreadCount() });
   });
 
-  app.post("/api/notifications/:id/read", requireAuth, (req: Request, res: Response) => {
-    storage.markNotificationRead(+param(req, "id"));
+  app.post("/api/notifications/:id/read", requireAuth, async (req: Request, res: Response) => {
+    await storage.markNotificationRead(+param(req, "id"));
     res.json({ success: true });
   });
 
-  app.post("/api/notifications/read-all", requireAuth, (_req: Request, res: Response) => {
-    storage.markAllNotificationsRead();
+  app.post("/api/notifications/read-all", requireAuth, async (_req: Request, res: Response) => {
+    await storage.markAllNotificationsRead();
     res.json({ success: true });
   });
 
@@ -2676,7 +2679,7 @@ const freelancers = (Array.isArray(data) ? data : [])
 
       const token = generateToken();
       const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-      storage.createFreelancerSession({
+      await storage.createFreelancerSession({
         token,
         freelancerCode: fl.resource_code,
         freelancerName: fl.full_name,
@@ -2697,17 +2700,17 @@ const freelancers = (Array.isArray(data) ? data : [])
   });
 
   // Verify magic link and create session
-  app.post("/api/freelancer/verify/:token", (req: Request, res: Response) => {
-    const session = storage.getFreelancerSession(param(req, "token"));
+  app.post("/api/freelancer/verify/:token", async (req: Request, res: Response) => {
+    const session = await storage.getFreelancerSession(param(req, "token"));
     if (!session) return res.status(404).json({ error: "Invalid or expired link" });
     if (new Date(session.expiresAt) < new Date()) {
-      storage.deleteFreelancerSession(param(req, "token"));
+      await storage.deleteFreelancerSession(param(req, "token"));
       return res.status(400).json({ error: "Link has expired" });
     }
     // Extend session to 72 hours
     const newToken = generateToken();
     const expiresAt = new Date(Date.now() + 72 * 3600 * 1000).toISOString();
-    storage.createFreelancerSession({
+    await storage.createFreelancerSession({
       token: newToken,
       freelancerCode: session.freelancerCode,
       freelancerName: session.freelancerName,
@@ -2715,7 +2718,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       expiresAt,
     });
     // Clean up the one-time token
-    storage.deleteFreelancerSession(param(req, "token"));
+    await storage.deleteFreelancerSession(param(req, "token"));
     res.json({
       token: newToken,
       freelancer: {
@@ -2730,10 +2733,10 @@ const freelancers = (Array.isArray(data) ? data : [])
   app.get("/api/freelancer/tasks", async (req: Request, res: Response) => {
     const flToken = req.headers.authorization?.replace("Bearer ", "");
     if (!flToken) return res.status(401).json({ error: "No token" });
-    const session = storage.getFreelancerSession(flToken);
+    const session = await storage.getFreelancerSession(flToken);
     if (!session) return res.status(401).json({ error: "Invalid session" });
     if (new Date(session.expiresAt) < new Date()) {
-      storage.deleteFreelancerSession(flToken);
+      await storage.deleteFreelancerSession(flToken);
       return res.status(401).json({ error: "Session expired" });
     }
 
@@ -2758,11 +2761,11 @@ const freelancers = (Array.isArray(data) ? data : [])
       const completed = myTasks.filter((t: any) => t.delivered !== "Ongoing" || isEffectivelyCancelledTask(t));
 
       // Get pending offers for this freelancer
-      const allAssignments = storage.getAllAssignments();
+      const allAssignments = await storage.getAllAssignments();
       const pendingOffers: any[] = [];
       for (const a of allAssignments) {
         if (a.status === "offered" || a.status === "pending") {
-          const offers = storage.getOffersByAssignment(a.id);
+          const offers = await storage.getOffersByAssignment(a.id);
           for (const o of offers) {
             if (o.freelancerCode === code && o.status === "pending") {
               const taskDetails = JSON.parse(a.taskDetails || "{}");
@@ -2795,4 +2798,477 @@ const freelancers = (Array.isArray(data) ? data : [])
     const cancelledValues = ["cancelled", "canceled", "on hold", "onhold", "on-hold"];
     return cancelledValues.includes(trLower) || cancelledValues.includes(revLower);
   }
+
+  // ============================================
+  // ROLE-BASED AUTH MIDDLEWARE
+  // ============================================
+  const ROLE_HIERARCHY: Record<string, number> = {
+    vendor: 0, pc: 1, pm: 2, vm: 3, pm_team_lead: 4,
+    operations_manager: 5, admin: 6, gm: 7,
+  };
+
+  function requireRole(...allowedRoles: string[]) {
+    return async (req: Request, res: Response, next: NextFunction) => {
+      const pmUserId = (req as any).pmUserId;
+      if (!pmUserId) return res.status(401).json({ error: "Not authenticated" });
+      // Try new users table first, fall back to pmUsers
+      const user = await storage.getUserById(pmUserId) || (await storage.getAllPmUsers()).find(u => u.id === pmUserId);
+      if (!user) return res.status(404).json({ error: "User not found" });
+      const userRole = (user as any).role || "pm";
+      // GM and admin have access to everything
+      if (userRole === "gm" || userRole === "admin") {
+        (req as any).userRole = userRole;
+        (req as any).currentUser = user;
+        return next();
+      }
+      if (!allowedRoles.includes(userRole)) {
+        return res.status(403).json({ error: "Insufficient permissions" });
+      }
+      (req as any).userRole = userRole;
+      (req as any).currentUser = user;
+      next();
+    };
+  }
+
+  // ============================================
+  // NEW DISPATCH 2.0 API ROUTES
+  // ============================================
+
+  // ---- USERS CRUD (admin only) ----
+  app.get("/api/users", requireAuth, async (req: Request, res: Response) => {
+    const allUsers = await storage.getAllUsers();
+    res.json(allUsers.map((u: any) => ({ ...u, passwordHash: undefined })));
+  });
+
+  app.post("/api/users", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { email, name, initial, password, role, entityId } = req.body;
+      if (!email || !name || !role) return res.status(400).json({ error: "Missing required fields" });
+      const passwordHash = password ? await bcrypt.hash(password, 10) : null;
+      const user = await storage.createUser({ email: email.toLowerCase().trim(), name, initial, passwordHash, role, entityId });
+      res.json({ ...user, passwordHash: undefined });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.patch("/api/users/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const id = +param(req, "id");
+      const updates: any = {};
+      if (req.body.name) updates.name = req.body.name;
+      if (req.body.initial) updates.initial = req.body.initial;
+      if (req.body.role) updates.role = req.body.role;
+      if (req.body.entityId !== undefined) updates.entityId = req.body.entityId;
+      if (req.body.isActive !== undefined) updates.isActive = req.body.isActive;
+      if (req.body.password) updates.passwordHash = await bcrypt.hash(req.body.password, 10);
+      const user = await storage.updateUser(id, updates);
+      res.json({ ...user, passwordHash: undefined });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ---- ENTITIES ----
+  app.get("/api/entities", requireAuth, async (_req: Request, res: Response) => {
+    const allEntities = await storage.getAllEntities();
+    res.json(allEntities);
+  });
+
+  // ---- VENDORS CRUD ----
+  app.get("/api/vendors", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { status, search, page, limit } = req.query;
+      const filters = {
+        status: status as string,
+        search: search as string,
+        page: page ? +page : 1,
+        limit: limit ? +limit : 50,
+      };
+      const [vendorList, total] = await Promise.all([
+        storage.getVendors(filters),
+        storage.getVendorCount(filters),
+      ]);
+      res.json({ data: vendorList, total, page: filters.page, limit: filters.limit });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/vendors/pipeline", requireAuth, async (_req: Request, res: Response) => {
+    try {
+      const pipeline = await storage.getVendorsPipeline();
+      res.json(pipeline);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/vendors/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const vendor = await storage.getVendor(+param(req, "id"));
+      if (!vendor) return res.status(404).json({ error: "Vendor not found" });
+      res.json(vendor);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/vendors", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const vendor = await storage.createVendor(req.body);
+      res.json(vendor);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.patch("/api/vendors/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const vendor = await storage.updateVendor(+param(req, "id"), req.body);
+      res.json(vendor);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/vendors/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      await storage.deleteVendor(+param(req, "id"));
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Vendor sub-resources
+  app.get("/api/vendors/:id/quality-reports", requireAuth, async (req: Request, res: Response) => {
+    const reports = await storage.getQualityReports(+param(req, "id"));
+    res.json(reports);
+  });
+
+  app.get("/api/vendors/:id/activities", requireAuth, async (req: Request, res: Response) => {
+    const activities = await storage.getVendorActivities(+param(req, "id"));
+    res.json(activities);
+  });
+
+  app.get("/api/vendors/:id/notes", requireAuth, async (req: Request, res: Response) => {
+    const notes = await storage.getVendorNotes(+param(req, "id"));
+    res.json(notes);
+  });
+
+  app.post("/api/vendors/:id/notes", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const pmUserId = (req as any).pmUserId;
+      const note = await storage.createVendorNote({
+        vendorId: +param(req, "id"),
+        content: req.body.content,
+        noteType: req.body.noteType || "note",
+        visibility: req.body.visibility || "team",
+        createdBy: pmUserId,
+      });
+      res.json(note);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/vendors/:id/language-pairs", requireAuth, async (req: Request, res: Response) => {
+    const pairs = await storage.getVendorLanguagePairs(+param(req, "id"));
+    res.json(pairs);
+  });
+
+  app.get("/api/vendors/:id/rate-cards", requireAuth, async (req: Request, res: Response) => {
+    const cards = await storage.getVendorRateCards(+param(req, "id"));
+    res.json(cards);
+  });
+
+  app.get("/api/vendors/:id/documents", requireAuth, async (req: Request, res: Response) => {
+    const docs = await storage.getVendorDocuments();
+    res.json(docs);
+  });
+
+  // ---- CUSTOMERS CRUD ----
+  app.get("/api/customers", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { search, page, limit } = req.query;
+      const filters = {
+        search: search as string,
+        page: page ? +page : 1,
+        limit: limit ? +limit : 50,
+      };
+      const [customerList, total] = await Promise.all([
+        storage.getCustomers(filters),
+        storage.getCustomerCount(filters),
+      ]);
+      res.json({ data: customerList, total, page: filters.page, limit: filters.limit });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/customers/:id", requireAuth, async (req: Request, res: Response) => {
+    const customer = await storage.getCustomer(+param(req, "id"));
+    if (!customer) return res.status(404).json({ error: "Customer not found" });
+    res.json(customer);
+  });
+
+  app.post("/api/customers", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const customer = await storage.createCustomer(req.body);
+      res.json(customer);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.patch("/api/customers/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const customer = await storage.updateCustomer(+param(req, "id"), req.body);
+      res.json(customer);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/customers/:id/contacts", requireAuth, async (req: Request, res: Response) => {
+    const contacts = await storage.getCustomerContacts(+param(req, "id"));
+    res.json(contacts);
+  });
+
+  app.post("/api/customers/:id/contacts", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const contact = await storage.createCustomerContact({ customerId: +param(req, "id"), ...req.body });
+      res.json(contact);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/customers/:id/sub-accounts", requireAuth, async (req: Request, res: Response) => {
+    const subAccounts = await storage.getCustomerSubAccounts(+param(req, "id"));
+    res.json(subAccounts);
+  });
+
+  app.post("/api/customers/:id/sub-accounts", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const subAccount = await storage.createCustomerSubAccount({ customerId: +param(req, "id"), ...req.body });
+      res.json(subAccount);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ---- PROJECTS CRUD ----
+  app.get("/api/projects", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { pmId, customerId, status, page, limit } = req.query;
+      const filters = {
+        pmId: pmId ? +pmId : undefined,
+        customerId: customerId ? +customerId : undefined,
+        status: status as string,
+        page: page ? +page : 1,
+        limit: limit ? +limit : 50,
+      };
+      const [projectList, total] = await Promise.all([
+        storage.getProjects(filters),
+        storage.getProjectCount(filters),
+      ]);
+      res.json({ data: projectList, total, page: filters.page, limit: filters.limit });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/projects/:id", requireAuth, async (req: Request, res: Response) => {
+    const project = await storage.getProject(+param(req, "id"));
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    res.json(project);
+  });
+
+  app.post("/api/projects", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const project = await storage.createProject(req.body);
+      res.json(project);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.patch("/api/projects/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const project = await storage.updateProject(+param(req, "id"), req.body);
+      res.json(project);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/projects/:id/jobs", requireAuth, async (req: Request, res: Response) => {
+    const jobList = await storage.getJobs(+param(req, "id"));
+    res.json(jobList);
+  });
+
+  app.post("/api/projects/:id/jobs", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const job = await storage.createJob({ projectId: +param(req, "id"), ...req.body });
+      res.json(job);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ---- QUALITY REPORTS ----
+  app.get("/api/quality-reports", requireAuth, async (req: Request, res: Response) => {
+    const vendorId = req.query.vendorId ? +req.query.vendorId : undefined;
+    const reports = await storage.getQualityReports(vendorId);
+    res.json(reports);
+  });
+
+  app.post("/api/quality-reports", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const report = await storage.createQualityReport(req.body);
+      res.json(report);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.patch("/api/quality-reports/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const report = await storage.updateQualityReport(+param(req, "id"), req.body);
+      res.json(report);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ---- PURCHASE ORDERS ----
+  app.get("/api/purchase-orders", requireAuth, async (req: Request, res: Response) => {
+    const vendorId = req.query.vendorId ? +req.query.vendorId : undefined;
+    const orders = await storage.getPurchaseOrders({ vendorId });
+    res.json(orders);
+  });
+
+  app.post("/api/purchase-orders", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const order = await storage.createPurchaseOrder(req.body);
+      res.json(order);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.patch("/api/purchase-orders/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const order = await storage.updatePurchaseOrder(+param(req, "id"), req.body);
+      res.json(order);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ---- SETTINGS ----
+  app.get("/api/settings", requireAuth, async (_req: Request, res: Response) => {
+    const allSettings = await storage.getAllSettings();
+    res.json(allSettings);
+  });
+
+  app.patch("/api/settings/:key", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const setting = await storage.upsertSetting(param(req, "key"), req.body.value, req.body.category, req.body.description);
+      res.json(setting);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ---- VENDOR PORTAL ROUTES ----
+  // These use vendor session tokens (magic link based)
+  async function requireVendorAuth(req: Request, res: Response, next: NextFunction) {
+    const token = req.headers.authorization?.replace("Bearer ", "");
+    if (!token) return res.status(401).json({ error: "No vendor token provided" });
+    const session = await storage.getVendorSession(token);
+    if (!session) return res.status(401).json({ error: "Invalid vendor session" });
+    if (new Date(session.expiresAt) < new Date()) {
+      await storage.deleteVendorSession(token);
+      return res.status(401).json({ error: "Vendor session expired" });
+    }
+    (req as any).vendorId = session.vendorId;
+    next();
+  }
+
+  app.get("/api/portal/profile", requireVendorAuth, async (req: Request, res: Response) => {
+    const vendor = await storage.getVendor((req as any).vendorId);
+    if (!vendor) return res.status(404).json({ error: "Vendor not found" });
+    res.json(vendor);
+  });
+
+  app.patch("/api/portal/profile", requireVendorAuth, async (req: Request, res: Response) => {
+    try {
+      // Vendors can only update certain fields
+      const allowedFields = ["phone", "phone2", "address", "website", "availability", "availableOn", "paymentInfo"];
+      const updates: any = {};
+      for (const field of allowedFields) {
+        if (req.body[field] !== undefined) updates[field] = req.body[field];
+      }
+      const vendor = await storage.updateVendor((req as any).vendorId, updates);
+      res.json(vendor);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/portal/jobs", requireVendorAuth, async (req: Request, res: Response) => {
+    // Return jobs assigned to this vendor
+    res.json([]);
+  });
+
+  app.get("/api/portal/payments", requireVendorAuth, async (req: Request, res: Response) => {
+    const orders = await storage.getPurchaseOrders({ vendorId: (req as any).vendorId });
+    res.json(orders);
+  });
+
+  app.get("/api/portal/quality-scores", requireVendorAuth, async (req: Request, res: Response) => {
+    const reports = await storage.getQualityReports((req as any).vendorId);
+    res.json(reports);
+  });
+
+  app.get("/api/portal/documents", requireVendorAuth, async (req: Request, res: Response) => {
+    const docs = await storage.getVendorDocuments();
+    res.json(docs);
+  });
+
+  // ---- VENDOR MAGIC LINK AUTH ----
+  app.post("/api/auth/vendor-magic-link", async (req: Request, res: Response) => {
+    try {
+      const { email } = req.body;
+      if (!email) return res.status(400).json({ error: "Email required" });
+      // Find vendor by email
+      const vendorList = await storage.getVendors({ search: email, limit: 1 });
+      const vendor = vendorList.find((v: any) => v.email.toLowerCase() === email.toLowerCase());
+      if (!vendor) return res.status(404).json({ error: "Vendor not found" });
+      // Create session token
+      const token = generateToken();
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+      await storage.createVendorSession({ token, vendorId: vendor.id, expiresAt });
+      // Send magic link email
+      const magicUrl = `${SITE_PUBLIC_URL}#/portal/verify/${token}`;
+      await sendEmail([vendor.email], "Sign in to ElTurco Portal", buildMagicLinkEmailHtml(vendor.fullName, magicUrl));
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/auth/vendor-verify/:token", async (req: Request, res: Response) => {
+    const session = await storage.getVendorSession(param(req, "token"));
+    if (!session) return res.status(404).json({ error: "Invalid or expired link" });
+    if (new Date(session.expiresAt) < new Date()) {
+      await storage.deleteVendorSession(param(req, "token"));
+      return res.status(401).json({ error: "Link expired" });
+    }
+    const vendor = await storage.getVendor(session.vendorId);
+    res.json({ token: param(req, "token"), vendor: vendor ? { id: vendor.id, fullName: vendor.fullName, email: vendor.email } : null });
+  });
 }

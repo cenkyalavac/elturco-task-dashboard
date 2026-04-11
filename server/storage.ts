@@ -1,8 +1,15 @@
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import Database from "better-sqlite3";
-import { eq, and, desc, or, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/node-postgres";
+import pg from "pg";
+import { eq, and, desc, or, sql, asc, ilike, inArray, count, gte, lte } from "drizzle-orm";
 import {
-  pmUsers, authTokens, sessions, assignments, offers, sheetConfigs, emailTemplates, sequencePresets, autoAssignRules, notifications, freelancerSessions,
+  pmUsers, authTokens, sessions, assignments, offers, sheetConfigs, emailTemplates,
+  sequencePresets, autoAssignRules, notifications, freelancerSessions,
+  entities, users, vendors, vendorLanguagePairs, vendorRateCards, qualityReports,
+  vendorDocuments, vendorDocumentSignatures, vendorActivities, vendorNotes,
+  customers, customerContacts, customerSubAccounts, pmCustomerAssignments,
+  projects, jobs, purchaseOrders, clientInvoices, clientInvoiceLines,
+  autoAcceptRules, auditLog, settings, vendorSessions, notificationsV2,
+  taskNotes, pmFavorites,
   type PmUser, type InsertPmUser,
   type Assignment, type InsertAssignment,
   type Offer, type InsertOffer,
@@ -12,114 +19,21 @@ import {
   type AutoAssignRule, type InsertAutoAssignRule,
   type Notification, type InsertNotification,
   type FreelancerSession,
+  type Entity, type User, type Vendor, type Customer, type Project, type Job,
+  type QualityReport, type PurchaseOrder, type VendorNote, type VendorActivity,
 } from "@shared/schema";
 
-const DB_PATH = process.env.DB_PATH || "data.db";
-const sqlite = new Database(DB_PATH);
-sqlite.pragma("journal_mode = WAL");
+const DATABASE_URL = process.env.DATABASE_URL || "REDACTED_DATABASE_URL";
 
-// Auto-create tables if they don't exist (for fresh deployments)
-sqlite.exec(`
-  CREATE TABLE IF NOT EXISTS pm_users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT NOT NULL UNIQUE,
-    name TEXT NOT NULL,
-    initial TEXT DEFAULT '',
-    password TEXT NOT NULL DEFAULT '',
-    role TEXT NOT NULL DEFAULT 'pm',
-    default_filter TEXT DEFAULT 'ongoing',
-    default_my_projects INTEGER DEFAULT 0,
-    default_source TEXT DEFAULT 'all',
-    default_account TEXT DEFAULT 'all'
-  );
-  CREATE TABLE IF NOT EXISTS auth_tokens (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    token TEXT NOT NULL UNIQUE,
-    email TEXT NOT NULL,
-    expires_at TEXT NOT NULL,
-    used INTEGER NOT NULL DEFAULT 0,
-    client_base_url TEXT
-  );
-  CREATE TABLE IF NOT EXISTS sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    token TEXT NOT NULL UNIQUE,
-    pm_user_id INTEGER NOT NULL,
-    expires_at TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS assignments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source TEXT NOT NULL, sheet TEXT NOT NULL, project_id TEXT NOT NULL, account TEXT NOT NULL,
-    task_details TEXT NOT NULL, assignment_type TEXT NOT NULL, role TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending',
-    assigned_by INTEGER NOT NULL, accepted_by TEXT, accepted_by_name TEXT, accepted_by_email TEXT,
-    sequence_list TEXT, current_sequence_index INTEGER DEFAULT 0, sequence_timeout_minutes INTEGER DEFAULT 60,
-    broadcast_list TEXT, auto_assign_reviewer INTEGER DEFAULT 0,
-    reviewer_assignment_type TEXT, reviewer_sequence_list TEXT, review_type TEXT,
-    created_at TEXT NOT NULL, offered_at TEXT, accepted_at TEXT, completed_at TEXT,
-    linked_reviewer_assignment_id INTEGER
-  );
-  CREATE TABLE IF NOT EXISTS offers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    assignment_id INTEGER NOT NULL, freelancer_code TEXT NOT NULL,
-    freelancer_name TEXT NOT NULL, freelancer_email TEXT NOT NULL,
-    token TEXT NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'pending',
-    sent_at TEXT NOT NULL, responded_at TEXT, sequence_order INTEGER,
-    client_base_url TEXT
-  );
-  CREATE TABLE IF NOT EXISTS email_templates (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    key TEXT NOT NULL UNIQUE, subject TEXT NOT NULL, body TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS sequence_presets (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL, pm_email TEXT NOT NULL, role TEXT NOT NULL,
-    freelancer_codes TEXT NOT NULL, assignment_type TEXT NOT NULL DEFAULT 'sequence'
-  );
-  CREATE TABLE IF NOT EXISTS auto_assign_rules (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL, source TEXT, account TEXT, language_pair TEXT,
-    role TEXT NOT NULL, freelancer_codes TEXT NOT NULL,
-    assignment_type TEXT NOT NULL DEFAULT 'sequence',
-    max_wwc INTEGER, enabled INTEGER NOT NULL DEFAULT 1, created_by TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS sheet_configs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source TEXT NOT NULL, sheet TEXT NOT NULL,
-    language_pair TEXT NOT NULL DEFAULT 'EN>TR',
-    sheetdb_id TEXT, google_sheet_url TEXT, assigned_pms TEXT
-  );
-  CREATE TABLE IF NOT EXISTS task_notes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source TEXT NOT NULL, sheet TEXT NOT NULL, project_id TEXT NOT NULL,
-    pm_email TEXT NOT NULL, note TEXT NOT NULL,
-    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS pm_favorites (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    pm_email TEXT NOT NULL, freelancer_code TEXT NOT NULL, created_at TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS notifications (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    type TEXT NOT NULL, title TEXT NOT NULL, message TEXT NOT NULL,
-    metadata TEXT, read INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS freelancer_sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    token TEXT NOT NULL UNIQUE, freelancer_code TEXT NOT NULL,
-    freelancer_name TEXT NOT NULL, freelancer_email TEXT NOT NULL,
-    expires_at TEXT NOT NULL
-  );
-`);
+const pool = new pg.Pool({
+  connectionString: DATABASE_URL,
+  max: 10,
+  ssl: false,
+});
 
-// Migrate existing DB: add new columns if missing
-try { sqlite.exec(`ALTER TABLE pm_users ADD COLUMN default_source TEXT DEFAULT 'all'`); } catch {}
-try { sqlite.exec(`ALTER TABLE pm_users ADD COLUMN default_account TEXT DEFAULT 'all'`); } catch {}
-try { sqlite.exec(`ALTER TABLE sheet_configs ADD COLUMN google_sheet_id TEXT`); } catch {}
-try { sqlite.exec(`ALTER TABLE sheet_configs ADD COLUMN worksheet_id INTEGER`); } catch {}
-// Fix Inditex config: was EN>TR, should be ES>TR
-try { sqlite.exec(`UPDATE sheet_configs SET language_pair = 'ES>TR' WHERE source = 'Inditex' AND language_pair = 'EN>TR'`); } catch {}
+export const db = drizzle(pool);
 
-// Google Sheet ID mapping — used by seed data and migration
+// Google Sheet ID mapping — used by seed data
 const gsMapping: Record<string, { gsId: string; tabs: Record<string, number> }> = {
   "Amazon": { gsId: "1Un0dUbaacL7a13zniNtKfJwpFX5FlPYqbCtFmJCICo8", tabs: { "non-AFT": 0, "TPT": 1056910041, "AFT": 1971341819, "Non-EN": 704947960, "DPX": 217988936 } },
   "AppleCare": { gsId: "1Yeh8pYLEmVZOkYdUIDFurEFE-KfL8_8leZZXIm7lz0g", tabs: { "Assignments": 0, "RU Assignments": 393238430, "AR Assignments": 437911328 } },
@@ -133,104 +47,132 @@ const gsMapping: Record<string, { gsId: string; tabs: Record<string, number> }> 
   "L-Google": { gsId: "1PJYeBDpkdeTzLQ1Psp2IqFUlyLqOwkV0VVnmqCWDhmk", tabs: { "JobTracker": 211892049 } },
 };
 
-// Helper: look up Google Sheet ID for a source+tab
-function getGsId(source: string, tab: string): string | null {
+function getGsId(source: string, _tab: string): string | null {
   return gsMapping[source]?.gsId || null;
 }
 function getWsId(source: string, tab: string): number | null {
   return gsMapping[source]?.tabs?.[tab] ?? null;
 }
 
-export const db = drizzle(sqlite);
-
 export interface IStorage {
   // PM Users
-  getPmUserByEmail(email: string): PmUser | undefined;
-  createPmUser(data: InsertPmUser): PmUser;
-  getAllPmUsers(): PmUser[];
-  updatePmUser(id: number, data: Partial<PmUser>): void;
+  getPmUserByEmail(email: string): Promise<PmUser | undefined>;
+  createPmUser(data: InsertPmUser): Promise<PmUser>;
+  getAllPmUsers(): Promise<PmUser[]>;
+  updatePmUser(id: number, data: Partial<PmUser>): Promise<void>;
 
   // Auth
-  createAuthToken(token: string, email: string, expiresAt: string, clientBaseUrl?: string): void;
-  getAuthToken(token: string): { token: string; email: string; expiresAt: string; used: number; clientBaseUrl: string | null } | undefined;
-  markAuthTokenUsed(token: string): void;
-  createSession(token: string, pmUserId: number, expiresAt: string): void;
-  getSession(token: string): { token: string; pmUserId: number; expiresAt: string } | undefined;
-  deleteSession(token: string): void;
+  createAuthToken(token: string, email: string, expiresAt: string, clientBaseUrl?: string): Promise<void>;
+  getAuthToken(token: string): Promise<{ token: string; email: string; expiresAt: string; used: number; clientBaseUrl: string | null } | undefined>;
+  markAuthTokenUsed(token: string): Promise<void>;
+  createSession(token: string, pmUserId: number, expiresAt: string): Promise<void>;
+  getSession(token: string): Promise<{ token: string; pmUserId: number; expiresAt: string } | undefined>;
+  deleteSession(token: string): Promise<void>;
 
   // Assignments
-  createAssignment(data: InsertAssignment): Assignment;
-  getAssignment(id: number): Assignment | undefined;
-  getAssignmentsByStatus(status: string): Assignment[];
-  getAllAssignments(): Assignment[];
-  updateAssignment(id: number, data: Partial<Assignment>): Assignment | undefined;
+  createAssignment(data: InsertAssignment): Promise<Assignment>;
+  getAssignment(id: number): Promise<Assignment | undefined>;
+  getAssignmentsByStatus(status: string): Promise<Assignment[]>;
+  getAllAssignments(): Promise<Assignment[]>;
+  updateAssignment(id: number, data: Partial<Assignment>): Promise<Assignment | undefined>;
 
   // SheetConfigs
-  getAllSheetConfigs(): SheetConfig[];
-  upsertSheetConfig(source: string, sheet: string, languagePair: string, sheetDbId?: string, googleSheetUrl?: string, assignedPms?: string): SheetConfig;
-  deleteSheetConfig(id: number): void;
+  getAllSheetConfigs(): Promise<SheetConfig[]>;
+  upsertSheetConfig(source: string, sheet: string, languagePair: string, sheetDbId?: string, googleSheetUrl?: string, assignedPms?: string): Promise<SheetConfig>;
+  deleteSheetConfig(id: number): Promise<void>;
 
   // Offers
-  createOffer(data: InsertOffer): Offer;
-  getOffer(id: number): Offer | undefined;
-  getOfferByToken(token: string): Offer | undefined;
-  getOffersByAssignment(assignmentId: number): Offer[];
-  updateOffer(id: number, data: Partial<Offer>): Offer | undefined;
+  createOffer(data: InsertOffer): Promise<Offer>;
+  getOffer(id: number): Promise<Offer | undefined>;
+  getOfferByToken(token: string): Promise<Offer | undefined>;
+  getOffersByAssignment(assignmentId: number): Promise<Offer[]>;
+  updateOffer(id: number, data: Partial<Offer>): Promise<Offer | undefined>;
 
   // Email Templates
-  getAllEmailTemplates(): EmailTemplate[];
-  getEmailTemplate(key: string): EmailTemplate | undefined;
-  upsertEmailTemplate(key: string, subject: string, body: string): EmailTemplate;
+  getAllEmailTemplates(): Promise<EmailTemplate[]>;
+  getEmailTemplate(key: string): Promise<EmailTemplate | undefined>;
+  upsertEmailTemplate(key: string, subject: string, body: string): Promise<EmailTemplate>;
 
   // Sequence Presets
-  getPresetsByPm(pmEmail: string): SequencePreset[];
-  createPreset(data: InsertSequencePreset): SequencePreset;
-  deletePreset(id: number): void;
+  getPresetsByPm(pmEmail: string): Promise<SequencePreset[]>;
+  createPreset(data: InsertSequencePreset): Promise<SequencePreset>;
+  deletePreset(id: number): Promise<void>;
 
   // Auto-assign Rules
-  getAllAutoAssignRules(): AutoAssignRule[];
-  createAutoAssignRule(data: InsertAutoAssignRule): AutoAssignRule;
-  updateAutoAssignRule(id: number, data: Partial<AutoAssignRule>): void;
-  deleteAutoAssignRule(id: number): void;
+  getAllAutoAssignRules(): Promise<AutoAssignRule[]>;
+  createAutoAssignRule(data: InsertAutoAssignRule): Promise<AutoAssignRule>;
+  updateAutoAssignRule(id: number, data: Partial<AutoAssignRule>): Promise<void>;
+  deleteAutoAssignRule(id: number): Promise<void>;
 
   // Notifications
-  createNotification(data: InsertNotification): Notification;
-  getRecentNotifications(limit?: number): Notification[];
-  markNotificationRead(id: number): void;
-  markAllNotificationsRead(): void;
-  getUnreadCount(): number;
+  createNotification(data: InsertNotification): Promise<Notification>;
+  getRecentNotifications(limit?: number): Promise<Notification[]>;
+  markNotificationRead(id: number): Promise<void>;
+  markAllNotificationsRead(): Promise<void>;
+  getUnreadCount(): Promise<number>;
 
   // Freelancer Sessions
-  createFreelancerSession(data: { token: string; freelancerCode: string; freelancerName: string; freelancerEmail: string; expiresAt: string }): void;
-  getFreelancerSession(token: string): FreelancerSession | undefined;
-  deleteFreelancerSession(token: string): void;
+  createFreelancerSession(data: { token: string; freelancerCode: string; freelancerName: string; freelancerEmail: string; expiresAt: string }): Promise<void>;
+  getFreelancerSession(token: string): Promise<FreelancerSession | undefined>;
+  deleteFreelancerSession(token: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
-  constructor() {
-    // Seed default admin users (bcrypt-hashed password, safe to store in code)
+  private initialized = false;
+
+  async init() {
+    if (this.initialized) return;
+    this.initialized = true;
+
+    // Seed default admin users
     const SEED_HASH = "$2b$10$luZIyoi9Gg3rW252YGmfxe4U2StasUiT54CACIcQO7rZQ3UXl6Pz.";
     const seeds = [
-      { email: "perplexity@eltur.co", name: "Cenk Yalavaç", initial: "CY", password: SEED_HASH, role: "admin" },
-      { email: "cenk@eltur.co", name: "Cenk Yalavaç", initial: "CY", password: SEED_HASH, role: "admin" },
-      { email: "onder@eltur.co", name: "Önder Eroğlu", initial: "OE", password: SEED_HASH, role: "pm" },
-      { email: "cansun@eltur.co", name: "Cansun Coşkun", initial: "CC", password: SEED_HASH, role: "pm" },
+      { email: "perplexity@eltur.co", name: "Cenk Yalavac", initial: "CY", password: SEED_HASH, role: "admin" },
+      { email: "cenk@eltur.co", name: "Cenk Yalavac", initial: "CY", password: SEED_HASH, role: "admin" },
+      { email: "onder@eltur.co", name: "Onder Eroglu", initial: "OE", password: SEED_HASH, role: "pm" },
+      { email: "cansun@eltur.co", name: "Cansun Coskun", initial: "CC", password: SEED_HASH, role: "pm" },
     ];
     for (const s of seeds) {
-      const existing = db.select().from(pmUsers).where(eq(pmUsers.email, s.email)).get();
+      const [existing] = await db.select().from(pmUsers).where(eq(pmUsers.email, s.email));
       if (!existing) {
-        db.insert(pmUsers).values(s).run();
+        await db.insert(pmUsers).values(s);
       } else {
         const updates: any = {};
         if (!existing.password) updates.password = s.password;
         if (!existing.initial && s.initial) updates.initial = s.initial;
         if (Object.keys(updates).length > 0) {
-          db.update(pmUsers).set(updates).where(eq(pmUsers.email, s.email)).run();
+          await db.update(pmUsers).set(updates).where(eq(pmUsers.email, s.email));
         }
       }
     }
 
-    // Seed default sheet configs with language pairs, SheetDB IDs, and Google Sheet IDs
+    // Seed entities
+    const entitySeeds = [
+      { name: "Verbato Ltd", code: "verbato", jurisdiction: "United Kingdom", currency: "GBP", qboEnabled: true },
+      { name: "Connectode Language Services Ltd", code: "connectode", jurisdiction: "KKTC", currency: "EUR", qboEnabled: false },
+    ];
+    for (const e of entitySeeds) {
+      const [existing] = await db.select().from(entities).where(eq(entities.code, e.code));
+      if (!existing) {
+        await db.insert(entities).values(e);
+      }
+    }
+
+    // Seed users table (new)
+    const userSeeds = [
+      { email: "cenk@eltur.co", name: "Cenk Yalavac", initial: "CY", passwordHash: SEED_HASH, role: "gm" },
+      { email: "cenkyalavac@gmail.com", name: "Cenk Yalavac", initial: "CY", passwordHash: SEED_HASH, role: "gm" },
+      { email: "onder@eltur.co", name: "Onder Erduran", initial: "OE", passwordHash: SEED_HASH, role: "pm" },
+      { email: "cemre@eltur.co", name: "Cemre Cankat", initial: "CC", passwordHash: SEED_HASH, role: "pm" },
+    ];
+    for (const u of userSeeds) {
+      const [existing] = await db.select().from(users).where(eq(users.email, u.email));
+      if (!existing) {
+        await db.insert(users).values(u);
+      }
+    }
+
+    // Seed default sheet configs
     const defaultConfigs = [
       { source: "Amazon", sheet: "non-AFT", languagePair: "EN>TR", sheetDbId: "mukq6ww3ssuk0", assignedPms: null, googleSheetUrl: null, googleSheetId: getGsId("Amazon", "non-AFT"), worksheetId: getWsId("Amazon", "non-AFT") },
       { source: "Amazon", sheet: "TPT", languagePair: "EN>TR", sheetDbId: "mukq6ww3ssuk0", assignedPms: null, googleSheetUrl: null, googleSheetId: getGsId("Amazon", "TPT"), worksheetId: getWsId("Amazon", "TPT") },
@@ -252,23 +194,22 @@ export class DatabaseStorage implements IStorage {
       { source: "L-Google", sheet: "JobTracker", languagePair: "EN>TR", sheetDbId: "nyv5veup2tabu", assignedPms: null, googleSheetUrl: null, googleSheetId: getGsId("L-Google", "JobTracker"), worksheetId: getWsId("L-Google", "JobTracker") },
     ];
     for (const c of defaultConfigs) {
-      const existing = db.select().from(sheetConfigs)
-        .where(and(eq(sheetConfigs.source, c.source), eq(sheetConfigs.sheet, c.sheet))).get();
+      const [existing] = await db.select().from(sheetConfigs)
+        .where(and(eq(sheetConfigs.source, c.source), eq(sheetConfigs.sheet, c.sheet)));
       if (!existing) {
-        db.insert(sheetConfigs).values(c).run();
+        await db.insert(sheetConfigs).values(c);
       } else {
-        // Always update googleSheetId if missing (fixes existing DBs from before migration)
         const updates: any = {};
         if (!existing.sheetDbId && c.sheetDbId) updates.sheetDbId = c.sheetDbId;
         if (!existing.googleSheetId && c.googleSheetId) updates.googleSheetId = c.googleSheetId;
         if (existing.worksheetId == null && c.worksheetId != null) updates.worksheetId = c.worksheetId;
         if (Object.keys(updates).length > 0) {
-          db.update(sheetConfigs).set(updates).where(eq(sheetConfigs.id, existing.id)).run();
+          await db.update(sheetConfigs).set(updates).where(eq(sheetConfigs.id, existing.id));
         }
       }
     }
 
-    // Seed default email templates (upsert — always ensure they exist)
+    // Seed default email templates
     const defaultTemplates = [
       {
         key: "offer_translator",
@@ -307,172 +248,491 @@ export class DatabaseStorage implements IStorage {
       },
     ];
     for (const t of defaultTemplates) {
-      const existing = db.select().from(emailTemplates).where(eq(emailTemplates.key, t.key)).get();
+      const [existing] = await db.select().from(emailTemplates).where(eq(emailTemplates.key, t.key));
       if (!existing) {
-        db.insert(emailTemplates).values(t).run();
+        await db.insert(emailTemplates).values(t);
       }
     }
   }
 
   // PM Users
-  getPmUserByEmail(email: string) {
-    return db.select().from(pmUsers).where(eq(pmUsers.email, email)).get();
+  async getPmUserByEmail(email: string) {
+    const [result] = await db.select().from(pmUsers).where(eq(pmUsers.email, email));
+    return result;
   }
-  createPmUser(data: InsertPmUser) {
-    return db.insert(pmUsers).values(data).returning().get();
+  async createPmUser(data: InsertPmUser) {
+    const [result] = await db.insert(pmUsers).values(data).returning();
+    return result;
   }
-  getAllPmUsers() {
-    return db.select().from(pmUsers).all();
+  async getAllPmUsers() {
+    return db.select().from(pmUsers);
   }
-  updatePmUser(id: number, data: Partial<PmUser>) {
-    db.update(pmUsers).set(data).where(eq(pmUsers.id, id)).run();
+  async updatePmUser(id: number, data: Partial<PmUser>) {
+    await db.update(pmUsers).set(data).where(eq(pmUsers.id, id));
   }
 
   // Auth
-  createAuthToken(token: string, email: string, expiresAt: string, clientBaseUrl?: string) {
-    db.insert(authTokens).values({ token, email, expiresAt, used: 0, clientBaseUrl: clientBaseUrl || null }).run();
+  async createAuthToken(token: string, email: string, expiresAt: string, clientBaseUrl?: string) {
+    await db.insert(authTokens).values({ token, email, expiresAt, used: 0, clientBaseUrl: clientBaseUrl || null });
   }
-  getAuthToken(token: string) {
-    return db.select().from(authTokens).where(eq(authTokens.token, token)).get();
+  async getAuthToken(token: string) {
+    const [result] = await db.select().from(authTokens).where(eq(authTokens.token, token));
+    return result;
   }
-  markAuthTokenUsed(token: string) {
-    db.update(authTokens).set({ used: 1 }).where(eq(authTokens.token, token)).run();
+  async markAuthTokenUsed(token: string) {
+    await db.update(authTokens).set({ used: 1 }).where(eq(authTokens.token, token));
   }
-  createSession(token: string, pmUserId: number, expiresAt: string) {
-    db.insert(sessions).values({ token, pmUserId, expiresAt }).run();
+  async createSession(token: string, pmUserId: number, expiresAt: string) {
+    await db.insert(sessions).values({ token, pmUserId, expiresAt });
   }
-  getSession(token: string) {
-    return db.select().from(sessions).where(eq(sessions.token, token)).get();
+  async getSession(token: string) {
+    const [result] = await db.select().from(sessions).where(eq(sessions.token, token));
+    return result;
   }
-  deleteSession(token: string) {
-    db.delete(sessions).where(eq(sessions.token, token)).run();
+  async deleteSession(token: string) {
+    await db.delete(sessions).where(eq(sessions.token, token));
   }
 
   // Assignments
-  createAssignment(data: InsertAssignment) {
-    return db.insert(assignments).values(data).returning().get();
+  async createAssignment(data: InsertAssignment) {
+    const [result] = await db.insert(assignments).values(data).returning();
+    return result;
   }
-  getAssignment(id: number) {
-    return db.select().from(assignments).where(eq(assignments.id, id)).get();
+  async getAssignment(id: number) {
+    const [result] = await db.select().from(assignments).where(eq(assignments.id, id));
+    return result;
   }
-  getAssignmentsByStatus(status: string) {
-    return db.select().from(assignments).where(eq(assignments.status, status)).orderBy(desc(assignments.id)).all();
+  async getAssignmentsByStatus(status: string) {
+    return db.select().from(assignments).where(eq(assignments.status, status)).orderBy(desc(assignments.id));
   }
-  getAllAssignments() {
-    return db.select().from(assignments).orderBy(desc(assignments.id)).all();
+  async getAllAssignments() {
+    return db.select().from(assignments).orderBy(desc(assignments.id));
   }
-  updateAssignment(id: number, data: Partial<Assignment>) {
-    db.update(assignments).set(data).where(eq(assignments.id, id)).run();
-    return db.select().from(assignments).where(eq(assignments.id, id)).get();
+  async updateAssignment(id: number, data: Partial<Assignment>) {
+    await db.update(assignments).set(data).where(eq(assignments.id, id));
+    const [result] = await db.select().from(assignments).where(eq(assignments.id, id));
+    return result;
   }
 
   // SheetConfigs
-  getAllSheetConfigs() {
-    return db.select().from(sheetConfigs).all();
+  async getAllSheetConfigs() {
+    return db.select().from(sheetConfigs);
   }
-  upsertSheetConfig(source: string, sheet: string, languagePair: string, sheetDbId?: string, googleSheetUrl?: string, assignedPms?: string) {
-    const existing = db.select().from(sheetConfigs)
-      .where(and(eq(sheetConfigs.source, source), eq(sheetConfigs.sheet, sheet))).get();
+  async upsertSheetConfig(source: string, sheet: string, languagePair: string, sheetDbId?: string, googleSheetUrl?: string, assignedPms?: string) {
+    const [existing] = await db.select().from(sheetConfigs)
+      .where(and(eq(sheetConfigs.source, source), eq(sheetConfigs.sheet, sheet)));
     const data: any = { languagePair };
     if (sheetDbId !== undefined) data.sheetDbId = sheetDbId;
     if (googleSheetUrl !== undefined) data.googleSheetUrl = googleSheetUrl;
     if (assignedPms !== undefined) data.assignedPms = assignedPms;
     if (existing) {
-      db.update(sheetConfigs).set(data).where(eq(sheetConfigs.id, existing.id)).run();
-      return db.select().from(sheetConfigs).where(eq(sheetConfigs.id, existing.id)).get()!;
+      await db.update(sheetConfigs).set(data).where(eq(sheetConfigs.id, existing.id));
+      const [result] = await db.select().from(sheetConfigs).where(eq(sheetConfigs.id, existing.id));
+      return result!;
     }
-    return db.insert(sheetConfigs).values({ source, sheet, ...data }).returning().get();
+    const [result] = await db.insert(sheetConfigs).values({ source, sheet, ...data }).returning();
+    return result;
   }
-  deleteSheetConfig(id: number) {
-    db.delete(sheetConfigs).where(eq(sheetConfigs.id, id)).run();
+  async deleteSheetConfig(id: number) {
+    await db.delete(sheetConfigs).where(eq(sheetConfigs.id, id));
   }
 
   // Offers
-  createOffer(data: InsertOffer) {
-    return db.insert(offers).values(data).returning().get();
+  async createOffer(data: InsertOffer) {
+    const [result] = await db.insert(offers).values(data).returning();
+    return result;
   }
-  getOffer(id: number) {
-    return db.select().from(offers).where(eq(offers.id, id)).get();
+  async getOffer(id: number) {
+    const [result] = await db.select().from(offers).where(eq(offers.id, id));
+    return result;
   }
-  getOfferByToken(token: string) {
-    return db.select().from(offers).where(eq(offers.token, token)).get();
+  async getOfferByToken(token: string) {
+    const [result] = await db.select().from(offers).where(eq(offers.token, token));
+    return result;
   }
-  getOffersByAssignment(assignmentId: number) {
-    return db.select().from(offers).where(eq(offers.assignmentId, assignmentId)).all();
+  async getOffersByAssignment(assignmentId: number) {
+    return db.select().from(offers).where(eq(offers.assignmentId, assignmentId));
   }
-  updateOffer(id: number, data: Partial<Offer>) {
-    db.update(offers).set(data).where(eq(offers.id, id)).run();
-    return db.select().from(offers).where(eq(offers.id, id)).get();
+  async updateOffer(id: number, data: Partial<Offer>) {
+    await db.update(offers).set(data).where(eq(offers.id, id));
+    const [result] = await db.select().from(offers).where(eq(offers.id, id));
+    return result;
   }
 
   // Email Templates
-  getAllEmailTemplates() {
-    return db.select().from(emailTemplates).all();
+  async getAllEmailTemplates() {
+    return db.select().from(emailTemplates);
   }
-  getEmailTemplate(key: string) {
-    return db.select().from(emailTemplates).where(eq(emailTemplates.key, key)).get();
+  async getEmailTemplate(key: string) {
+    const [result] = await db.select().from(emailTemplates).where(eq(emailTemplates.key, key));
+    return result;
   }
-  upsertEmailTemplate(key: string, subject: string, body: string) {
-    const existing = db.select().from(emailTemplates).where(eq(emailTemplates.key, key)).get();
+  async upsertEmailTemplate(key: string, subject: string, body: string) {
+    const [existing] = await db.select().from(emailTemplates).where(eq(emailTemplates.key, key));
     if (existing) {
-      db.update(emailTemplates).set({ subject, body }).where(eq(emailTemplates.id, existing.id)).run();
-      return db.select().from(emailTemplates).where(eq(emailTemplates.id, existing.id)).get()!;
+      await db.update(emailTemplates).set({ subject, body }).where(eq(emailTemplates.id, existing.id));
+      const [result] = await db.select().from(emailTemplates).where(eq(emailTemplates.id, existing.id));
+      return result!;
     }
-    return db.insert(emailTemplates).values({ key, subject, body }).returning().get();
+    const [result] = await db.insert(emailTemplates).values({ key, subject, body }).returning();
+    return result;
   }
 
   // Sequence Presets
-  getPresetsByPm(pmEmail: string) {
-    return db.select().from(sequencePresets).where(eq(sequencePresets.pmEmail, pmEmail)).all();
+  async getPresetsByPm(pmEmail: string) {
+    return db.select().from(sequencePresets).where(eq(sequencePresets.pmEmail, pmEmail));
   }
-  createPreset(data: InsertSequencePreset) {
-    return db.insert(sequencePresets).values(data).returning().get();
+  async createPreset(data: InsertSequencePreset) {
+    const [result] = await db.insert(sequencePresets).values(data).returning();
+    return result;
   }
-  deletePreset(id: number) {
-    db.delete(sequencePresets).where(eq(sequencePresets.id, id)).run();
+  async deletePreset(id: number) {
+    await db.delete(sequencePresets).where(eq(sequencePresets.id, id));
   }
 
   // Auto-assign Rules
-  getAllAutoAssignRules() {
-    return db.select().from(autoAssignRules).all();
+  async getAllAutoAssignRules() {
+    return db.select().from(autoAssignRules);
   }
-  createAutoAssignRule(data: InsertAutoAssignRule) {
-    return db.insert(autoAssignRules).values(data).returning().get();
+  async createAutoAssignRule(data: InsertAutoAssignRule) {
+    const [result] = await db.insert(autoAssignRules).values(data).returning();
+    return result;
   }
-  updateAutoAssignRule(id: number, data: Partial<AutoAssignRule>) {
-    db.update(autoAssignRules).set(data).where(eq(autoAssignRules.id, id)).run();
+  async updateAutoAssignRule(id: number, data: Partial<AutoAssignRule>) {
+    await db.update(autoAssignRules).set(data).where(eq(autoAssignRules.id, id));
   }
-  deleteAutoAssignRule(id: number) {
-    db.delete(autoAssignRules).where(eq(autoAssignRules.id, id)).run();
+  async deleteAutoAssignRule(id: number) {
+    await db.delete(autoAssignRules).where(eq(autoAssignRules.id, id));
   }
 
-  // Notifications
-  createNotification(data: InsertNotification) {
-    return db.insert(notifications).values(data).returning().get();
+  // Notifications (legacy table)
+  async createNotification(data: InsertNotification) {
+    const [result] = await db.insert(notifications).values(data).returning();
+    return result;
   }
-  getRecentNotifications(limit = 50) {
-    return db.select().from(notifications).orderBy(desc(notifications.id)).limit(limit).all();
+  async getRecentNotifications(limit = 50) {
+    return db.select().from(notifications).orderBy(desc(notifications.id)).limit(limit);
   }
-  markNotificationRead(id: number) {
-    db.update(notifications).set({ read: 1 }).where(eq(notifications.id, id)).run();
+  async markNotificationRead(id: number) {
+    await db.update(notifications).set({ read: 1 }).where(eq(notifications.id, id));
   }
-  markAllNotificationsRead() {
-    db.update(notifications).set({ read: 1 }).where(eq(notifications.read, 0)).run();
+  async markAllNotificationsRead() {
+    await db.update(notifications).set({ read: 1 }).where(eq(notifications.read, 0));
   }
-  getUnreadCount() {
-    const result = db.select({ count: sql<number>`count(*)` }).from(notifications).where(eq(notifications.read, 0)).get();
+  async getUnreadCount() {
+    const [result] = await db.select({ count: sql<number>`count(*)::int` }).from(notifications).where(eq(notifications.read, 0));
     return result?.count || 0;
   }
 
   // Freelancer Sessions
-  createFreelancerSession(data: { token: string; freelancerCode: string; freelancerName: string; freelancerEmail: string; expiresAt: string }) {
-    db.insert(freelancerSessions).values(data).run();
+  async createFreelancerSession(data: { token: string; freelancerCode: string; freelancerName: string; freelancerEmail: string; expiresAt: string }) {
+    await db.insert(freelancerSessions).values(data);
   }
-  getFreelancerSession(token: string) {
-    return db.select().from(freelancerSessions).where(eq(freelancerSessions.token, token)).get();
+  async getFreelancerSession(token: string) {
+    const [result] = await db.select().from(freelancerSessions).where(eq(freelancerSessions.token, token));
+    return result;
   }
-  deleteFreelancerSession(token: string) {
-    db.delete(freelancerSessions).where(eq(freelancerSessions.token, token)).run();
+  async deleteFreelancerSession(token: string) {
+    await db.delete(freelancerSessions).where(eq(freelancerSessions.token, token));
+  }
+
+  // ============================================
+  // NEW DISPATCH 2.0 METHODS
+  // ============================================
+
+  // Users (new table)
+  async getUserById(id: number) {
+    const [result] = await db.select().from(users).where(eq(users.id, id));
+    return result;
+  }
+  async getUserByEmail(email: string) {
+    const [result] = await db.select().from(users).where(eq(users.email, email));
+    return result;
+  }
+  async getAllUsers() {
+    return db.select().from(users).where(eq(users.isActive, true));
+  }
+  async createUser(data: any) {
+    const [result] = await db.insert(users).values(data).returning();
+    return result;
+  }
+  async updateUser(id: number, data: any) {
+    await db.update(users).set({ ...data, updatedAt: new Date() }).where(eq(users.id, id));
+    const [result] = await db.select().from(users).where(eq(users.id, id));
+    return result;
+  }
+
+  // Entities
+  async getAllEntities() {
+    return db.select().from(entities);
+  }
+  async getEntity(id: number) {
+    const [result] = await db.select().from(entities).where(eq(entities.id, id));
+    return result;
+  }
+
+  // Vendors
+  async getVendors(filters: { status?: string; search?: string; page?: number; limit?: number } = {}) {
+    const { status, search, page = 1, limit = 50 } = filters;
+    let query = db.select().from(vendors).$dynamic();
+    const conditions: any[] = [];
+    if (status) conditions.push(eq(vendors.status, status));
+    if (search) conditions.push(or(ilike(vendors.fullName, `%${search}%`), ilike(vendors.email, `%${search}%`)));
+    if (conditions.length > 0) query = query.where(and(...conditions));
+    const offset = (page - 1) * limit;
+    return query.orderBy(desc(vendors.id)).limit(limit).offset(offset);
+  }
+  async getVendorCount(filters: { status?: string; search?: string } = {}) {
+    const { status, search } = filters;
+    const conditions: any[] = [];
+    if (status) conditions.push(eq(vendors.status, status));
+    if (search) conditions.push(or(ilike(vendors.fullName, `%${search}%`), ilike(vendors.email, `%${search}%`)));
+    let query = db.select({ count: sql<number>`count(*)::int` }).from(vendors).$dynamic();
+    if (conditions.length > 0) query = query.where(and(...conditions));
+    const [result] = await query;
+    return result?.count || 0;
+  }
+  async getVendor(id: number) {
+    const [result] = await db.select().from(vendors).where(eq(vendors.id, id));
+    return result;
+  }
+  async createVendor(data: any) {
+    const [result] = await db.insert(vendors).values(data).returning();
+    return result;
+  }
+  async updateVendor(id: number, data: any) {
+    await db.update(vendors).set({ ...data, updatedAt: new Date() }).where(eq(vendors.id, id));
+    const [result] = await db.select().from(vendors).where(eq(vendors.id, id));
+    return result;
+  }
+  async deleteVendor(id: number) {
+    await db.delete(vendors).where(eq(vendors.id, id));
+  }
+  async getVendorsPipeline() {
+    return db.select({
+      status: vendors.status,
+      count: sql<number>`count(*)::int`,
+    }).from(vendors).groupBy(vendors.status);
+  }
+  async getApprovedVendors() {
+    return db.select().from(vendors).where(eq(vendors.status, "Approved"));
+  }
+
+  // Vendor Language Pairs
+  async getVendorLanguagePairs(vendorId: number) {
+    return db.select().from(vendorLanguagePairs).where(eq(vendorLanguagePairs.vendorId, vendorId));
+  }
+  async addVendorLanguagePair(data: any) {
+    const [result] = await db.insert(vendorLanguagePairs).values(data).returning();
+    return result;
+  }
+
+  // Vendor Rate Cards
+  async getVendorRateCards(vendorId: number) {
+    return db.select().from(vendorRateCards).where(eq(vendorRateCards.vendorId, vendorId));
+  }
+
+  // Quality Reports
+  async getQualityReports(vendorId?: number) {
+    if (vendorId) {
+      return db.select().from(qualityReports).where(eq(qualityReports.vendorId, vendorId)).orderBy(desc(qualityReports.id));
+    }
+    return db.select().from(qualityReports).orderBy(desc(qualityReports.id));
+  }
+  async createQualityReport(data: any) {
+    const [result] = await db.insert(qualityReports).values(data).returning();
+    return result;
+  }
+  async updateQualityReport(id: number, data: any) {
+    await db.update(qualityReports).set({ ...data, updatedAt: new Date() }).where(eq(qualityReports.id, id));
+    const [result] = await db.select().from(qualityReports).where(eq(qualityReports.id, id));
+    return result;
+  }
+
+  // Vendor Activities
+  async getVendorActivities(vendorId: number) {
+    return db.select().from(vendorActivities).where(eq(vendorActivities.vendorId, vendorId)).orderBy(desc(vendorActivities.id));
+  }
+  async createVendorActivity(data: any) {
+    const [result] = await db.insert(vendorActivities).values(data).returning();
+    return result;
+  }
+
+  // Vendor Notes
+  async getVendorNotes(vendorId: number) {
+    return db.select().from(vendorNotes).where(eq(vendorNotes.vendorId, vendorId)).orderBy(desc(vendorNotes.id));
+  }
+  async createVendorNote(data: any) {
+    const [result] = await db.insert(vendorNotes).values(data).returning();
+    return result;
+  }
+
+  // Vendor Documents
+  async getVendorDocuments() {
+    return db.select().from(vendorDocuments).where(eq(vendorDocuments.isActive, true));
+  }
+
+  // Customers
+  async getCustomers(filters: { search?: string; page?: number; limit?: number } = {}) {
+    const { search, page = 1, limit = 50 } = filters;
+    let query = db.select().from(customers).$dynamic();
+    if (search) query = query.where(or(ilike(customers.name, `%${search}%`), ilike(customers.code, `%${search}%`)));
+    const offset = (page - 1) * limit;
+    return query.orderBy(desc(customers.id)).limit(limit).offset(offset);
+  }
+  async getCustomerCount(filters: { search?: string } = {}) {
+    const { search } = filters;
+    let query = db.select({ count: sql<number>`count(*)::int` }).from(customers).$dynamic();
+    if (search) query = query.where(or(ilike(customers.name, `%${search}%`), ilike(customers.code, `%${search}%`)));
+    const [result] = await query;
+    return result?.count || 0;
+  }
+  async getCustomer(id: number) {
+    const [result] = await db.select().from(customers).where(eq(customers.id, id));
+    return result;
+  }
+  async createCustomer(data: any) {
+    const [result] = await db.insert(customers).values(data).returning();
+    return result;
+  }
+  async updateCustomer(id: number, data: any) {
+    await db.update(customers).set({ ...data, updatedAt: new Date() }).where(eq(customers.id, id));
+    const [result] = await db.select().from(customers).where(eq(customers.id, id));
+    return result;
+  }
+
+  // Customer Contacts
+  async getCustomerContacts(customerId: number) {
+    return db.select().from(customerContacts).where(eq(customerContacts.customerId, customerId));
+  }
+  async createCustomerContact(data: any) {
+    const [result] = await db.insert(customerContacts).values(data).returning();
+    return result;
+  }
+
+  // Customer Sub-Accounts
+  async getCustomerSubAccounts(customerId: number) {
+    return db.select().from(customerSubAccounts).where(eq(customerSubAccounts.customerId, customerId));
+  }
+  async createCustomerSubAccount(data: any) {
+    const [result] = await db.insert(customerSubAccounts).values(data).returning();
+    return result;
+  }
+
+  // PM Customer Assignments
+  async getPmCustomerAssignments(userId?: number, customerId?: number) {
+    const conditions: any[] = [];
+    if (userId) conditions.push(eq(pmCustomerAssignments.userId, userId));
+    if (customerId) conditions.push(eq(pmCustomerAssignments.customerId, customerId));
+    if (conditions.length === 0) return db.select().from(pmCustomerAssignments);
+    return db.select().from(pmCustomerAssignments).where(and(...conditions));
+  }
+
+  // Projects
+  async getProjects(filters: { pmId?: number; customerId?: number; status?: string; page?: number; limit?: number } = {}) {
+    const { pmId, customerId, status, page = 1, limit = 50 } = filters;
+    const conditions: any[] = [];
+    if (pmId) conditions.push(eq(projects.pmId, pmId));
+    if (customerId) conditions.push(eq(projects.customerId, customerId));
+    if (status) conditions.push(eq(projects.status, status));
+    let query = db.select().from(projects).$dynamic();
+    if (conditions.length > 0) query = query.where(and(...conditions));
+    const offset = (page - 1) * limit;
+    return query.orderBy(desc(projects.id)).limit(limit).offset(offset);
+  }
+  async getProjectCount(filters: { pmId?: number; customerId?: number; status?: string } = {}) {
+    const { pmId, customerId, status } = filters;
+    const conditions: any[] = [];
+    if (pmId) conditions.push(eq(projects.pmId, pmId));
+    if (customerId) conditions.push(eq(projects.customerId, customerId));
+    if (status) conditions.push(eq(projects.status, status));
+    let query = db.select({ count: sql<number>`count(*)::int` }).from(projects).$dynamic();
+    if (conditions.length > 0) query = query.where(and(...conditions));
+    const [result] = await query;
+    return result?.count || 0;
+  }
+  async getProject(id: number) {
+    const [result] = await db.select().from(projects).where(eq(projects.id, id));
+    return result;
+  }
+  async createProject(data: any) {
+    const [result] = await db.insert(projects).values(data).returning();
+    return result;
+  }
+  async updateProject(id: number, data: any) {
+    await db.update(projects).set({ ...data, updatedAt: new Date() }).where(eq(projects.id, id));
+    const [result] = await db.select().from(projects).where(eq(projects.id, id));
+    return result;
+  }
+
+  // Jobs
+  async getJobs(projectId: number) {
+    return db.select().from(jobs).where(eq(jobs.projectId, projectId)).orderBy(desc(jobs.id));
+  }
+  async createJob(data: any) {
+    const [result] = await db.insert(jobs).values(data).returning();
+    return result;
+  }
+  async updateJob(id: number, data: any) {
+    await db.update(jobs).set({ ...data, updatedAt: new Date() }).where(eq(jobs.id, id));
+    const [result] = await db.select().from(jobs).where(eq(jobs.id, id));
+    return result;
+  }
+
+  // Purchase Orders
+  async getPurchaseOrders(filters: { vendorId?: number; page?: number; limit?: number } = {}) {
+    const { vendorId, page = 1, limit = 50 } = filters;
+    let query = db.select().from(purchaseOrders).$dynamic();
+    if (vendorId) query = query.where(eq(purchaseOrders.vendorId, vendorId));
+    const offset = (page - 1) * limit;
+    return query.orderBy(desc(purchaseOrders.id)).limit(limit).offset(offset);
+  }
+  async createPurchaseOrder(data: any) {
+    const [result] = await db.insert(purchaseOrders).values(data).returning();
+    return result;
+  }
+  async updatePurchaseOrder(id: number, data: any) {
+    await db.update(purchaseOrders).set({ ...data, updatedAt: new Date() }).where(eq(purchaseOrders.id, id));
+    const [result] = await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, id));
+    return result;
+  }
+
+  // Settings
+  async getSetting(key: string) {
+    const [result] = await db.select().from(settings).where(eq(settings.key, key));
+    return result;
+  }
+  async getAllSettings() {
+    return db.select().from(settings);
+  }
+  async upsertSetting(key: string, value: any, category?: string, description?: string) {
+    const [existing] = await db.select().from(settings).where(eq(settings.key, key));
+    if (existing) {
+      await db.update(settings).set({ value, updatedAt: new Date() }).where(eq(settings.id, existing.id));
+      const [result] = await db.select().from(settings).where(eq(settings.id, existing.id));
+      return result;
+    }
+    const [result] = await db.insert(settings).values({ key, value, category, description }).returning();
+    return result;
+  }
+
+  // Audit Log
+  async createAuditEntry(data: any) {
+    const [result] = await db.insert(auditLog).values(data).returning();
+    return result;
+  }
+
+  // Vendor Sessions
+  async createVendorSession(data: any) {
+    const [result] = await db.insert(vendorSessions).values(data).returning();
+    return result;
+  }
+  async getVendorSession(token: string) {
+    const [result] = await db.select().from(vendorSessions).where(eq(vendorSessions.token, token));
+    return result;
+  }
+  async deleteVendorSession(token: string) {
+    await db.delete(vendorSessions).where(eq(vendorSessions.token, token));
   }
 }
 

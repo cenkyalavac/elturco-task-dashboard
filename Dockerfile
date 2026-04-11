@@ -17,9 +17,6 @@ RUN cp -r client/public/* dist/public/ 2>/dev/null || true
 # Cleanup source (keep dist + node_modules)
 RUN rm -rf client server shared script *.ts *.config.* postcss.* screenshot-*
 
-# Data dir
-RUN mkdir -p /data
-ENV DB_PATH=/data/data.db
 ENV NODE_ENV=production
 ENV PORT=5000
 EXPOSE 5000
