@@ -126,8 +126,9 @@ export default function ProjectsPage() {
   const { data: customers } = useQuery<Customer[]>({
     queryKey: ["/api/customers"],
     queryFn: async () => {
-      const res = await apiRequest("GET", "/api/customers");
-      return res.json();
+      const res = await apiRequest("GET", "/api/customers?limit=500");
+      const json = await res.json();
+      return json.data ?? json;
     },
   });
 

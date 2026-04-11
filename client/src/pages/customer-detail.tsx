@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useRoute, Link } from "wouter";
+import { useParams, Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -50,7 +50,7 @@ const PROJECT_STATUS_COLORS: Record<string, string> = {
 };
 
 export default function CustomerDetailPage() {
-  const [, params] = useRoute("/customers/:id");
+  const params = useParams<{ id: string }>();
   const customerId = params?.id;
   const { toast } = useToast();
   const [editing, setEditing] = useState(false);
@@ -159,8 +159,18 @@ export default function CustomerDetailPage() {
 
   if (!customer) {
     return (
-      <div className="p-6 text-white/30">
-        Customer not found. <Link href="/customers" className="text-blue-400 underline">Back to customers</Link>
+      <div className="p-6 max-w-5xl mx-auto">
+        <Link href="/customers">
+          <button className="flex items-center gap-1.5 text-sm text-white/60 hover:text-white hover:bg-white/[0.06] px-3 py-1.5 rounded-md transition mb-4">
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Back to Customers
+          </button>
+        </Link>
+        <div className="text-center py-16 text-white/40">
+          <Building2 className="w-10 h-10 mx-auto mb-3 opacity-40" />
+          <p className="text-sm font-medium">Customer not found</p>
+          <p className="text-xs text-white/25 mt-1">The customer may have been deleted or the ID is invalid.</p>
+        </div>
       </div>
     );
   }
