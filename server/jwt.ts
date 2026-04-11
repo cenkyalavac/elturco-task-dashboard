@@ -11,7 +11,7 @@ const JWT_SECRET = process.env.JWT_SECRET || (() => {
     console.error("CRITICAL: JWT_SECRET env var not set in production!");
   }
   // Dev-only: random per-process (sessions reset on restart, which is fine for dev)
-  return require("crypto").randomBytes(32).toString("hex");
+  return crypto.randomBytes(32).toString("hex");
 })();
 
 const ALGORITHM = "HS256";
