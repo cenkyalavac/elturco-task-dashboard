@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import {
   Plus, ChevronLeft, ChevronRight, Loader2, FileText, Send, Check,
-  Ban, Eye, X, Trash2,
+  Ban, Eye, Trash2, AlertCircle,
 } from "lucide-react";
 
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
@@ -30,6 +30,7 @@ const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
 };
 
 interface InvoiceLine {
+  id?: number;
   description: string;
   quantity: string;
   unitPrice: string;
@@ -41,10 +42,10 @@ interface InvoiceLine {
 const PAGE_LIMIT = 20;
 
 function formatCurrency(amount: string | number | null, currency: string = "EUR") {
-  if (!amount) return "—";
+  if (!amount && amount !== 0) return "—";
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
   if (isNaN(num)) return "—";
-  const symbol = currency === "GBP" ? "£" : currency === "EUR" ? "€" : "$";
+  const symbol = currency === "GBP" ? "£" : currency === "EUR" ? "€" : currency === "TRY" ? "₺" : "$";
   return `${symbol}${num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
@@ -55,6 +56,12 @@ function formatDate(dateStr: string | null): string {
   } catch {
     return dateStr;
   }
+}
+
+function getCustomerName(inv: any, customerMap: Map<number, string>): string {
+  if (inv.customerName) return inv.customerName;
+  if (inv.customer?.name) return inv.customer.name;
+  return customerMap.get(inv.customerId) || `Customer #${inv.customerId}`;
 }
 
 export default function InvoicesPage() {
@@ -140,26 +147,65 @@ export default function InvoicesPage() {
     },
   });
 
+  const statusMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: number; status: string }) => {
+      const res = await apiRequest("PATCH", `/api/invoices/${id}`, { status });
+      return res.json();
+    },
+    onSuccess: (_data: any, variables: { id: number; status: string }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices", variables.id] });
+      toast({ title: `Invoice marked as ${variables.status}` });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
   const sendMutation = useMutation({
     mutationFn: async (id: number) => {
-      const res = await apiRequest("POST", `/api/invoices/${id}/send`);
-      return res.json();
+      try {
+        const res = await apiRequest("POST", `/api/invoices/${id}/send`);
+        return res.json();
+      } catch {
+        const res = await apiRequest("PATCH", `/api/invoices/${id}`, { status: "sent" });
+        return res.json();
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      if (detailId) queryClient.invalidateQueries({ queryKey: ["/api/invoices", detailId] });
       toast({ title: "Invoice marked as sent" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
     },
   });
 
   const markPaidMutation = useMutation({
     mutationFn: async ({ id, ...data }: { id: number; paymentDate: string; paymentMethod: string; reference: string }) => {
-      const res = await apiRequest("POST", `/api/invoices/${id}/mark-paid`, data);
-      return res.json();
+      try {
+        const res = await apiRequest("POST", `/api/invoices/${id}/mark-paid`, data);
+        return res.json();
+      } catch {
+        const res = await apiRequest("PATCH", `/api/invoices/${id}`, {
+          status: "paid",
+          paymentDate: data.paymentDate,
+          paymentMethod: data.paymentMethod,
+          paymentReference: data.reference,
+        });
+        return res.json();
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      if (detailId) queryClient.invalidateQueries({ queryKey: ["/api/invoices", detailId] });
       toast({ title: "Invoice marked as paid" });
       setPaymentDialogId(null);
+      setPaymentForm({ paymentDate: new Date().toISOString().split("T")[0], paymentMethod: "", reference: "" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
     },
   });
 
@@ -171,6 +217,9 @@ export default function InvoicesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
       toast({ title: "Invoice cancelled" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
     },
   });
 
@@ -197,12 +246,18 @@ export default function InvoicesPage() {
   }
 
   function removeLine(idx: number) {
+    if (lines.length <= 1) return;
     setLines(prev => prev.filter((_, i) => i !== idx));
   }
 
   function handleCreate() {
     if (!form.customerId) {
       toast({ title: "Customer is required", variant: "destructive" });
+      return;
+    }
+    const validLines = lines.filter(l => l.description.trim());
+    if (validLines.length === 0) {
+      toast({ title: "At least one line item is required", variant: "destructive" });
       return;
     }
     createMutation.mutate({
@@ -213,7 +268,7 @@ export default function InvoicesPage() {
       currency: form.currency,
       taxAmount: form.taxAmount,
       notes: form.notes || null,
-      lines: lines.filter(l => l.description.trim()),
+      lines: validLines,
     });
   }
 
@@ -222,6 +277,12 @@ export default function InvoicesPage() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_LIMIT));
   const customerList = Array.isArray(customers) ? customers : customers?.data || [];
   const entityList = Array.isArray(entitiesData) ? entitiesData : [];
+
+  const customerMap = useMemo(() => {
+    const map = new Map<number, string>();
+    customerList.forEach((c: any) => map.set(c.id, c.name));
+    return map;
+  }, [customerList]);
 
   const subtotal = lines.reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0);
   const tax = parseFloat(form.taxAmount) || 0;
@@ -246,13 +307,14 @@ export default function InvoicesPage() {
           )}
           <div className="ml-auto flex gap-2">
             {inv?.status === "draft" && (
-              <Button size="sm" className="h-7 text-xs gap-1" onClick={() => sendMutation.mutate(inv.id)}>
-                <Send className="w-3 h-3" /> Send
+              <Button size="sm" className="h-7 text-xs gap-1" onClick={() => sendMutation.mutate(inv.id)} disabled={sendMutation.isPending}>
+                {sendMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                Mark as Sent
               </Button>
             )}
             {(inv?.status === "sent" || inv?.status === "overdue") && (
-              <Button size="sm" className="h-7 text-xs gap-1" onClick={() => setPaymentDialogId(inv.id)}>
-                <Check className="w-3 h-3" /> Mark Paid
+              <Button size="sm" className="h-7 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => setPaymentDialogId(inv.id)}>
+                <Check className="w-3 h-3" /> Mark as Paid
               </Button>
             )}
             {inv?.status === "draft" && (
@@ -268,7 +330,7 @@ export default function InvoicesPage() {
           ) : inv ? (
             <>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <Card><CardHeader className="py-2 px-3"><CardTitle className="text-xs text-muted-foreground">Customer</CardTitle></CardHeader><CardContent className="px-3 pb-2 text-sm font-medium">{inv.customer?.name || "—"}</CardContent></Card>
+                <Card><CardHeader className="py-2 px-3"><CardTitle className="text-xs text-muted-foreground">Customer</CardTitle></CardHeader><CardContent className="px-3 pb-2 text-sm font-medium">{getCustomerName(inv, customerMap)}</CardContent></Card>
                 <Card><CardHeader className="py-2 px-3"><CardTitle className="text-xs text-muted-foreground">Entity</CardTitle></CardHeader><CardContent className="px-3 pb-2 text-sm font-medium">{inv.entity?.name || "—"}</CardContent></Card>
                 <Card><CardHeader className="py-2 px-3"><CardTitle className="text-xs text-muted-foreground">Invoice Date</CardTitle></CardHeader><CardContent className="px-3 pb-2 text-sm">{formatDate(inv.invoiceDate)}</CardContent></Card>
                 <Card><CardHeader className="py-2 px-3"><CardTitle className="text-xs text-muted-foreground">Due Date</CardTitle></CardHeader><CardContent className="px-3 pb-2 text-sm">{formatDate(inv.dueDate)}</CardContent></Card>
@@ -289,14 +351,19 @@ export default function InvoicesPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {(inv.lines || []).map((line: any) => (
-                        <TableRow key={line.id}>
+                      {(inv.lines || []).map((line: any, idx: number) => (
+                        <TableRow key={line.id || idx}>
                           <TableCell className="px-3 py-1.5 text-sm">{line.description}</TableCell>
                           <TableCell className="px-3 py-1.5 text-sm text-right">{line.quantity}</TableCell>
                           <TableCell className="px-3 py-1.5 text-sm text-right">{formatCurrency(line.unitPrice, inv.currency)}</TableCell>
                           <TableCell className="px-3 py-1.5 text-sm text-right font-medium">{formatCurrency(line.amount, inv.currency)}</TableCell>
                         </TableRow>
                       ))}
+                      {(!inv.lines || inv.lines.length === 0) && (
+                        <TableRow>
+                          <TableCell colSpan={4} className="text-center text-xs text-muted-foreground py-4">No line items</TableCell>
+                        </TableRow>
+                      )}
                     </TableBody>
                   </Table>
                   <div className="border-t border-border px-3 py-2 flex flex-col items-end gap-1">
@@ -307,15 +374,31 @@ export default function InvoicesPage() {
                 </CardContent>
               </Card>
 
+              {inv.status === "paid" && (inv.paymentDate || inv.paymentMethod) && (
+                <Card>
+                  <CardHeader className="py-2 px-3"><CardTitle className="text-xs font-semibold">Payment Details</CardTitle></CardHeader>
+                  <CardContent className="px-3 pb-2">
+                    <div className="grid grid-cols-3 gap-4 text-sm">
+                      <div><span className="text-muted-foreground text-xs block">Payment Date</span><span>{formatDate(inv.paymentDate || null)}</span></div>
+                      <div><span className="text-muted-foreground text-xs block">Method</span><span>{inv.paymentMethod || "—"}</span></div>
+                      <div><span className="text-muted-foreground text-xs block">Reference</span><span>{inv.paymentReference || "—"}</span></div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               {inv.notes && (
                 <Card>
                   <CardHeader className="py-2 px-3"><CardTitle className="text-xs font-semibold">Notes</CardTitle></CardHeader>
-                  <CardContent className="px-3 pb-2 text-sm text-muted-foreground">{inv.notes}</CardContent>
+                  <CardContent className="px-3 pb-2 text-sm text-muted-foreground whitespace-pre-wrap">{inv.notes}</CardContent>
                 </Card>
               )}
             </>
           ) : (
-            <p className="text-sm text-muted-foreground">Invoice not found</p>
+            <div className="flex flex-col items-center justify-center h-40 gap-2 text-muted-foreground">
+              <AlertCircle className="w-8 h-8 opacity-30" />
+              <p className="text-sm">Invoice not found</p>
+            </div>
           )}
         </div>
 
@@ -332,14 +415,16 @@ export default function InvoicesPage() {
                     <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
                     <SelectItem value="wise">Wise</SelectItem>
                     <SelectItem value="credit_card">Credit Card</SelectItem>
+                    <SelectItem value="cash">Cash</SelectItem>
                     <SelectItem value="other">Other</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1"><Label className="text-xs">Reference</Label><Input value={paymentForm.reference} onChange={e => setPaymentForm(p => ({ ...p, reference: e.target.value }))} className="h-8 text-sm" placeholder="Payment ref..." /></div>
             </div>
-            <DialogFooter>
-              <Button size="sm" className="h-8 text-xs" onClick={() => { if (paymentDialogId) markPaidMutation.mutate({ id: paymentDialogId, ...paymentForm }); }}>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setPaymentDialogId(null)}>Cancel</Button>
+              <Button size="sm" className="h-8 text-xs" onClick={() => { if (paymentDialogId) markPaidMutation.mutate({ id: paymentDialogId, ...paymentForm }); }} disabled={markPaidMutation.isPending}>
                 {markPaidMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Record Payment"}
               </Button>
             </DialogFooter>
@@ -396,33 +481,34 @@ export default function InvoicesPage() {
                 <TableHead className="text-xs px-3 py-2">Customer</TableHead>
                 <TableHead className="text-xs px-3 py-2 w-24">Date</TableHead>
                 <TableHead className="text-xs px-3 py-2 w-24">Due</TableHead>
-                <TableHead className="text-xs px-3 py-2 w-28 text-right">Amount</TableHead>
+                <TableHead className="text-xs px-3 py-2 w-28 text-right">Total</TableHead>
                 <TableHead className="text-xs px-3 py-2 w-24">Status</TableHead>
-                <TableHead className="text-xs px-3 py-2 w-20">Actions</TableHead>
+                <TableHead className="text-xs px-3 py-2 w-28">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {invoices.map((inv: any) => {
                 const st = STATUS_CONFIG[inv.status] || { label: inv.status, className: "" };
                 return (
-                  <TableRow key={inv.id} className="border-b border-border hover:bg-muted/30">
+                  <TableRow key={inv.id} className="border-b border-border hover:bg-muted/30 cursor-pointer">
                     <TableCell className="px-3 py-2">
                       <button onClick={() => setDetailId(inv.id)} className="text-sm font-medium text-primary hover:underline">
                         {inv.invoiceNumber || `INV-${inv.id}`}
                       </button>
                     </TableCell>
-                    <TableCell className="px-3 py-2 text-sm">{inv.customerId}</TableCell>
+                    <TableCell className="px-3 py-2 text-sm">{getCustomerName(inv, customerMap)}</TableCell>
                     <TableCell className="px-3 py-2 text-xs text-muted-foreground">{formatDate(inv.invoiceDate)}</TableCell>
                     <TableCell className="px-3 py-2 text-xs text-muted-foreground">{formatDate(inv.dueDate)}</TableCell>
-                    <TableCell className="px-3 py-2 text-sm text-right font-medium">{formatCurrency(inv.total, inv.currency)}</TableCell>
+                    <TableCell className="px-3 py-2 text-sm text-right font-medium tabular-nums">{formatCurrency(inv.total, inv.currency)}</TableCell>
                     <TableCell className="px-3 py-2">
                       <Badge variant="outline" className={`text-[10px] px-1.5 py-0 border ${st.className}`}>{st.label}</Badge>
                     </TableCell>
                     <TableCell className="px-3 py-2">
                       <div className="flex gap-1">
                         <button onClick={() => setDetailId(inv.id)} className="p-1 rounded hover:bg-muted" title="View"><Eye className="w-3.5 h-3.5 text-muted-foreground" /></button>
-                        {inv.status === "draft" && <button onClick={() => sendMutation.mutate(inv.id)} className="p-1 rounded hover:bg-muted" title="Send"><Send className="w-3.5 h-3.5 text-blue-400" /></button>}
-                        {(inv.status === "sent" || inv.status === "overdue") && <button onClick={() => setPaymentDialogId(inv.id)} className="p-1 rounded hover:bg-muted" title="Mark Paid"><Check className="w-3.5 h-3.5 text-emerald-400" /></button>}
+                        {inv.status === "draft" && <button onClick={() => sendMutation.mutate(inv.id)} className="p-1 rounded hover:bg-muted" title="Mark as Sent"><Send className="w-3.5 h-3.5 text-blue-400" /></button>}
+                        {(inv.status === "sent" || inv.status === "overdue") && <button onClick={() => setPaymentDialogId(inv.id)} className="p-1 rounded hover:bg-muted" title="Mark as Paid"><Check className="w-3.5 h-3.5 text-emerald-400" /></button>}
+                        {inv.status === "draft" && <button onClick={() => cancelMutation.mutate(inv.id)} className="p-1 rounded hover:bg-muted" title="Cancel"><Ban className="w-3.5 h-3.5 text-orange-400" /></button>}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -456,7 +542,7 @@ export default function InvoicesPage() {
               <div className="space-y-1.5">
                 <Label className="text-xs">Customer <span className="text-destructive">*</span></Label>
                 <Select value={form.customerId || "none"} onValueChange={v => setForm(p => ({ ...p, customerId: v === "none" ? "" : v }))}>
-                  <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select..." /></SelectTrigger>
+                  <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select customer..." /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Select customer</SelectItem>
                     {customerList.map((c: any) => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}
@@ -465,11 +551,11 @@ export default function InvoicesPage() {
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs">Entity</Label>
-                <Select value={form.entityId || "none"} onValueChange={v => setForm(p => ({ ...p, entityId: v === "none" ? "" : v, currency: entityList.find((e: any) => String(e.id) === v)?.currency || "EUR" }))}>
-                  <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select..." /></SelectTrigger>
+                <Select value={form.entityId || "none"} onValueChange={v => setForm(p => ({ ...p, entityId: v === "none" ? "" : v, currency: entityList.find((e: any) => String(e.id) === v)?.currency || p.currency }))}>
+                  <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select entity..." /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Select entity</SelectItem>
-                    {entityList.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.name} ({e.currency})</SelectItem>)}
+                    {entityList.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.name} {e.currency ? `(${e.currency})` : ""}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -489,9 +575,10 @@ export default function InvoicesPage() {
                 <Select value={form.currency} onValueChange={v => setForm(p => ({ ...p, currency: v }))}>
                   <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="GBP">GBP</SelectItem>
                     <SelectItem value="EUR">EUR</SelectItem>
                     <SelectItem value="USD">USD</SelectItem>
+                    <SelectItem value="GBP">GBP</SelectItem>
+                    <SelectItem value="TRY">TRY</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -505,32 +592,53 @@ export default function InvoicesPage() {
                   <Plus className="w-3 h-3" /> Add Line
                 </Button>
               </div>
-              <div className="space-y-2">
-                {lines.map((line, idx) => (
-                  <div key={idx} className="grid grid-cols-[1fr_80px_100px_100px_32px] gap-2 items-center">
-                    <Input placeholder="Description" value={line.description} onChange={e => updateLine(idx, "description", e.target.value)} className="h-8 text-sm" />
-                    <Input placeholder="Qty" value={line.quantity} onChange={e => updateLine(idx, "quantity", e.target.value)} className="h-8 text-sm text-right" type="number" />
-                    <Input placeholder="Price" value={line.unitPrice} onChange={e => updateLine(idx, "unitPrice", e.target.value)} className="h-8 text-sm text-right" type="number" step="0.01" />
-                    <Input value={line.amount} readOnly className="h-8 text-sm text-right bg-muted" />
-                    <button onClick={() => removeLine(idx)} className="p-1 rounded hover:bg-muted" disabled={lines.length <= 1}>
-                      <Trash2 className="w-3.5 h-3.5 text-muted-foreground" />
-                    </button>
-                  </div>
-                ))}
-              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-[10px] px-1 py-1">Description</TableHead>
+                    <TableHead className="text-[10px] px-1 py-1 w-20 text-right">Qty</TableHead>
+                    <TableHead className="text-[10px] px-1 py-1 w-24 text-right">Unit Price</TableHead>
+                    <TableHead className="text-[10px] px-1 py-1 w-24 text-right">Amount</TableHead>
+                    <TableHead className="text-[10px] px-1 py-1 w-8" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {lines.map((line, idx) => (
+                    <TableRow key={idx}>
+                      <TableCell className="px-1 py-1">
+                        <Input placeholder="Description" value={line.description} onChange={e => updateLine(idx, "description", e.target.value)} className="h-8 text-sm" />
+                      </TableCell>
+                      <TableCell className="px-1 py-1">
+                        <Input placeholder="Qty" value={line.quantity} onChange={e => updateLine(idx, "quantity", e.target.value)} className="h-8 text-sm text-right" type="number" min="0" />
+                      </TableCell>
+                      <TableCell className="px-1 py-1">
+                        <Input placeholder="Price" value={line.unitPrice} onChange={e => updateLine(idx, "unitPrice", e.target.value)} className="h-8 text-sm text-right" type="number" step="0.01" min="0" />
+                      </TableCell>
+                      <TableCell className="px-1 py-1">
+                        <Input value={line.amount} readOnly className="h-8 text-sm text-right bg-muted tabular-nums" />
+                      </TableCell>
+                      <TableCell className="px-1 py-1">
+                        <button onClick={() => removeLine(idx)} className="p-1 rounded hover:bg-destructive/10" disabled={lines.length <= 1}>
+                          <Trash2 className="w-3.5 h-3.5 text-muted-foreground" />
+                        </button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
               <div className="mt-3 flex flex-col items-end gap-1 text-sm">
-                <div className="flex gap-6"><span className="text-muted-foreground">Subtotal</span><span>{formatCurrency(subtotal, form.currency)}</span></div>
+                <div className="flex gap-6"><span className="text-muted-foreground">Subtotal</span><span className="tabular-nums w-28 text-right">{formatCurrency(subtotal, form.currency)}</span></div>
                 <div className="flex gap-6 items-center">
                   <span className="text-muted-foreground">Tax</span>
-                  <Input value={form.taxAmount} onChange={e => setForm(p => ({ ...p, taxAmount: e.target.value }))} className="h-7 w-24 text-sm text-right" type="number" step="0.01" />
+                  <Input value={form.taxAmount} onChange={e => setForm(p => ({ ...p, taxAmount: e.target.value }))} className="h-7 w-28 text-sm text-right" type="number" step="0.01" min="0" />
                 </div>
-                <div className="flex gap-6 font-bold"><span>Total</span><span>{formatCurrency(grandTotal, form.currency)}</span></div>
+                <div className="flex gap-6 font-bold"><span>Total</span><span className="tabular-nums w-28 text-right">{formatCurrency(grandTotal, form.currency)}</span></div>
               </div>
             </div>
 
             <div className="space-y-1.5">
               <Label className="text-xs">Notes</Label>
-              <Textarea value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} className="text-sm" rows={2} />
+              <Textarea value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} className="text-sm" rows={2} placeholder="Additional notes..." />
             </div>
           </div>
           <DialogFooter className="gap-2">
@@ -556,14 +664,16 @@ export default function InvoicesPage() {
                   <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
                   <SelectItem value="wise">Wise</SelectItem>
                   <SelectItem value="credit_card">Credit Card</SelectItem>
+                  <SelectItem value="cash">Cash</SelectItem>
                   <SelectItem value="other">Other</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1"><Label className="text-xs">Reference</Label><Input value={paymentForm.reference} onChange={e => setPaymentForm(p => ({ ...p, reference: e.target.value }))} className="h-8 text-sm" /></div>
+            <div className="space-y-1"><Label className="text-xs">Reference</Label><Input value={paymentForm.reference} onChange={e => setPaymentForm(p => ({ ...p, reference: e.target.value }))} className="h-8 text-sm" placeholder="Payment ref..." /></div>
           </div>
-          <DialogFooter>
-            <Button size="sm" className="h-8 text-xs" onClick={() => { if (paymentDialogId) markPaidMutation.mutate({ id: paymentDialogId, ...paymentForm }); }}>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setPaymentDialogId(null)}>Cancel</Button>
+            <Button size="sm" className="h-8 text-xs" onClick={() => { if (paymentDialogId) markPaidMutation.mutate({ id: paymentDialogId, ...paymentForm }); }} disabled={markPaidMutation.isPending}>
               {markPaidMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Record Payment"}
             </Button>
           </DialogFooter>
