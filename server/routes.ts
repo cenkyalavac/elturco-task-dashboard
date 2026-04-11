@@ -430,12 +430,15 @@ function extractDelivered(row: any): string {
   // Any other non-empty value is NOT ongoing — return as-is with capital
   return v.charAt(0).toUpperCase() + v.slice(1);
 }
-// Parse deadline string (DD.MM.YYYY HH:mm) to Date
+// Parse deadline string — supports DD.MM.YYYY HH:mm, DD/MM/YYYY, DD-MM-YYYY, ISO
 function parseDeadline(d: string): Date | null {
   if (!d) return null;
-  // Try DD.MM.YYYY HH:mm format
-  const m = d.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})\s*(\d{1,2}):(\d{2})/);
-  if (m) return new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5]);
+  // Try DD.MM.YYYY HH:mm or DD/MM/YYYY HH:mm (European with time)
+  const m1 = d.match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})\s+(\d{1,2}):(\d{2})/);
+  if (m1) return new Date(+m1[3], +m1[2] - 1, +m1[1], +m1[4], +m1[5]);
+  // Try DD.MM.YYYY or DD/MM/YYYY or DD-MM-YYYY (date only)
+  const m2 = d.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})$/);
+  if (m2) return new Date(+m2[3], +m2[2] - 1, +m2[1]);
   // Try ISO or other parseable format
   const parsed = new Date(d);
   return isNaN(parsed.getTime()) ? null : parsed;
@@ -2429,12 +2432,14 @@ const freelancers = (Array.isArray(data) ? data : [])
       // ── Apply filters ──
       const fSource = req.query.source ? String(req.query.source).split(",") : null;
       const fAccount = req.query.account ? String(req.query.account).split(",") : null;
+      const fStatus = req.query.status ? String(req.query.status) : null;
       const fDateFrom = req.query.dateFrom ? new Date(String(req.query.dateFrom)) : null;
       const fDateTo = req.query.dateTo ? new Date(String(req.query.dateTo) + "T23:59:59") : null;
 
       const allSheetTasks = allSheetTasksRaw.filter((t: any) => {
         if (fSource && !fSource.includes(t.source)) return false;
         if (fAccount && !fAccount.includes(t.account)) return false;
+        if (fStatus && t.delivered !== fStatus) return false;
         if (fDateFrom || fDateTo) {
           const d = t.deadline ? parseDeadline(t.deadline) : null;
           if (!d) return false;
@@ -2572,6 +2577,31 @@ const freelancers = (Array.isArray(data) ? data : [])
         .sort((a, b) => b.wwc - a.wwc)
         .slice(0, 15);
 
+      // Translator workload balance — ongoing tasks per translator
+      const workloadBalance: Record<string, { ongoing: number; total: number }> = {};
+      for (const t of allSheetTasks) {
+        const tr = (t.translator || "").trim();
+        if (tr && tr !== "XX") {
+          if (!workloadBalance[tr]) workloadBalance[tr] = { ongoing: 0, total: 0 };
+          workloadBalance[tr].total++;
+          if (t.delivered === "Ongoing") workloadBalance[tr].ongoing++;
+        }
+      }
+      const avgOngoing = Object.values(workloadBalance).length > 0
+        ? Object.values(workloadBalance).reduce((s, v) => s + v.ongoing, 0) / Object.values(workloadBalance).length
+        : 0;
+      const workloadData = Object.entries(workloadBalance)
+        .filter(([, v]) => v.ongoing > 0)
+        .map(([code, v]) => ({
+          code,
+          ongoing: v.ongoing,
+          total: v.total,
+          overloaded: v.ongoing > avgOngoing * 2,
+          heavy: v.ongoing > avgOngoing * 1.5,
+        }))
+        .sort((a, b) => b.ongoing - a.ongoing)
+        .slice(0, 20);
+
       const result = {
         // Dispatch data
         byDay: Object.entries(byDay).sort(([a], [b]) => a.localeCompare(b)),
@@ -2591,6 +2621,8 @@ const freelancers = (Array.isArray(data) ? data : [])
         byStatus,
         byMonth: Object.entries(byMonth).sort(([a], [b]) => a.localeCompare(b)),
         topFreelancersByWwc,
+        workloadData,
+        avgOngoingPerTranslator: Math.round(avgOngoing * 10) / 10,
       };
       setCache(cacheKey, result);
       res.json(result);

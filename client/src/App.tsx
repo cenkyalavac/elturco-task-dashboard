@@ -17,7 +17,7 @@ import AnalyticsPage from "@/pages/analytics";
 import FreelancerPortalPage from "@/pages/freelancer-portal";
 import AuthVerifyPage from "@/pages/auth-verify";
 import NotFound from "@/pages/not-found";
-import { LogOut, BarChart3, Sun, Moon, Bell, CheckCheck } from "lucide-react";
+import { LogOut, BarChart3, Sun, Moon, Bell, CheckCheck, Menu, X } from "lucide-react";
 
 // Theme context
 const ThemeContext = createContext<{ theme: "dark" | "light"; toggleTheme: () => void }>({ theme: "dark", toggleTheme: () => {} });
@@ -167,30 +167,40 @@ function NotificationBell() {
 function AppLayout() {
   const { user, logout } = useAuth();
   const displayEmail = user?.email || getCurrentUser()?.email || "";
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   return (
     <div className="flex flex-col h-screen bg-background">
       {/* Top navbar */}
-      <header className="h-12 bg-gradient-to-r from-[#0d1117] via-[#111827] to-[#0d1117] border-b border-white/[0.06] flex items-center px-5 shrink-0 shadow-lg shadow-black/20">
-        <div className="flex items-center gap-2 mr-8">
+      <header className="h-12 bg-gradient-to-r from-[#0d1117] via-[#111827] to-[#0d1117] border-b border-white/[0.06] flex items-center px-3 sm:px-5 shrink-0 shadow-lg shadow-black/20 relative z-50">
+        {/* Mobile hamburger */}
+        <button
+          onClick={() => setMobileNavOpen(!mobileNavOpen)}
+          className="md:hidden flex items-center justify-center w-8 h-8 rounded-md text-white/60 hover:text-white hover:bg-white/[0.06] mr-2"
+          data-testid="button-mobile-menu"
+        >
+          {mobileNavOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+        </button>
+
+        <div className="flex items-center gap-2 mr-4 sm:mr-8">
           <img src="/logo-icon.jpg" alt="ElTurco" className="w-7 h-7 rounded-full object-cover" />
           <span className="font-semibold text-white text-sm tracking-tight" data-testid="text-nav-title">Dispatch</span>
         </div>
 
-        <nav className="flex items-center gap-1">
+        <nav className="hidden md:flex items-center gap-1">
           <NavLink href="/" label="Dashboard" />
           <NavLink href="/history" label="History" />
           <NavLink href="/analytics" label="Analytics" icon={<BarChart3 className="w-3.5 h-3.5 mr-1" />} />
           <NavLink href="/admin" label="Admin" />
         </nav>
 
-        <div className="ml-auto flex items-center gap-3">
-          <span className="text-xs text-white/40 font-medium" data-testid="text-nav-email">{displayEmail}</span>
-          <div className="w-px h-4 bg-white/[0.08]" />
+        <div className="ml-auto flex items-center gap-1.5 sm:gap-3">
+          <span className="hidden sm:inline text-xs text-white/40 font-medium" data-testid="text-nav-email">{displayEmail}</span>
+          <div className="hidden sm:block w-px h-4 bg-white/[0.08]" />
           <NotificationBell />
-          <div className="w-px h-4 bg-white/[0.08]" />
+          <div className="hidden sm:block w-px h-4 bg-white/[0.08]" />
           <ThemeToggleButton />
-          <div className="w-px h-4 bg-white/[0.08]" />
+          <div className="hidden sm:block w-px h-4 bg-white/[0.08]" />
           <button
             onClick={logout}
             data-testid="button-logout"
@@ -201,6 +211,17 @@ function AppLayout() {
           </button>
         </div>
       </header>
+
+      {/* Mobile nav dropdown */}
+      {mobileNavOpen && (
+        <div className="md:hidden absolute top-12 left-0 right-0 z-40 bg-[#111827] border-b border-white/[0.08] shadow-xl shadow-black/30 py-2 px-3 flex flex-col gap-1">
+          <NavLink href="/" label="Dashboard" />
+          <NavLink href="/history" label="History" />
+          <NavLink href="/analytics" label="Analytics" icon={<BarChart3 className="w-3.5 h-3.5 mr-1" />} />
+          <NavLink href="/admin" label="Admin" />
+          {displayEmail && <p className="text-[10px] text-white/30 mt-2 px-3">{displayEmail}</p>}
+        </div>
+      )}
 
       <main className="flex-1 overflow-auto">
         <Switch>
