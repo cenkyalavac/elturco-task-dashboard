@@ -7,7 +7,7 @@ import {
   entities, users, vendors, vendorLanguagePairs, vendorRateCards, qualityReports,
   vendorDocuments, vendorDocumentSignatures, vendorActivities, vendorNotes,
   customers, customerContacts, customerSubAccounts, pmCustomerAssignments,
-  projects, jobs, purchaseOrders, clientInvoices, clientInvoiceLines,
+  projects, jobs, purchaseOrders, clientInvoices, clientInvoiceLines, payments,
   autoAcceptRules, auditLog, settings, vendorSessions, notificationsV2,
   taskNotes, pmFavorites,
   type PmUser, type InsertPmUser,
@@ -21,6 +21,7 @@ import {
   type FreelancerSession,
   type Entity, type User, type Vendor, type Customer, type Project, type Job,
   type QualityReport, type PurchaseOrder, type VendorNote, type VendorActivity,
+  type ClientInvoice, type ClientInvoiceLine, type Payment,
 } from "@shared/schema";
 
 const DATABASE_URL = process.env.DATABASE_URL || "REDACTED_DATABASE_URL";
@@ -680,10 +681,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Purchase Orders
-  async getPurchaseOrders(filters: { vendorId?: number; page?: number; limit?: number } = {}) {
-    const { vendorId, page = 1, limit = 50 } = filters;
+  async getPurchaseOrders(filters: { vendorId?: number; entityId?: number; status?: string; page?: number; limit?: number } = {}) {
+    const { vendorId, entityId, status, page = 1, limit = 50 } = filters;
+    const conditions: any[] = [];
+    if (vendorId) conditions.push(eq(purchaseOrders.vendorId, vendorId));
+    if (entityId) conditions.push(eq(purchaseOrders.entityId, entityId));
+    if (status) conditions.push(eq(purchaseOrders.status, status));
     let query = db.select().from(purchaseOrders).$dynamic();
-    if (vendorId) query = query.where(eq(purchaseOrders.vendorId, vendorId));
+    if (conditions.length > 0) query = query.where(and(...conditions));
     const offset = (page - 1) * limit;
     return query.orderBy(desc(purchaseOrders.id)).limit(limit).offset(offset);
   }
@@ -733,6 +738,319 @@ export class DatabaseStorage implements IStorage {
   }
   async deleteVendorSession(token: string) {
     await db.delete(vendorSessions).where(eq(vendorSessions.token, token));
+  }
+
+  // ============================================
+  // FINANCIAL MODULE METHODS
+  // ============================================
+
+  // Client Invoices
+  async getInvoices(filters: { customerId?: number; entityId?: number; status?: string; page?: number; limit?: number } = {}) {
+    const { customerId, entityId, status, page = 1, limit = 50 } = filters;
+    const conditions: any[] = [];
+    if (customerId) conditions.push(eq(clientInvoices.customerId, customerId));
+    if (entityId) conditions.push(eq(clientInvoices.entityId, entityId));
+    if (status) conditions.push(eq(clientInvoices.status, status));
+    let query = db.select().from(clientInvoices).$dynamic();
+    if (conditions.length > 0) query = query.where(and(...conditions));
+    const offset = (page - 1) * limit;
+    return query.orderBy(desc(clientInvoices.id)).limit(limit).offset(offset);
+  }
+  async getInvoiceCount(filters: { customerId?: number; entityId?: number; status?: string } = {}) {
+    const { customerId, entityId, status } = filters;
+    const conditions: any[] = [];
+    if (customerId) conditions.push(eq(clientInvoices.customerId, customerId));
+    if (entityId) conditions.push(eq(clientInvoices.entityId, entityId));
+    if (status) conditions.push(eq(clientInvoices.status, status));
+    let query = db.select({ count: sql<number>`count(*)::int` }).from(clientInvoices).$dynamic();
+    if (conditions.length > 0) query = query.where(and(...conditions));
+    const [result] = await query;
+    return result?.count || 0;
+  }
+  async getInvoice(id: number) {
+    const [result] = await db.select().from(clientInvoices).where(eq(clientInvoices.id, id));
+    return result;
+  }
+  async createInvoice(data: any) {
+    const [result] = await db.insert(clientInvoices).values(data).returning();
+    return result;
+  }
+  async updateInvoice(id: number, data: any) {
+    await db.update(clientInvoices).set({ ...data, updatedAt: new Date() }).where(eq(clientInvoices.id, id));
+    const [result] = await db.select().from(clientInvoices).where(eq(clientInvoices.id, id));
+    return result;
+  }
+
+  // Invoice Line Items
+  async getInvoiceLines(invoiceId: number) {
+    return db.select().from(clientInvoiceLines).where(eq(clientInvoiceLines.invoiceId, invoiceId));
+  }
+  async createInvoiceLine(data: any) {
+    const [result] = await db.insert(clientInvoiceLines).values(data).returning();
+    return result;
+  }
+  async deleteInvoiceLines(invoiceId: number) {
+    await db.delete(clientInvoiceLines).where(eq(clientInvoiceLines.invoiceId, invoiceId));
+  }
+
+  // Enhanced Purchase Orders
+  async getPurchaseOrderCount(filters: { vendorId?: number; entityId?: number; status?: string } = {}) {
+    const { vendorId, entityId, status } = filters;
+    const conditions: any[] = [];
+    if (vendorId) conditions.push(eq(purchaseOrders.vendorId, vendorId));
+    if (entityId) conditions.push(eq(purchaseOrders.entityId, entityId));
+    if (status) conditions.push(eq(purchaseOrders.status, status));
+    let query = db.select({ count: sql<number>`count(*)::int` }).from(purchaseOrders).$dynamic();
+    if (conditions.length > 0) query = query.where(and(...conditions));
+    const [result] = await query;
+    return result?.count || 0;
+  }
+  async getPurchaseOrder(id: number) {
+    const [result] = await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, id));
+    return result;
+  }
+
+  // Payments
+  async getPayments(filters: { invoiceId?: number; purchaseOrderId?: number; type?: string } = {}) {
+    const { invoiceId, purchaseOrderId, type } = filters;
+    const conditions: any[] = [];
+    if (invoiceId) conditions.push(eq(payments.invoiceId, invoiceId));
+    if (purchaseOrderId) conditions.push(eq(payments.purchaseOrderId, purchaseOrderId));
+    if (type) conditions.push(eq(payments.type, type));
+    let query = db.select().from(payments).$dynamic();
+    if (conditions.length > 0) query = query.where(and(...conditions));
+    return query.orderBy(desc(payments.id));
+  }
+  async createPayment(data: any) {
+    const [result] = await db.insert(payments).values(data).returning();
+    return result;
+  }
+
+  // Next invoice number generation
+  async getNextInvoiceNumber(entityCode: string, year: number) {
+    const prefix = entityCode === "verbato" ? "VRB" : "CON";
+    const pattern = `${prefix}-${year}-%`;
+    const [result] = await db.select({ count: sql<number>`count(*)::int` })
+      .from(clientInvoices)
+      .where(sql`${clientInvoices.invoiceNumber} LIKE ${pattern}`);
+    const seq = (result?.count || 0) + 1;
+    return `${prefix}-${year}-${String(seq).padStart(4, "0")}`;
+  }
+
+  // Next PO number generation
+  async getNextPoNumber(entityCode: string, year: number) {
+    const prefix = entityCode === "verbato" ? "PO-VRB" : "PO-CON";
+    const pattern = `${prefix}-${year}-%`;
+    const [result] = await db.select({ count: sql<number>`count(*)::int` })
+      .from(purchaseOrders)
+      .where(sql`${purchaseOrders.poNumber} LIKE ${pattern}`);
+    const seq = (result?.count || 0) + 1;
+    return `${prefix}-${year}-${String(seq).padStart(4, "0")}`;
+  }
+
+  // Financial Summary Data
+  async getFinancialSummary(filters: { entityId?: number; startDate?: string; endDate?: string } = {}) {
+    const { entityId, startDate, endDate } = filters;
+
+    // Revenue (sum of paid invoices)
+    const revenueConditions: any[] = [];
+    if (entityId) revenueConditions.push(eq(clientInvoices.entityId, entityId));
+    if (startDate) revenueConditions.push(gte(clientInvoices.invoiceDate, startDate));
+    if (endDate) revenueConditions.push(lte(clientInvoices.invoiceDate, endDate));
+
+    let revenueQuery = db.select({
+      totalRevenue: sql<string>`COALESCE(SUM(CASE WHEN ${clientInvoices.status} IN ('paid', 'sent') THEN ${clientInvoices.total}::numeric ELSE 0 END), 0)`,
+      paidRevenue: sql<string>`COALESCE(SUM(CASE WHEN ${clientInvoices.status} = 'paid' THEN ${clientInvoices.total}::numeric ELSE 0 END), 0)`,
+      outstandingAR: sql<string>`COALESCE(SUM(CASE WHEN ${clientInvoices.status} IN ('sent', 'overdue') THEN ${clientInvoices.total}::numeric ELSE 0 END), 0)`,
+    }).from(clientInvoices).$dynamic();
+    if (revenueConditions.length > 0) revenueQuery = revenueQuery.where(and(...revenueConditions));
+    const [revenue] = await revenueQuery;
+
+    // Cost (sum of POs)
+    const costConditions: any[] = [];
+    if (entityId) costConditions.push(eq(purchaseOrders.entityId, entityId));
+    if (startDate) costConditions.push(gte(purchaseOrders.createdAt, new Date(startDate)));
+    if (endDate) costConditions.push(lte(purchaseOrders.createdAt, new Date(endDate)));
+
+    let costQuery = db.select({
+      totalCost: sql<string>`COALESCE(SUM(${purchaseOrders.amount}::numeric), 0)`,
+      paidCost: sql<string>`COALESCE(SUM(CASE WHEN ${purchaseOrders.status} = 'paid' THEN ${purchaseOrders.amount}::numeric ELSE 0 END), 0)`,
+      outstandingAP: sql<string>`COALESCE(SUM(CASE WHEN ${purchaseOrders.status} IN ('sent', 'accepted') THEN ${purchaseOrders.amount}::numeric ELSE 0 END), 0)`,
+    }).from(purchaseOrders).$dynamic();
+    if (costConditions.length > 0) costQuery = costQuery.where(and(...costConditions));
+    const [cost] = await costQuery;
+
+    return {
+      totalRevenue: parseFloat(revenue?.totalRevenue || "0"),
+      paidRevenue: parseFloat(revenue?.paidRevenue || "0"),
+      outstandingAR: parseFloat(revenue?.outstandingAR || "0"),
+      totalCost: parseFloat(cost?.totalCost || "0"),
+      paidCost: parseFloat(cost?.paidCost || "0"),
+      outstandingAP: parseFloat(cost?.outstandingAP || "0"),
+    };
+  }
+
+  // AR Aging Report
+  async getARAgingReport(entityId?: number) {
+    const conditions: any[] = [
+      sql`${clientInvoices.status} IN ('sent', 'overdue')`,
+    ];
+    if (entityId) conditions.push(eq(clientInvoices.entityId, entityId));
+
+    const [result] = await db.select({
+      current: sql<string>`COALESCE(SUM(CASE WHEN ${clientInvoices.dueDate} >= CURRENT_DATE THEN ${clientInvoices.total}::numeric ELSE 0 END), 0)`,
+      days30: sql<string>`COALESCE(SUM(CASE WHEN ${clientInvoices.dueDate} < CURRENT_DATE AND ${clientInvoices.dueDate} >= CURRENT_DATE - INTERVAL '30 days' THEN ${clientInvoices.total}::numeric ELSE 0 END), 0)`,
+      days60: sql<string>`COALESCE(SUM(CASE WHEN ${clientInvoices.dueDate} < CURRENT_DATE - INTERVAL '30 days' AND ${clientInvoices.dueDate} >= CURRENT_DATE - INTERVAL '60 days' THEN ${clientInvoices.total}::numeric ELSE 0 END), 0)`,
+      days90: sql<string>`COALESCE(SUM(CASE WHEN ${clientInvoices.dueDate} < CURRENT_DATE - INTERVAL '60 days' AND ${clientInvoices.dueDate} >= CURRENT_DATE - INTERVAL '90 days' THEN ${clientInvoices.total}::numeric ELSE 0 END), 0)`,
+      over90: sql<string>`COALESCE(SUM(CASE WHEN ${clientInvoices.dueDate} < CURRENT_DATE - INTERVAL '90 days' THEN ${clientInvoices.total}::numeric ELSE 0 END), 0)`,
+    }).from(clientInvoices).where(and(...conditions));
+
+    return {
+      current: parseFloat(result?.current || "0"),
+      days30: parseFloat(result?.days30 || "0"),
+      days60: parseFloat(result?.days60 || "0"),
+      days90: parseFloat(result?.days90 || "0"),
+      over90: parseFloat(result?.over90 || "0"),
+    };
+  }
+
+  // Revenue by customer (top N)
+  async getRevenueByCustomer(limit = 10, entityId?: number) {
+    const conditions: any[] = [
+      sql`${clientInvoices.status} IN ('paid', 'sent', 'overdue')`,
+    ];
+    if (entityId) conditions.push(eq(clientInvoices.entityId, entityId));
+
+    return db.select({
+      customerId: clientInvoices.customerId,
+      customerName: customers.name,
+      total: sql<string>`SUM(${clientInvoices.total}::numeric)`,
+    }).from(clientInvoices)
+      .innerJoin(customers, eq(clientInvoices.customerId, customers.id))
+      .where(and(...conditions))
+      .groupBy(clientInvoices.customerId, customers.name)
+      .orderBy(sql`SUM(${clientInvoices.total}::numeric) DESC`)
+      .limit(limit);
+  }
+
+  // Cost by vendor (top N)
+  async getCostByVendor(limit = 10, entityId?: number) {
+    const conditions: any[] = [];
+    if (entityId) conditions.push(eq(purchaseOrders.entityId, entityId));
+
+    let query = db.select({
+      vendorId: purchaseOrders.vendorId,
+      vendorName: vendors.fullName,
+      total: sql<string>`SUM(${purchaseOrders.amount}::numeric)`,
+    }).from(purchaseOrders)
+      .innerJoin(vendors, eq(purchaseOrders.vendorId, vendors.id))
+      .$dynamic();
+    if (conditions.length > 0) query = query.where(and(...conditions));
+
+    return query
+      .groupBy(purchaseOrders.vendorId, vendors.fullName)
+      .orderBy(sql`SUM(${purchaseOrders.amount}::numeric) DESC`)
+      .limit(limit);
+  }
+
+  // Monthly revenue/cost trend
+  async getMonthlyTrend(months = 12, entityId?: number) {
+    const revenueConditions: any[] = [];
+    const costConditions: any[] = [];
+    if (entityId) {
+      revenueConditions.push(eq(clientInvoices.entityId, entityId));
+      costConditions.push(eq(purchaseOrders.entityId, entityId));
+    }
+
+    let revQuery = db.select({
+      month: sql<string>`TO_CHAR(${clientInvoices.invoiceDate}::date, 'YYYY-MM')`,
+      total: sql<string>`SUM(${clientInvoices.total}::numeric)`,
+    }).from(clientInvoices)
+      .where(and(
+        sql`${clientInvoices.invoiceDate}::date >= CURRENT_DATE - INTERVAL '${sql.raw(String(months))} months'`,
+        sql`${clientInvoices.status} IN ('paid', 'sent', 'overdue')`,
+        ...revenueConditions,
+      ))
+      .groupBy(sql`TO_CHAR(${clientInvoices.invoiceDate}::date, 'YYYY-MM')`)
+      .orderBy(sql`TO_CHAR(${clientInvoices.invoiceDate}::date, 'YYYY-MM')`);
+
+    let costQuery = db.select({
+      month: sql<string>`TO_CHAR(${purchaseOrders.createdAt}::date, 'YYYY-MM')`,
+      total: sql<string>`SUM(${purchaseOrders.amount}::numeric)`,
+    }).from(purchaseOrders)
+      .where(and(
+        sql`${purchaseOrders.createdAt} >= CURRENT_DATE - INTERVAL '${sql.raw(String(months))} months'`,
+        ...costConditions,
+      ))
+      .groupBy(sql`TO_CHAR(${purchaseOrders.createdAt}::date, 'YYYY-MM')`)
+      .orderBy(sql`TO_CHAR(${purchaseOrders.createdAt}::date, 'YYYY-MM')`);
+
+    const [revenueData, costData] = await Promise.all([revQuery, costQuery]);
+    return { revenue: revenueData, cost: costData };
+  }
+
+  // Revenue by entity
+  async getRevenueByEntity() {
+    return db.select({
+      entityId: clientInvoices.entityId,
+      entityName: entities.name,
+      entityCode: entities.code,
+      total: sql<string>`SUM(${clientInvoices.total}::numeric)`,
+    }).from(clientInvoices)
+      .innerJoin(entities, eq(clientInvoices.entityId, entities.id))
+      .where(sql`${clientInvoices.status} IN ('paid', 'sent', 'overdue')`)
+      .groupBy(clientInvoices.entityId, entities.name, entities.code);
+  }
+
+  // Project financial summary
+  async getProjectFinancials(projectId: number) {
+    const [revenue] = await db.select({
+      totalRevenue: sql<string>`COALESCE(SUM(${clientInvoiceLines.amount}::numeric), 0)`,
+    }).from(clientInvoiceLines)
+      .where(eq(clientInvoiceLines.projectId, projectId));
+
+    const [cost] = await db.select({
+      totalCost: sql<string>`COALESCE(SUM(${purchaseOrders.amount}::numeric), 0)`,
+    }).from(purchaseOrders)
+      .where(eq(purchaseOrders.projectId, projectId));
+
+    const totalRevenue = parseFloat(revenue?.totalRevenue || "0");
+    const totalCost = parseFloat(cost?.totalCost || "0");
+    const grossMargin = totalRevenue - totalCost;
+    const marginPercent = totalRevenue > 0 ? (grossMargin / totalRevenue) * 100 : 0;
+
+    return { totalRevenue, totalCost, grossMargin, marginPercent };
+  }
+
+  // Get completed jobs not yet invoiced
+  async getUninvoicedJobs(customerId?: number) {
+    const conditions: any[] = [
+      eq(jobs.status, "completed"),
+    ];
+
+    let query = db.select({
+      job: jobs,
+      projectName: projects.projectName,
+      customerName: customers.name,
+      customerId: projects.customerId,
+    }).from(jobs)
+      .innerJoin(projects, eq(jobs.projectId, projects.id))
+      .innerJoin(customers, eq(projects.customerId, customers.id))
+      .$dynamic();
+
+    if (customerId) conditions.push(eq(projects.customerId, customerId));
+
+    // Left join to find jobs that don't have invoice lines yet
+    return db.select({
+      job: jobs,
+      projectName: projects.projectName,
+      customerName: customers.name,
+      customerId: projects.customerId,
+    }).from(jobs)
+      .innerJoin(projects, eq(jobs.projectId, projects.id))
+      .innerJoin(customers, eq(projects.customerId, customers.id))
+      .where(and(...conditions, eq(jobs.status, "completed")))
+      .orderBy(desc(jobs.id));
   }
 }
 

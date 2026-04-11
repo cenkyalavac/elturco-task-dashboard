@@ -567,6 +567,11 @@ export const clientInvoices = pgTable("client_invoices", {
   externalInvoiceUrl: varchar("external_invoice_url", { length: 500 }),
   paymentReceivedDate: date("payment_received_date"),
   notes: text("notes"),
+  // QBO Integration fields (Verbato Ltd only)
+  qboInvoiceId: varchar("qbo_invoice_id", { length: 200 }),
+  qboCustomerId: varchar("qbo_customer_id", { length: 200 }),
+  qboSyncStatus: varchar("qbo_sync_status", { length: 50 }),
+  qboLastSynced: timestamp("qbo_last_synced", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
@@ -581,6 +586,22 @@ export const clientInvoiceLines = pgTable("client_invoice_lines", {
   quantity: decimal("quantity", { precision: 12, scale: 2 }),
   unitPrice: decimal("unit_price", { precision: 10, scale: 4 }),
   amount: decimal("amount", { precision: 12, scale: 2 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// Payments (tracks payments against invoices and POs)
+export const payments = pgTable("payments", {
+  id: serial("id").primaryKey(),
+  type: varchar("type", { length: 20 }).notNull(), // 'receivable' (client payment) or 'payable' (vendor payment)
+  invoiceId: integer("invoice_id").references(() => clientInvoices.id),
+  purchaseOrderId: integer("purchase_order_id").references(() => purchaseOrders.id),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  currency: varchar("currency", { length: 3 }).default("EUR"),
+  paymentDate: date("payment_date").notNull(),
+  paymentMethod: varchar("payment_method", { length: 50 }),
+  reference: varchar("reference", { length: 200 }),
+  notes: text("notes"),
+  createdBy: integer("created_by").references(() => users.id),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
@@ -680,6 +701,7 @@ export const insertJobSchema = createInsertSchema(jobs).omit({ id: true });
 export const insertPurchaseOrderSchema = createInsertSchema(purchaseOrders).omit({ id: true });
 export const insertClientInvoiceSchema = createInsertSchema(clientInvoices).omit({ id: true });
 export const insertClientInvoiceLineSchema = createInsertSchema(clientInvoiceLines).omit({ id: true });
+export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true });
 export const insertAutoAcceptRuleSchema = createInsertSchema(autoAcceptRules).omit({ id: true });
 export const insertAuditLogSchema = createInsertSchema(auditLog).omit({ id: true });
 export const insertSettingSchema = createInsertSchema(settings).omit({ id: true });
@@ -731,6 +753,8 @@ export type Job = typeof jobs.$inferSelect;
 export type PurchaseOrder = typeof purchaseOrders.$inferSelect;
 export type ClientInvoice = typeof clientInvoices.$inferSelect;
 export type ClientInvoiceLine = typeof clientInvoiceLines.$inferSelect;
+export type Payment = typeof payments.$inferSelect;
+export type InsertPayment = z.infer<typeof insertPaymentSchema>;
 export type AutoAcceptRule = typeof autoAcceptRules.$inferSelect;
 export type AuditLogEntry = typeof auditLog.$inferSelect;
 export type Setting = typeof settings.$inferSelect;
