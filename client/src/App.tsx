@@ -23,6 +23,8 @@ import VendorsPage from "@/pages/vendors";
 import VendorDetailPage from "@/pages/vendor-detail";
 import CustomersPage from "@/pages/customers";
 import ProjectsPage from "@/pages/projects";
+import CustomerDetailPage from "@/pages/customer-detail";
+import ProjectDetailPage from "@/pages/project-detail";
 import QualityPage from "@/pages/quality";
 import VendorPortalPage from "@/pages/vendor-portal";
 
@@ -295,7 +297,9 @@ function AppLayout() {
             <Route path="/vendors">{() => <ProtectedRoute component={VendorsPage} />}</Route>
             <Route path="/vendors/:id">{() => <ProtectedRoute component={VendorDetailPage} />}</Route>
             <Route path="/customers">{() => <ProtectedRoute component={CustomersPage} />}</Route>
+            <Route path="/customers/:id">{() => <ProtectedRoute component={CustomerDetailPage} />}</Route>
             <Route path="/projects">{() => <ProtectedRoute component={ProjectsPage} />}</Route>
+            <Route path="/projects/:id">{() => <ProtectedRoute component={ProjectDetailPage} />}</Route>
             <Route path="/quality">{() => <ProtectedRoute component={QualityPage} />}</Route>
             <Route component={NotFound} />
           </Switch>
