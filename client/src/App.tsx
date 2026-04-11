@@ -219,7 +219,7 @@ function AppLayout() {
             <SidebarLink href="/quality" label="Quality" icon={<Award className="w-4 h-4 shrink-0" />} />
           </div>
 
-          {(["gm", "operations_manager", "pm_team_lead"].includes(userRole)) && (
+          {(["gm", "operations_manager", "pm_team_lead", "admin"].includes(userRole)) && (
             <div className="mb-3">
               {!sidebarCollapsed && <p className="px-3 mb-1 text-[10px] font-semibold text-white/20 uppercase tracking-wider">Finances</p>}
               <SidebarLink href="/finances" label="Dashboard" icon={<DollarSign className="w-4 h-4 shrink-0" />} />
