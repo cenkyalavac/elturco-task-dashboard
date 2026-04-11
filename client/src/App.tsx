@@ -17,7 +17,19 @@ import AnalyticsPage from "@/pages/analytics";
 import FreelancerPortalPage from "@/pages/freelancer-portal";
 import AuthVerifyPage from "@/pages/auth-verify";
 import NotFound from "@/pages/not-found";
-import { LogOut, BarChart3, Sun, Moon, Bell, CheckCheck, Menu, X } from "lucide-react";
+
+// New Dispatch 2.0 pages
+import VendorsPage from "@/pages/vendors";
+import VendorDetailPage from "@/pages/vendor-detail";
+import CustomersPage from "@/pages/customers";
+import ProjectsPage from "@/pages/projects";
+import QualityPage from "@/pages/quality";
+import VendorPortalPage from "@/pages/vendor-portal";
+
+import {
+  LogOut, BarChart3, Sun, Moon, Bell, CheckCheck, Menu, X,
+  Users, Building2, FolderKanban, Award, LayoutDashboard, History, Settings, UserCircle
+} from "lucide-react";
 
 // Theme context
 const ThemeContext = createContext<{ theme: "dark" | "light"; toggleTheme: () => void }>({ theme: "dark", toggleTheme: () => {} });
@@ -33,26 +45,25 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
   return <Component />;
 }
 
-function NavLink({ href, label, icon }: { href: string; label: string; icon?: React.ReactNode }) {
+function SidebarLink({ href, label, icon }: { href: string; label: string; icon?: React.ReactNode }) {
   const [location] = useLocation();
   const isActive = href === "/" ? location === "/" : location.startsWith(href);
   return (
     <Link
       href={href}
-      data-testid={`nav-${label.toLowerCase()}`}
-      className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-150 flex items-center ${
+      className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${
         isActive
-          ? "bg-white/[0.10] text-white shadow-sm shadow-white/5"
-          : "text-white/50 hover:text-white/90 hover:bg-white/[0.06]"
+          ? "bg-blue-500/10 text-blue-400 border-l-2 border-blue-400"
+          : "text-white/50 hover:text-white/80 hover:bg-white/[0.04]"
       }`}
     >
       {icon}
-      {label}
+      <span className="truncate">{label}</span>
     </Link>
   );
 }
 
-// ── Notification Center ──
+// Notification Center
 function NotificationBell() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -79,7 +90,6 @@ function NotificationBell() {
   const unread = data?.unreadCount || 0;
   const notifications = data?.notifications || [];
 
-  // Close on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
@@ -108,7 +118,6 @@ function NotificationBell() {
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen(!open)}
-        data-testid="button-notifications"
         className="relative flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs text-white/40 hover:text-white hover:bg-white/[0.06] transition-all duration-150"
       >
         <Bell className="w-3.5 h-3.5" />
@@ -167,71 +176,131 @@ function NotificationBell() {
 function AppLayout() {
   const { user, logout } = useAuth();
   const displayEmail = user?.email || getCurrentUser()?.email || "";
+  const displayName = user?.name || getCurrentUser()?.name || "";
+  const userRole = (user as any)?.role || getCurrentUser()?.role || "pm";
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  return (
-    <div className="flex flex-col h-screen bg-background">
-      {/* Top navbar */}
-      <header className="h-12 bg-gradient-to-r from-[#0d1117] via-[#111827] to-[#0d1117] border-b border-white/[0.06] flex items-center px-3 sm:px-5 shrink-0 shadow-lg shadow-black/20 relative z-50">
-        {/* Mobile hamburger */}
-        <button
-          onClick={() => setMobileNavOpen(!mobileNavOpen)}
-          className="md:hidden flex items-center justify-center w-8 h-8 rounded-md text-white/60 hover:text-white hover:bg-white/[0.06] mr-2"
-          data-testid="button-mobile-menu"
-        >
-          {mobileNavOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
-        </button>
+  const canSeeVendorMgmt = ["gm", "admin", "operations_manager", "vm"].includes(userRole);
+  const canSeeAdmin = ["gm", "admin"].includes(userRole);
 
-        <div className="flex items-center gap-2 mr-4 sm:mr-8">
-          <img src="/logo-icon.jpg" alt="ElTurco" className="w-7 h-7 rounded-full object-cover" />
-          <span className="font-semibold text-white text-sm tracking-tight" data-testid="text-nav-title">Dispatch</span>
+  return (
+    <div className="flex h-screen bg-background">
+      {/* Sidebar */}
+      <aside className={`hidden md:flex flex-col bg-[#0d1117] border-r border-white/[0.06] shrink-0 transition-all duration-200 ${sidebarCollapsed ? "w-16" : "w-56"}`}>
+        {/* Logo */}
+        <div className="h-12 flex items-center px-3 gap-2 border-b border-white/[0.06]">
+          <img src="/logo-icon.jpg" alt="ElTurco" className="w-7 h-7 rounded-full object-cover shrink-0" />
+          {!sidebarCollapsed && <span className="font-semibold text-white text-sm tracking-tight">Dispatch 2.0</span>}
         </div>
 
-        <nav className="hidden md:flex items-center gap-1">
-          <NavLink href="/" label="Dashboard" />
-          <NavLink href="/history" label="History" />
-          <NavLink href="/analytics" label="Analytics" icon={<BarChart3 className="w-3.5 h-3.5 mr-1" />} />
-          <NavLink href="/admin" label="Admin" />
+        {/* Navigation */}
+        <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-1">
+          <div className="mb-3">
+            {!sidebarCollapsed && <p className="px-3 mb-1 text-[10px] font-semibold text-white/20 uppercase tracking-wider">Main</p>}
+            <SidebarLink href="/" label="Dashboard" icon={<LayoutDashboard className="w-4 h-4 shrink-0" />} />
+            <SidebarLink href="/history" label="Assignments" icon={<History className="w-4 h-4 shrink-0" />} />
+            <SidebarLink href="/analytics" label="Analytics" icon={<BarChart3 className="w-4 h-4 shrink-0" />} />
+          </div>
+
+          <div className="mb-3">
+            {!sidebarCollapsed && <p className="px-3 mb-1 text-[10px] font-semibold text-white/20 uppercase tracking-wider">Management</p>}
+            <SidebarLink href="/vendors" label="Vendors" icon={<Users className="w-4 h-4 shrink-0" />} />
+            <SidebarLink href="/customers" label="Customers" icon={<Building2 className="w-4 h-4 shrink-0" />} />
+            <SidebarLink href="/projects" label="Projects" icon={<FolderKanban className="w-4 h-4 shrink-0" />} />
+            <SidebarLink href="/quality" label="Quality" icon={<Award className="w-4 h-4 shrink-0" />} />
+          </div>
+
+          {canSeeAdmin && (
+            <div className="mb-3">
+              {!sidebarCollapsed && <p className="px-3 mb-1 text-[10px] font-semibold text-white/20 uppercase tracking-wider">Admin</p>}
+              <SidebarLink href="/admin" label="Settings" icon={<Settings className="w-4 h-4 shrink-0" />} />
+            </div>
+          )}
         </nav>
 
-        <div className="ml-auto flex items-center gap-1.5 sm:gap-3">
-          <span className="hidden sm:inline text-xs text-white/40 font-medium" data-testid="text-nav-email">{displayEmail}</span>
-          <div className="hidden sm:block w-px h-4 bg-white/[0.08]" />
-          <NotificationBell />
-          <div className="hidden sm:block w-px h-4 bg-white/[0.08]" />
-          <ThemeToggleButton />
-          <div className="hidden sm:block w-px h-4 bg-white/[0.08]" />
+        {/* User info */}
+        <div className="border-t border-white/[0.06] p-3">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-full bg-blue-500/20 flex items-center justify-center text-xs font-medium text-blue-400 shrink-0">
+              {displayName?.charAt(0) || "?"}
+            </div>
+            {!sidebarCollapsed && (
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-white/70 truncate">{displayName}</p>
+                <p className="text-[10px] text-white/30 truncate">{userRole}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </aside>
+
+      {/* Main content area */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Top bar */}
+        <header className="h-12 bg-[#0d1117] border-b border-white/[0.06] flex items-center px-3 sm:px-5 shrink-0 relative z-50">
+          {/* Mobile hamburger */}
           <button
-            onClick={logout}
-            data-testid="button-logout"
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs text-white/40 hover:text-white hover:bg-white/[0.06] transition-all duration-150"
+            onClick={() => setMobileNavOpen(!mobileNavOpen)}
+            className="md:hidden flex items-center justify-center w-8 h-8 rounded-md text-white/60 hover:text-white hover:bg-white/[0.06] mr-2"
           >
-            <LogOut className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Sign out</span>
+            {mobileNavOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
           </button>
-        </div>
-      </header>
 
-      {/* Mobile nav dropdown */}
-      {mobileNavOpen && (
-        <div className="md:hidden absolute top-12 left-0 right-0 z-40 bg-[#111827] border-b border-white/[0.08] shadow-xl shadow-black/30 py-2 px-3 flex flex-col gap-1">
-          <NavLink href="/" label="Dashboard" />
-          <NavLink href="/history" label="History" />
-          <NavLink href="/analytics" label="Analytics" icon={<BarChart3 className="w-3.5 h-3.5 mr-1" />} />
-          <NavLink href="/admin" label="Admin" />
-          {displayEmail && <p className="text-[10px] text-white/30 mt-2 px-3">{displayEmail}</p>}
-        </div>
-      )}
+          {/* Sidebar toggle for desktop */}
+          <button
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            className="hidden md:flex items-center justify-center w-8 h-8 rounded-md text-white/40 hover:text-white hover:bg-white/[0.06] mr-2"
+          >
+            <Menu className="w-4 h-4" />
+          </button>
 
-      <main className="flex-1 overflow-auto">
-        <Switch>
-          <Route path="/">{() => <ProtectedRoute component={DashboardPage} />}</Route>
-          <Route path="/history">{() => <ProtectedRoute component={AssignmentsPage} />}</Route>
-          <Route path="/analytics">{() => <ProtectedRoute component={AnalyticsPage} />}</Route>
-          <Route path="/admin">{() => <ProtectedRoute component={AdminPage} />}</Route>
-          <Route component={NotFound} />
-        </Switch>
-      </main>
+          <div className="ml-auto flex items-center gap-1.5 sm:gap-3">
+            <span className="hidden sm:inline text-xs text-white/40 font-medium">{displayEmail}</span>
+            <div className="hidden sm:block w-px h-4 bg-white/[0.08]" />
+            <NotificationBell />
+            <div className="hidden sm:block w-px h-4 bg-white/[0.08]" />
+            <ThemeToggleButton />
+            <div className="hidden sm:block w-px h-4 bg-white/[0.08]" />
+            <button
+              onClick={logout}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs text-white/40 hover:text-white hover:bg-white/[0.06] transition-all duration-150"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Sign out</span>
+            </button>
+          </div>
+        </header>
+
+        {/* Mobile nav dropdown */}
+        {mobileNavOpen && (
+          <div className="md:hidden absolute top-12 left-0 right-0 z-40 bg-[#0d1117] border-b border-white/[0.08] shadow-xl shadow-black/30 py-2 px-3 flex flex-col gap-1">
+            <SidebarLink href="/" label="Dashboard" icon={<LayoutDashboard className="w-4 h-4" />} />
+            <SidebarLink href="/history" label="Assignments" icon={<History className="w-4 h-4" />} />
+            <SidebarLink href="/analytics" label="Analytics" icon={<BarChart3 className="w-4 h-4" />} />
+            <SidebarLink href="/vendors" label="Vendors" icon={<Users className="w-4 h-4" />} />
+            <SidebarLink href="/customers" label="Customers" icon={<Building2 className="w-4 h-4" />} />
+            <SidebarLink href="/projects" label="Projects" icon={<FolderKanban className="w-4 h-4" />} />
+            <SidebarLink href="/quality" label="Quality" icon={<Award className="w-4 h-4" />} />
+            <SidebarLink href="/admin" label="Admin" icon={<Settings className="w-4 h-4" />} />
+          </div>
+        )}
+
+        <main className="flex-1 overflow-auto">
+          <Switch>
+            <Route path="/">{() => <ProtectedRoute component={DashboardPage} />}</Route>
+            <Route path="/history">{() => <ProtectedRoute component={AssignmentsPage} />}</Route>
+            <Route path="/analytics">{() => <ProtectedRoute component={AnalyticsPage} />}</Route>
+            <Route path="/admin">{() => <ProtectedRoute component={AdminPage} />}</Route>
+            <Route path="/vendors">{() => <ProtectedRoute component={VendorsPage} />}</Route>
+            <Route path="/vendors/:id">{() => <ProtectedRoute component={VendorDetailPage} />}</Route>
+            <Route path="/customers">{() => <ProtectedRoute component={CustomersPage} />}</Route>
+            <Route path="/projects">{() => <ProtectedRoute component={ProjectsPage} />}</Route>
+            <Route path="/quality">{() => <ProtectedRoute component={QualityPage} />}</Route>
+            <Route component={NotFound} />
+          </Switch>
+        </main>
+      </div>
     </div>
   );
 }
@@ -247,6 +316,8 @@ function AppRouter() {
       <Route path="/auth/verify/:token" component={AuthVerifyPage} />
       <Route path="/freelancer" component={FreelancerPortalPage} />
       <Route path="/freelancer/verify/:token" component={FreelancerPortalPage} />
+      <Route path="/portal" component={VendorPortalPage} />
+      <Route path="/portal/verify/:token" component={VendorPortalPage} />
       <Route>{() => (isAuthenticated || hasToken) ? <AppLayout /> : <Redirect to="/login" />}</Route>
     </Switch>
   );
@@ -257,7 +328,6 @@ function ThemeToggleButton() {
   return (
     <button
       onClick={toggleTheme}
-      data-testid="button-theme-toggle"
       className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs text-white/40 hover:text-white hover:bg-white/[0.06] transition-all duration-150"
       title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
     >
@@ -294,9 +364,7 @@ function App() {
           try {
             const data = JSON.parse(event.data);
             setLastWsEvent(data);
-            // Auto-invalidate notifications on any event
             queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
-            // Invalidate tasks/assignments on relevant events
             if (["offer_accepted", "offer_rejected", "task_completed"].includes(data.event)) {
               queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
               queryClient.invalidateQueries({ queryKey: ["/api/assignments"] });

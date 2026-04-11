@@ -1,145 +1,151 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import {
+  pgTable,
+  serial,
+  text,
+  integer,
+  boolean,
+  timestamp,
+  varchar,
+  decimal,
+  jsonb,
+  date,
+  uniqueIndex,
+  index,
+} from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import { relations } from "drizzle-orm";
 
-// PM users who can log in
-export const pmUsers = sqliteTable("pm_users", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  email: text("email").notNull().unique(),
-  name: text("name").notNull(),
-  initial: text("initial").default(""), // Short code written to sheet on self-assign (e.g. "CY", "AK")
+// ============================================
+// EXISTING TABLES (converted from SQLite)
+// ============================================
+
+// PM users who can log in (kept for backward compat, new "users" table is the primary)
+export const pmUsers = pgTable("pm_users", {
+  id: serial("id").primaryKey(),
+  email: varchar("email", { length: 255 }).notNull().unique(),
+  name: varchar("name", { length: 200 }).notNull(),
+  initial: varchar("initial", { length: 10 }).default(""),
   password: text("password").notNull().default(""),
-  role: text("role").notNull().default("pm"), // "pm" | "admin"
-  defaultFilter: text("default_filter").default("ongoing"), // "ongoing" | "unassigned" | "needs_tr" | "needs_rev" | "assigned" | "all"
-  defaultMyProjects: integer("default_my_projects").default(0), // 0 or 1
-  defaultSource: text("default_source").default("all"),
-  defaultAccount: text("default_account").default("all"),
+  role: varchar("role", { length: 50 }).notNull().default("pm"),
+  defaultFilter: varchar("default_filter", { length: 50 }).default("ongoing"),
+  defaultMyProjects: integer("default_my_projects").default(0),
+  defaultSource: varchar("default_source", { length: 50 }).default("all"),
+  defaultAccount: varchar("default_account", { length: 50 }).default("all"),
 });
 
 // Magic link tokens for authentication
-export const authTokens = sqliteTable("auth_tokens", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const authTokens = pgTable("auth_tokens", {
+  id: serial("id").primaryKey(),
   token: text("token").notNull().unique(),
-  email: text("email").notNull(),
+  email: varchar("email", { length: 255 }).notNull(),
   expiresAt: text("expires_at").notNull(),
   used: integer("used").notNull().default(0),
-  clientBaseUrl: text("client_base_url"), // The frontend URL to redirect back to
+  clientBaseUrl: text("client_base_url"),
 });
 
 // Sessions
-export const sessions = sqliteTable("sessions", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const sessions = pgTable("sessions", {
+  id: serial("id").primaryKey(),
   token: text("token").notNull().unique(),
   pmUserId: integer("pm_user_id").notNull(),
   expiresAt: text("expires_at").notNull(),
 });
 
 // Task assignments - the core of the distribution system
-export const assignments = sqliteTable("assignments", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  // Task identification
-  source: text("source").notNull(), // "Amazon" | "AppleCare"
-  sheet: text("sheet").notNull(), // e.g., "non-AFT", "Assignments"
+export const assignments = pgTable("assignments", {
+  id: serial("id").primaryKey(),
+  source: text("source").notNull(),
+  sheet: text("sheet").notNull(),
   projectId: text("project_id").notNull(),
   account: text("account").notNull(),
-  // Task details (snapshot from sheet)
-  taskDetails: text("task_details").notNull(), // JSON with all task fields
-  // Assignment config
-  assignmentType: text("assignment_type").notNull(), // "direct" | "sequence" | "broadcast"
-  role: text("role").notNull(), // "translator" | "reviewer"
-  // Status tracking
-  status: text("status").notNull().default("pending"), // "pending" | "offered" | "accepted" | "completed" | "cancelled" | "expired"
-  // Who
-  assignedBy: integer("assigned_by").notNull(), // PM user id
-  acceptedBy: text("accepted_by"), // freelancer resource_code
+  taskDetails: text("task_details").notNull(),
+  assignmentType: text("assignment_type").notNull(),
+  role: text("role").notNull(),
+  status: text("status").notNull().default("pending"),
+  assignedBy: integer("assigned_by").notNull(),
+  acceptedBy: text("accepted_by"),
   acceptedByName: text("accepted_by_name"),
   acceptedByEmail: text("accepted_by_email"),
-  // Sequence config (JSON array of freelancer codes in order)
-  sequenceList: text("sequence_list"), // JSON: ["CY1", "MP", "BS"]
+  sequenceList: text("sequence_list"),
   currentSequenceIndex: integer("current_sequence_index").default(0),
   sequenceTimeoutMinutes: integer("sequence_timeout_minutes").default(60),
-  // Broadcast config (JSON array of all freelancers notified)
-  broadcastList: text("broadcast_list"), // JSON: ["CY1", "MP", "BS"]
-  // Auto-review config
+  broadcastList: text("broadcast_list"),
   autoAssignReviewer: integer("auto_assign_reviewer").default(0),
-  reviewerAssignmentType: text("reviewer_assignment_type"), // same options
-  reviewerSequenceList: text("reviewer_sequence_list"), // JSON
-  // Review type selected by PM at assignment time
-  reviewType: text("review_type"), // "Full Review" | "Self-Edit" | "LQA" | "QA"
-  // Timestamps
+  reviewerAssignmentType: text("reviewer_assignment_type"),
+  reviewerSequenceList: text("reviewer_sequence_list"),
+  reviewType: text("review_type"),
   createdAt: text("created_at").notNull(),
   offeredAt: text("offered_at"),
   acceptedAt: text("accepted_at"),
   completedAt: text("completed_at"),
-  // Linked reviewer assignment (created when translator completes)
   linkedReviewerAssignmentId: integer("linked_reviewer_assignment_id"),
 });
 
 // Individual offers sent to freelancers
-export const offers = sqliteTable("offers", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const offers = pgTable("offers", {
+  id: serial("id").primaryKey(),
   assignmentId: integer("assignment_id").notNull(),
   freelancerCode: text("freelancer_code").notNull(),
   freelancerName: text("freelancer_name").notNull(),
   freelancerEmail: text("freelancer_email").notNull(),
-  // Token for accept/reject link
   token: text("token").notNull().unique(),
-  status: text("status").notNull().default("pending"), // "pending" | "accepted" | "rejected" | "expired" | "withdrawn"
+  status: text("status").notNull().default("pending"),
   sentAt: text("sent_at").notNull(),
   respondedAt: text("responded_at"),
-  sequenceOrder: integer("sequence_order"), // position in sequence (null for broadcast)
-  clientBaseUrl: text("client_base_url"), // The frontend URL for the respond page
+  sequenceOrder: integer("sequence_order"),
+  clientBaseUrl: text("client_base_url"),
 });
 
-// Email templates — editable by admin
-export const emailTemplates = sqliteTable("email_templates", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  key: text("key").notNull().unique(), // "offer_translator", "offer_reviewer"
+// Email templates
+export const emailTemplates = pgTable("email_templates", {
+  id: serial("id").primaryKey(),
+  key: text("key").notNull().unique(),
   subject: text("subject").notNull(),
-  body: text("body").notNull(), // HTML with {{placeholders}}
+  body: text("body").notNull(),
 });
 
-// Sequence presets — saved freelancer sequences for quick reuse
-export const sequencePresets = sqliteTable("sequence_presets", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+// Sequence presets
+export const sequencePresets = pgTable("sequence_presets", {
+  id: serial("id").primaryKey(),
   name: text("name").notNull(),
-  pmEmail: text("pm_email").notNull(), // owner PM
-  role: text("role").notNull(), // "translator" | "reviewer"
-  freelancerCodes: text("freelancer_codes").notNull(), // JSON array of resource codes
+  pmEmail: text("pm_email").notNull(),
+  role: text("role").notNull(),
+  freelancerCodes: text("freelancer_codes").notNull(),
   assignmentType: text("assignment_type").notNull().default("sequence"),
 });
 
-// Auto-assign rules
-export const autoAssignRules = sqliteTable("auto_assign_rules", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+// Auto-assign rules (existing)
+export const autoAssignRules = pgTable("auto_assign_rules", {
+  id: serial("id").primaryKey(),
   name: text("name").notNull(),
-  source: text("source"), // null = any source
-  account: text("account"), // null = any account  
-  languagePair: text("language_pair"), // null = any
-  role: text("role").notNull(), // "translator" | "reviewer"
-  freelancerCodes: text("freelancer_codes").notNull(), // JSON array
+  source: text("source"),
+  account: text("account"),
+  languagePair: text("language_pair"),
+  role: text("role").notNull(),
+  freelancerCodes: text("freelancer_codes").notNull(),
   assignmentType: text("assignment_type").notNull().default("sequence"),
-  maxWwc: integer("max_wwc"), // Only apply if WWC <= this (null = any)
+  maxWwc: integer("max_wwc"),
   enabled: integer("enabled").notNull().default(1),
   createdBy: text("created_by").notNull(),
 });
 
-// Sheet config — language pairs per source/tab
-export const sheetConfigs = sqliteTable("sheet_configs", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  source: text("source").notNull(), // "Amazon" | "AppleCare" or custom name
-  sheet: text("sheet").notNull(),   // Tab name in the spreadsheet
+// Sheet config
+export const sheetConfigs = pgTable("sheet_configs", {
+  id: serial("id").primaryKey(),
+  source: text("source").notNull(),
+  sheet: text("sheet").notNull(),
   languagePair: text("language_pair").notNull().default("EN>TR"),
-  sheetDbId: text("sheetdb_id"),    // SheetDB API ID (e.g. "mukq6ww3ssuk0")
-  googleSheetUrl: text("google_sheet_url"), // Original Google Sheet URL for reference
-  assignedPms: text("assigned_pms"), // JSON array of PM emails, e.g. ["cenk@eltur.co"]. null = visible to all.
-  googleSheetId: text("google_sheet_id"), // Google Sheets spreadsheet ID for direct API writes
-  worksheetId: integer("worksheet_id"),   // Google Sheets worksheet/tab ID (gid)
+  sheetDbId: text("sheetdb_id"),
+  googleSheetUrl: text("google_sheet_url"),
+  assignedPms: text("assigned_pms"),
+  googleSheetId: text("google_sheet_id"),
+  worksheetId: integer("worksheet_id"),
 });
 
-// PM internal notes on tasks (stored in DB, not sheet)
-export const taskNotes = sqliteTable("task_notes", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+// PM internal notes on tasks
+export const taskNotes = pgTable("task_notes", {
+  id: serial("id").primaryKey(),
   source: text("source").notNull(),
   sheet: text("sheet").notNull(),
   projectId: text("project_id").notNull(),
@@ -150,14 +156,498 @@ export const taskNotes = sqliteTable("task_notes", {
 });
 
 // PM favorite freelancers
-export const pmFavorites = sqliteTable("pm_favorites", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const pmFavorites = pgTable("pm_favorites", {
+  id: serial("id").primaryKey(),
   pmEmail: text("pm_email").notNull(),
   freelancerCode: text("freelancer_code").notNull(),
   createdAt: text("created_at").notNull(),
 });
 
-// Schemas
+// Notifications for PM dashboard
+export const notifications = pgTable("notifications_legacy", {
+  id: serial("id").primaryKey(),
+  type: text("type").notNull(),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  metadata: text("metadata"),
+  read: integer("read").notNull().default(0),
+  createdAt: text("created_at").notNull(),
+});
+
+// Freelancer sessions (magic link based)
+export const freelancerSessions = pgTable("freelancer_sessions", {
+  id: serial("id").primaryKey(),
+  token: text("token").notNull().unique(),
+  freelancerCode: text("freelancer_code").notNull(),
+  freelancerName: text("freelancer_name").notNull(),
+  freelancerEmail: text("freelancer_email").notNull(),
+  expiresAt: text("expires_at").notNull(),
+});
+
+// ============================================
+// NEW DISPATCH 2.0 TABLES
+// ============================================
+
+// Entities (company legal entities)
+export const entities = pgTable("entities", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 200 }).notNull(),
+  code: varchar("code", { length: 50 }).notNull().unique(),
+  jurisdiction: varchar("jurisdiction", { length: 100 }),
+  currency: varchar("currency", { length: 3 }).default("GBP"),
+  qboEnabled: boolean("qbo_enabled").default(false),
+  bankDetails: jsonb("bank_details"),
+  wiseEnabled: boolean("wise_enabled").default(false),
+  smartcatAccountId: varchar("smartcat_account_id", { length: 200 }),
+  smartcatApiKey: varchar("smartcat_api_key", { length: 200 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// Users (internal staff - all roles) - replaces pm_users as primary
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  email: varchar("email", { length: 255 }).notNull().unique(),
+  name: varchar("name", { length: 200 }).notNull(),
+  initial: varchar("initial", { length: 10 }),
+  passwordHash: varchar("password_hash", { length: 255 }),
+  role: varchar("role", { length: 50 }).notNull(),
+  entityId: integer("entity_id").references(() => entities.id),
+  avatarUrl: varchar("avatar_url", { length: 500 }),
+  isActive: boolean("is_active").default(true),
+  defaultFilter: varchar("default_filter", { length: 50 }).default("ongoing"),
+  defaultSource: varchar("default_source", { length: 50 }).default("all"),
+  preferences: jsonb("preferences").default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+// Vendors (freelancers/linguists) - THE BIG ONE
+export const vendors = pgTable("vendors", {
+  id: serial("id").primaryKey(),
+  resourceCode: varchar("resource_code", { length: 50 }).unique(),
+  fullName: varchar("full_name", { length: 200 }).notNull(),
+  email: varchar("email", { length: 255 }).notNull(),
+  email2: varchar("email2", { length: 255 }),
+  phone: varchar("phone", { length: 50 }),
+  phone2: varchar("phone2", { length: 50 }),
+  phone3: varchar("phone3", { length: 50 }),
+  address: jsonb("address"),
+  location: varchar("location", { length: 200 }),
+  website: varchar("website", { length: 500 }),
+  skype: varchar("skype", { length: 100 }),
+  gender: varchar("gender", { length: 20 }),
+  companyName: varchar("company_name", { length: 200 }),
+  profilePictureUrl: varchar("profile_picture_url", { length: 500 }),
+  resourceType: varchar("resource_type", { length: 50 }).default("Freelancer"),
+
+  // Languages & Skills
+  nativeLanguage: varchar("native_language", { length: 50 }),
+  languagePreference: varchar("language_preference", { length: 50 }),
+  translationSpecializations: text("translation_specializations").array(),
+  otherProfessionalSkills: text("other_professional_skills").array(),
+  technicalSkills: text("technical_skills").array(),
+  serviceTypes: text("service_types").array(),
+  software: text("software").array(),
+  experienceYears: integer("experience_years"),
+  education: text("education"),
+  certifications: text("certifications").array(),
+
+  // Rates & Payment
+  rates: jsonb("rates").default([]),
+  catDiscounts: jsonb("cat_discounts"),
+  currency: varchar("currency", { length: 3 }).default("EUR"),
+  minimumFee: decimal("minimum_fee", { precision: 10, scale: 2 }),
+  minimumProjectFee: decimal("minimum_project_fee", { precision: 10, scale: 2 }),
+  paymentInfo: jsonb("payment_info"),
+  taxInfo: jsonb("tax_info"),
+
+  // Pipeline & Status
+  status: varchar("status", { length: 50 }).default("New Application"),
+  stageChangedDate: timestamp("stage_changed_date", { withTimezone: true }),
+  assignedTo: integer("assigned_to").references(() => users.id),
+  followUpDate: date("follow_up_date"),
+  followUpNote: text("follow_up_note"),
+
+  // Quality Scores
+  combinedQualityScore: decimal("combined_quality_score", { precision: 5, scale: 2 }),
+  averageLqaScore: decimal("average_lqa_score", { precision: 5, scale: 2 }),
+  averageQsScore: decimal("average_qs_score", { precision: 5, scale: 2 }),
+  totalReviewsCount: integer("total_reviews_count").default(0),
+  accountQualityScores: jsonb("account_quality_scores").default([]),
+  resourceRating: decimal("resource_rating", { precision: 5, scale: 2 }),
+  valueIndex: decimal("value_index", { precision: 10, scale: 4 }),
+  needsQualityReview: boolean("needs_quality_review").default(false),
+  qualityReviewReason: text("quality_review_reason"),
+
+  // Documents
+  cvFileUrl: varchar("cv_file_url", { length: 500 }),
+  blindCvUrl: varchar("blind_cv_url", { length: 500 }),
+  ndaFileUrl: varchar("nda_file_url", { length: 500 }),
+  portfolioFileUrl: varchar("portfolio_file_url", { length: 500 }),
+  ndaSigned: boolean("nda_signed").default(false),
+  tested: boolean("tested").default(false),
+  certified: boolean("certified").default(false),
+
+  // Availability
+  availability: varchar("availability", { length: 50 }),
+  availableOn: date("available_on"),
+  googleCalendarId: varchar("google_calendar_id", { length: 200 }),
+
+  // Smartcat
+  smartcatSupplierId: varchar("smartcat_supplier_id", { length: 200 }),
+
+  // Accounts/Clients
+  accounts: text("accounts").array(),
+  specializations: text("specializations").array(),
+  tags: text("tags").array(),
+
+  // Approval
+  approvedBy: integer("approved_by").references(() => users.id),
+  approvedDate: timestamp("approved_date", { withTimezone: true }),
+
+  // LQA
+  canDoLqa: boolean("can_do_lqa").default(false),
+  lqaLanguages: jsonb("lqa_languages"),
+  lqaSpecializations: text("lqa_specializations").array(),
+
+  notes: text("notes"),
+  specialInstructions: text("special_instructions"),
+
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+// Vendor Language Pairs
+export const vendorLanguagePairs = pgTable("vendor_language_pairs", {
+  id: serial("id").primaryKey(),
+  vendorId: integer("vendor_id").notNull().references(() => vendors.id, { onDelete: "cascade" }),
+  sourceLanguage: varchar("source_language", { length: 10 }).notNull(),
+  targetLanguage: varchar("target_language", { length: 10 }).notNull(),
+  isPrimary: boolean("is_primary").default(false),
+}, (table) => [
+  uniqueIndex("vendor_lang_pair_unique").on(table.vendorId, table.sourceLanguage, table.targetLanguage),
+]);
+
+// Vendor Rate Cards
+export const vendorRateCards = pgTable("vendor_rate_cards", {
+  id: serial("id").primaryKey(),
+  vendorId: integer("vendor_id").notNull().references(() => vendors.id, { onDelete: "cascade" }),
+  sourceLanguage: varchar("source_language", { length: 10 }),
+  targetLanguage: varchar("target_language", { length: 10 }),
+  serviceType: varchar("service_type", { length: 100 }),
+  rateType: varchar("rate_type", { length: 50 }),
+  rateValue: decimal("rate_value", { precision: 10, scale: 4 }).notNull(),
+  currency: varchar("currency", { length: 3 }).default("EUR"),
+  specialization: varchar("specialization", { length: 200 }),
+  account: varchar("account", { length: 200 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// Quality Reports
+export const qualityReports = pgTable("quality_reports", {
+  id: serial("id").primaryKey(),
+  vendorId: integer("vendor_id").notNull().references(() => vendors.id),
+  reviewerId: integer("reviewer_id").references(() => users.id),
+  reviewerName: varchar("reviewer_name", { length: 200 }),
+  reportType: varchar("report_type", { length: 20 }).notNull(),
+  qsScore: decimal("qs_score", { precision: 3, scale: 1 }),
+  lqaScore: decimal("lqa_score", { precision: 5, scale: 2 }),
+  projectName: varchar("project_name", { length: 200 }),
+  jobId: varchar("job_id", { length: 100 }),
+  wordCount: integer("word_count"),
+  reportDate: date("report_date"),
+  contentType: varchar("content_type", { length: 100 }),
+  jobType: varchar("job_type", { length: 100 }),
+  clientAccount: varchar("client_account", { length: 200 }),
+  sourceLanguage: varchar("source_language", { length: 10 }),
+  targetLanguage: varchar("target_language", { length: 10 }),
+  lqaWordsReviewed: integer("lqa_words_reviewed"),
+  lqaErrors: jsonb("lqa_errors"),
+  lqaEntries: jsonb("lqa_entries"),
+  status: varchar("status", { length: 50 }).default("draft"),
+  reviewerComments: text("reviewer_comments"),
+  vendorFeedback: text("vendor_feedback"),
+  translatorComments: text("translator_comments"),
+  finalReviewerComments: text("final_reviewer_comments"),
+  submissionDate: timestamp("submission_date", { withTimezone: true }),
+  reviewDeadline: timestamp("review_deadline", { withTimezone: true }),
+  finalizationDate: timestamp("finalization_date", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+// Vendor Documents (compliance)
+export const vendorDocuments = pgTable("vendor_documents", {
+  id: serial("id").primaryKey(),
+  title: varchar("title", { length: 200 }).notNull(),
+  docType: varchar("doc_type", { length: 100 }),
+  description: text("description"),
+  fileUrl: varchar("file_url", { length: 500 }),
+  isActive: boolean("is_active").default(true),
+  version: integer("version").default(1),
+  requiresSignature: boolean("requires_signature").default(false),
+  requiredForApproval: boolean("required_for_approval").default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// Document Signatures
+export const vendorDocumentSignatures = pgTable("vendor_document_signatures", {
+  id: serial("id").primaryKey(),
+  documentId: integer("document_id").notNull().references(() => vendorDocuments.id),
+  vendorId: integer("vendor_id").notNull().references(() => vendors.id),
+  status: varchar("status", { length: 50 }).default("pending"),
+  signedDate: timestamp("signed_date", { withTimezone: true }),
+  signatureFileUrl: varchar("signature_file_url", { length: 500 }),
+}, (table) => [
+  uniqueIndex("doc_vendor_unique").on(table.documentId, table.vendorId),
+]);
+
+// Vendor Activity Log
+export const vendorActivities = pgTable("vendor_activities", {
+  id: serial("id").primaryKey(),
+  vendorId: integer("vendor_id").notNull().references(() => vendors.id),
+  activityType: varchar("activity_type", { length: 100 }).notNull(),
+  description: text("description"),
+  oldValue: text("old_value"),
+  newValue: text("new_value"),
+  performedBy: integer("performed_by").references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// Vendor Notes
+export const vendorNotes = pgTable("vendor_notes", {
+  id: serial("id").primaryKey(),
+  vendorId: integer("vendor_id").notNull().references(() => vendors.id),
+  content: text("content").notNull(),
+  noteType: varchar("note_type", { length: 50 }).default("note"),
+  visibility: varchar("visibility", { length: 50 }).default("team"),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// Customers (clients)
+export const customers = pgTable("customers", {
+  id: serial("id").primaryKey(),
+  entityId: integer("entity_id").references(() => entities.id),
+  name: varchar("name", { length: 200 }).notNull(),
+  code: varchar("code", { length: 50 }).unique(),
+  clientType: varchar("client_type", { length: 50 }).default("CLIENT"),
+  status: varchar("status", { length: 50 }).default("ACTIVE"),
+  address: jsonb("address"),
+  phone: varchar("phone", { length: 50 }),
+  email: varchar("email", { length: 255 }),
+  currency: varchar("currency", { length: 3 }).default("EUR"),
+  paymentTermsType: varchar("payment_terms_type", { length: 50 }),
+  paymentTermsDays: integer("payment_terms_days").default(30),
+  vatNumber: varchar("vat_number", { length: 100 }),
+  taxId: varchar("tax_id", { length: 100 }),
+  minimumFee: decimal("minimum_fee", { precision: 10, scale: 2 }),
+  notes: text("notes"),
+  tags: text("tags").array(),
+  primaryPmId: integer("primary_pm_id").references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+// Customer Contacts
+export const customerContacts = pgTable("customer_contacts", {
+  id: serial("id").primaryKey(),
+  customerId: integer("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 200 }).notNull(),
+  email: varchar("email", { length: 255 }),
+  phone: varchar("phone", { length: 50 }),
+  role: varchar("role", { length: 100 }),
+  isPrimary: boolean("is_primary").default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// Customer Sub-Accounts
+export const customerSubAccounts = pgTable("customer_sub_accounts", {
+  id: serial("id").primaryKey(),
+  customerId: integer("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 200 }).notNull(),
+  code: varchar("code", { length: 100 }),
+  assignedPmId: integer("assigned_pm_id").references(() => users.id),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// PM-Customer Assignments
+export const pmCustomerAssignments = pgTable("pm_customer_assignments", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  customerId: integer("customer_id").notNull().references(() => customers.id),
+  subAccountId: integer("sub_account_id").references(() => customerSubAccounts.id),
+  isPrimary: boolean("is_primary").default(true),
+  assignmentType: varchar("assignment_type", { length: 20 }).default("primary"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  uniqueIndex("pm_customer_assign_unique").on(table.userId, table.customerId, table.subAccountId),
+]);
+
+// Projects
+export const projects = pgTable("projects", {
+  id: serial("id").primaryKey(),
+  entityId: integer("entity_id").references(() => entities.id),
+  customerId: integer("customer_id").notNull().references(() => customers.id),
+  subAccountId: integer("sub_account_id").references(() => customerSubAccounts.id),
+  projectCode: varchar("project_code", { length: 100 }),
+  projectName: varchar("project_name", { length: 500 }).notNull(),
+  source: varchar("source", { length: 100 }),
+  externalId: varchar("external_id", { length: 200 }),
+  externalUrl: varchar("external_url", { length: 500 }),
+  pmId: integer("pm_id").references(() => users.id),
+  status: varchar("status", { length: 50 }).default("active"),
+  currency: varchar("currency", { length: 3 }).default("EUR"),
+  startDate: date("start_date"),
+  deadline: timestamp("deadline", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  notes: text("notes"),
+  tags: text("tags").array(),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+// Jobs (within projects)
+export const jobs = pgTable("jobs", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  jobCode: varchar("job_code", { length: 100 }),
+  jobName: varchar("job_name", { length: 500 }),
+  sourceLanguage: varchar("source_language", { length: 10 }),
+  targetLanguage: varchar("target_language", { length: 10 }),
+  serviceType: varchar("service_type", { length: 100 }),
+  unitType: varchar("unit_type", { length: 50 }),
+  unitCount: decimal("unit_count", { precision: 12, scale: 2 }),
+  unitRate: decimal("unit_rate", { precision: 10, scale: 4 }),
+  totalRevenue: decimal("total_revenue", { precision: 12, scale: 2 }),
+  totalCost: decimal("total_cost", { precision: 12, scale: 2 }),
+  status: varchar("status", { length: 50 }).default("pending"),
+  deadline: timestamp("deadline", { withTimezone: true }),
+  vendorId: integer("vendor_id").references(() => vendors.id),
+  assignmentId: integer("assignment_id"),
+  notes: text("notes"),
+  catAnalysis: jsonb("cat_analysis"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+// Purchase Orders
+export const purchaseOrders = pgTable("purchase_orders", {
+  id: serial("id").primaryKey(),
+  entityId: integer("entity_id").references(() => entities.id),
+  vendorId: integer("vendor_id").notNull().references(() => vendors.id),
+  jobId: integer("job_id").references(() => jobs.id),
+  projectId: integer("project_id").references(() => projects.id),
+  poNumber: varchar("po_number", { length: 100 }),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  currency: varchar("currency", { length: 3 }).default("EUR"),
+  status: varchar("status", { length: 50 }).default("draft"),
+  paymentMethod: varchar("payment_method", { length: 50 }),
+  paymentDate: date("payment_date"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+// Client Invoices
+export const clientInvoices = pgTable("client_invoices", {
+  id: serial("id").primaryKey(),
+  entityId: integer("entity_id").references(() => entities.id),
+  customerId: integer("customer_id").notNull().references(() => customers.id),
+  invoiceNumber: varchar("invoice_number", { length: 100 }),
+  invoiceDate: date("invoice_date").notNull(),
+  dueDate: date("due_date"),
+  subtotal: decimal("subtotal", { precision: 12, scale: 2 }),
+  taxAmount: decimal("tax_amount", { precision: 12, scale: 2 }).default("0"),
+  total: decimal("total", { precision: 12, scale: 2 }),
+  currency: varchar("currency", { length: 3 }).default("EUR"),
+  status: varchar("status", { length: 50 }).default("draft"),
+  externalInvoiceUrl: varchar("external_invoice_url", { length: 500 }),
+  paymentReceivedDate: date("payment_received_date"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+// Invoice Line Items
+export const clientInvoiceLines = pgTable("client_invoice_lines", {
+  id: serial("id").primaryKey(),
+  invoiceId: integer("invoice_id").notNull().references(() => clientInvoices.id, { onDelete: "cascade" }),
+  projectId: integer("project_id").references(() => projects.id),
+  jobId: integer("job_id").references(() => jobs.id),
+  description: text("description"),
+  quantity: decimal("quantity", { precision: 12, scale: 2 }),
+  unitPrice: decimal("unit_price", { precision: 10, scale: 4 }),
+  amount: decimal("amount", { precision: 12, scale: 2 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// Auto-Accept Rules (new version, replaces BeLazy)
+export const autoAcceptRules = pgTable("auto_accept_rules", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 200 }).notNull(),
+  source: varchar("source", { length: 100 }),
+  account: varchar("account", { length: 200 }),
+  languagePair: varchar("language_pair", { length: 20 }),
+  role: varchar("role", { length: 50 }).notNull(),
+  vendorCodes: text("vendor_codes").notNull(),
+  assignmentType: varchar("assignment_type", { length: 50 }).default("sequence"),
+  maxWwc: integer("max_wwc"),
+  enabled: boolean("enabled").default(true),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// Audit Log
+export const auditLog = pgTable("audit_log", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id),
+  action: varchar("action", { length: 100 }).notNull(),
+  entityType: varchar("entity_type", { length: 100 }),
+  entityId: integer("entity_id"),
+  oldData: jsonb("old_data"),
+  newData: jsonb("new_data"),
+  ipAddress: varchar("ip_address", { length: 50 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// Settings (key-value)
+export const settings = pgTable("settings", {
+  id: serial("id").primaryKey(),
+  key: varchar("key", { length: 200 }).notNull().unique(),
+  value: jsonb("value").notNull(),
+  category: varchar("category", { length: 100 }),
+  description: text("description"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+// Vendor Sessions (magic link for linguist portal)
+export const vendorSessions = pgTable("vendor_sessions", {
+  id: serial("id").primaryKey(),
+  token: varchar("token", { length: 255 }).notNull().unique(),
+  vendorId: integer("vendor_id").notNull().references(() => vendors.id),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// Notifications (new version with user/vendor targeting)
+export const notificationsV2 = pgTable("notifications", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id),
+  vendorId: integer("vendor_id").references(() => vendors.id),
+  type: varchar("type", { length: 100 }).notNull(),
+  title: varchar("title", { length: 500 }).notNull(),
+  message: text("message"),
+  metadata: jsonb("metadata"),
+  read: boolean("read").default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// ============================================
+// INSERT SCHEMAS (Zod)
+// ============================================
 export const insertPmUserSchema = createInsertSchema(pmUsers).omit({ id: true });
 export const insertSheetConfigSchema = createInsertSchema(sheetConfigs).omit({ id: true });
 export const insertEmailTemplateSchema = createInsertSchema(emailTemplates).omit({ id: true });
@@ -167,8 +657,37 @@ export const insertAssignmentSchema = createInsertSchema(assignments).omit({ id:
 export const insertOfferSchema = createInsertSchema(offers).omit({ id: true });
 export const insertAuthTokenSchema = createInsertSchema(authTokens).omit({ id: true });
 export const insertSessionSchema = createInsertSchema(sessions).omit({ id: true });
+export const insertNotificationSchema = createInsertSchema(notifications).omit({ id: true });
+export const insertFreelancerSessionSchema = createInsertSchema(freelancerSessions).omit({ id: true });
 
-// Types
+// New table schemas
+export const insertEntitySchema = createInsertSchema(entities).omit({ id: true });
+export const insertUserSchema = createInsertSchema(users).omit({ id: true });
+export const insertVendorSchema = createInsertSchema(vendors).omit({ id: true });
+export const insertVendorLanguagePairSchema = createInsertSchema(vendorLanguagePairs).omit({ id: true });
+export const insertVendorRateCardSchema = createInsertSchema(vendorRateCards).omit({ id: true });
+export const insertQualityReportSchema = createInsertSchema(qualityReports).omit({ id: true });
+export const insertVendorDocumentSchema = createInsertSchema(vendorDocuments).omit({ id: true });
+export const insertVendorDocumentSignatureSchema = createInsertSchema(vendorDocumentSignatures).omit({ id: true });
+export const insertVendorActivitySchema = createInsertSchema(vendorActivities).omit({ id: true });
+export const insertVendorNoteSchema = createInsertSchema(vendorNotes).omit({ id: true });
+export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true });
+export const insertCustomerContactSchema = createInsertSchema(customerContacts).omit({ id: true });
+export const insertCustomerSubAccountSchema = createInsertSchema(customerSubAccounts).omit({ id: true });
+export const insertPmCustomerAssignmentSchema = createInsertSchema(pmCustomerAssignments).omit({ id: true });
+export const insertProjectSchema = createInsertSchema(projects).omit({ id: true });
+export const insertJobSchema = createInsertSchema(jobs).omit({ id: true });
+export const insertPurchaseOrderSchema = createInsertSchema(purchaseOrders).omit({ id: true });
+export const insertClientInvoiceSchema = createInsertSchema(clientInvoices).omit({ id: true });
+export const insertClientInvoiceLineSchema = createInsertSchema(clientInvoiceLines).omit({ id: true });
+export const insertAutoAcceptRuleSchema = createInsertSchema(autoAcceptRules).omit({ id: true });
+export const insertAuditLogSchema = createInsertSchema(auditLog).omit({ id: true });
+export const insertSettingSchema = createInsertSchema(settings).omit({ id: true });
+export const insertVendorSessionSchema = createInsertSchema(vendorSessions).omit({ id: true });
+
+// ============================================
+// TYPES
+// ============================================
 export type PmUser = typeof pmUsers.$inferSelect;
 export type InsertPmUser = z.infer<typeof insertPmUserSchema>;
 export type Assignment = typeof assignments.$inferSelect;
@@ -185,30 +704,35 @@ export type SequencePreset = typeof sequencePresets.$inferSelect;
 export type InsertSequencePreset = z.infer<typeof insertSequencePresetSchema>;
 export type AutoAssignRule = typeof autoAssignRules.$inferSelect;
 export type InsertAutoAssignRule = z.infer<typeof insertAutoAssignRuleSchema>;
-
-// Notifications for PM dashboard
-export const notifications = sqliteTable("notifications", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  type: text("type").notNull(), // "offer_accepted" | "offer_rejected" | "task_completed" | "sequence_advanced" | "assignment_created"
-  title: text("title").notNull(),
-  message: text("message").notNull(),
-  metadata: text("metadata"), // JSON extra data
-  read: integer("read").notNull().default(0),
-  createdAt: text("created_at").notNull(),
-});
-
-// Freelancer sessions (magic link based)
-export const freelancerSessions = sqliteTable("freelancer_sessions", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  token: text("token").notNull().unique(),
-  freelancerCode: text("freelancer_code").notNull(),
-  freelancerName: text("freelancer_name").notNull(),
-  freelancerEmail: text("freelancer_email").notNull(),
-  expiresAt: text("expires_at").notNull(),
-});
-
-export const insertNotificationSchema = createInsertSchema(notifications).omit({ id: true });
-export const insertFreelancerSessionSchema = createInsertSchema(freelancerSessions).omit({ id: true });
 export type Notification = typeof notifications.$inferSelect;
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 export type FreelancerSession = typeof freelancerSessions.$inferSelect;
+
+// New types
+export type Entity = typeof entities.$inferSelect;
+export type InsertEntity = z.infer<typeof insertEntitySchema>;
+export type User = typeof users.$inferSelect;
+export type InsertUser = z.infer<typeof insertUserSchema>;
+export type Vendor = typeof vendors.$inferSelect;
+export type InsertVendor = z.infer<typeof insertVendorSchema>;
+export type VendorLanguagePair = typeof vendorLanguagePairs.$inferSelect;
+export type VendorRateCard = typeof vendorRateCards.$inferSelect;
+export type QualityReport = typeof qualityReports.$inferSelect;
+export type VendorDocument = typeof vendorDocuments.$inferSelect;
+export type VendorDocumentSignature = typeof vendorDocumentSignatures.$inferSelect;
+export type VendorActivity = typeof vendorActivities.$inferSelect;
+export type VendorNote = typeof vendorNotes.$inferSelect;
+export type Customer = typeof customers.$inferSelect;
+export type CustomerContact = typeof customerContacts.$inferSelect;
+export type CustomerSubAccount = typeof customerSubAccounts.$inferSelect;
+export type PmCustomerAssignment = typeof pmCustomerAssignments.$inferSelect;
+export type Project = typeof projects.$inferSelect;
+export type Job = typeof jobs.$inferSelect;
+export type PurchaseOrder = typeof purchaseOrders.$inferSelect;
+export type ClientInvoice = typeof clientInvoices.$inferSelect;
+export type ClientInvoiceLine = typeof clientInvoiceLines.$inferSelect;
+export type AutoAcceptRule = typeof autoAcceptRules.$inferSelect;
+export type AuditLogEntry = typeof auditLog.$inferSelect;
+export type Setting = typeof settings.$inferSelect;
+export type VendorSession = typeof vendorSessions.$inferSelect;
+export type NotificationV2 = typeof notificationsV2.$inferSelect;
