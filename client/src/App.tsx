@@ -362,9 +362,11 @@ function ThemeToggleButton() {
 }
 
 function App() {
-  const [theme, setTheme] = useState<"dark" | "light">(() =>
-    window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
-  );
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    const stored = localStorage.getItem("dispatch-theme");
+    if (stored === "light" || stored === "dark") return stored;
+    return "dark"; // default to dark — the UI is designed for dark mode
+  });
   const [lastWsEvent, setLastWsEvent] = useState<any>(null);
 
   useEffect(() => {
@@ -373,6 +375,7 @@ function App() {
     } else {
       document.documentElement.classList.remove("dark");
     }
+    localStorage.setItem("dispatch-theme", theme);
   }, [theme]);
 
   // WebSocket connection

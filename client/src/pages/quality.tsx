@@ -376,16 +376,18 @@ export default function QualityPage() {
   const { data: vendors } = useQuery<Vendor[]>({
     queryKey: ["/api/vendors"],
     queryFn: async () => {
-      const res = await apiRequest("GET", "/api/vendors");
-      return res.json();
+      const res = await apiRequest("GET", "/api/vendors?limit=500");
+      const json = await res.json();
+      return json.data ?? json;
     },
   });
 
   const { data: approvedVendors } = useQuery<Vendor[]>({
     queryKey: ["/api/vendors", "approved"],
     queryFn: async () => {
-      const res = await apiRequest("GET", "/api/vendors?status=Approved");
-      return res.json();
+      const res = await apiRequest("GET", "/api/vendors?status=Approved&limit=500");
+      const json = await res.json();
+      return json.data ?? json;
     },
   });
 

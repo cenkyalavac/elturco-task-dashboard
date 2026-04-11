@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useRoute, Link } from "wouter";
+import { useParams, Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -147,7 +147,7 @@ const defaultJobForm: JobFormState = {
 };
 
 export default function ProjectDetailPage() {
-  const [, params] = useRoute("/projects/:id");
+  const params = useParams<{ id: string }>();
   const projectId = params?.id;
   const { toast } = useToast();
   const [editing, setEditing] = useState(false);
