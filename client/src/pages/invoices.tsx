@@ -18,7 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import {
   Plus, ChevronLeft, ChevronRight, Loader2, FileText, Send, Check,
-  Ban, Eye, Trash2, AlertCircle,
+  Ban, Eye, Trash2, AlertCircle, Search,
 } from "lucide-react";
 
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
@@ -35,22 +35,20 @@ interface InvoiceLine {
   quantity: string;
   unitPrice: string;
   amount: string;
-  jobId?: number;
-  projectId?: number;
 }
 
 const PAGE_LIMIT = 20;
 
-function formatCurrency(amount: string | number | null, currency: string = "EUR") {
-  if (!amount && amount !== 0) return "—";
+function formatCurrency(amount: string | number | null, currency: string = "EUR"): string {
+  if (!amount && amount !== 0) return "\u2014";
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
-  if (isNaN(num)) return "—";
-  const symbol = currency === "GBP" ? "£" : currency === "EUR" ? "€" : currency === "TRY" ? "₺" : "$";
+  if (isNaN(num)) return "\u2014";
+  const symbol = currency === "GBP" ? "\u00A3" : currency === "EUR" ? "\u20AC" : currency === "TRY" ? "\u20BA" : "$";
   return `${symbol}${num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function formatDate(dateStr: string | null): string {
-  if (!dateStr) return "—";
+  if (!dateStr) return "\u2014";
   try {
     return new Date(dateStr).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
   } catch {
@@ -70,6 +68,7 @@ export default function InvoicesPage() {
 
   const [statusFilter, setStatusFilter] = useState("all");
   const [entityFilter, setEntityFilter] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [detailId, setDetailId] = useState<number | null>(null);
@@ -123,12 +122,18 @@ export default function InvoicesPage() {
 
   const { data: customers } = useQuery({
     queryKey: ["/api/customers"],
-    queryFn: async () => { const r = await apiRequest("GET", "/api/customers"); return r.json(); },
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/customers");
+      return r.json();
+    },
   });
 
   const { data: entitiesData } = useQuery({
     queryKey: ["/api/entities"],
-    queryFn: async () => { const r = await apiRequest("GET", "/api/entities"); return r.json(); },
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/entities");
+      return r.json();
+    },
   });
 
   const createMutation = useMutation({
@@ -141,21 +146,6 @@ export default function InvoicesPage() {
       toast({ title: "Invoice created" });
       setCreateOpen(false);
       resetForm();
-    },
-    onError: (err: Error) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    },
-  });
-
-  const statusMutation = useMutation({
-    mutationFn: async ({ id, status }: { id: number; status: string }) => {
-      const res = await apiRequest("PATCH", `/api/invoices/${id}`, { status });
-      return res.json();
-    },
-    onSuccess: (_data: any, variables: { id: number; status: string }) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/invoices", variables.id] });
-      toast({ title: `Invoice marked as ${variables.status}` });
     },
     onError: (err: Error) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -224,7 +214,11 @@ export default function InvoicesPage() {
   });
 
   function resetForm() {
-    setForm({ customerId: "", entityId: "", invoiceDate: new Date().toISOString().split("T")[0], dueDate: "", currency: "EUR", taxAmount: "0", notes: "" });
+    setForm({
+      customerId: "", entityId: "",
+      invoiceDate: new Date().toISOString().split("T")[0],
+      dueDate: "", currency: "EUR", taxAmount: "0", notes: "",
+    });
     setLines([{ description: "", quantity: "1", unitPrice: "0", amount: "0" }]);
   }
 
@@ -260,15 +254,24 @@ export default function InvoicesPage() {
       toast({ title: "At least one line item is required", variant: "destructive" });
       return;
     }
+    const sub = validLines.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0);
+    const t = parseFloat(form.taxAmount) || 0;
     createMutation.mutate({
       customerId: +form.customerId,
       entityId: form.entityId ? +form.entityId : null,
       invoiceDate: form.invoiceDate,
       dueDate: form.dueDate || null,
       currency: form.currency,
+      subtotal: sub.toFixed(2),
       taxAmount: form.taxAmount,
+      total: (sub + t).toFixed(2),
       notes: form.notes || null,
-      lines: validLines,
+      lines: validLines.map(l => ({
+        description: l.description,
+        quantity: parseFloat(l.quantity) || 0,
+        unitPrice: parseFloat(l.unitPrice) || 0,
+        amount: parseFloat(l.amount) || 0,
+      })),
     });
   }
 
@@ -283,6 +286,17 @@ export default function InvoicesPage() {
     customerList.forEach((c: any) => map.set(c.id, c.name));
     return map;
   }, [customerList]);
+
+  // Client-side search filter
+  const filteredInvoices = useMemo(() => {
+    if (!searchQuery.trim()) return invoices;
+    const q = searchQuery.toLowerCase();
+    return invoices.filter((inv: any) => {
+      const name = getCustomerName(inv, customerMap).toLowerCase();
+      const num = (inv.invoiceNumber || `INV-${inv.id}`).toLowerCase();
+      return name.includes(q) || num.includes(q);
+    });
+  }, [invoices, searchQuery, customerMap]);
 
   const subtotal = lines.reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0);
   const tax = parseFloat(form.taxAmount) || 0;
@@ -331,7 +345,7 @@ export default function InvoicesPage() {
             <>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <Card><CardHeader className="py-2 px-3"><CardTitle className="text-xs text-muted-foreground">Customer</CardTitle></CardHeader><CardContent className="px-3 pb-2 text-sm font-medium">{getCustomerName(inv, customerMap)}</CardContent></Card>
-                <Card><CardHeader className="py-2 px-3"><CardTitle className="text-xs text-muted-foreground">Entity</CardTitle></CardHeader><CardContent className="px-3 pb-2 text-sm font-medium">{inv.entity?.name || "—"}</CardContent></Card>
+                <Card><CardHeader className="py-2 px-3"><CardTitle className="text-xs text-muted-foreground">Entity</CardTitle></CardHeader><CardContent className="px-3 pb-2 text-sm font-medium">{inv.entity?.name || "\u2014"}</CardContent></Card>
                 <Card><CardHeader className="py-2 px-3"><CardTitle className="text-xs text-muted-foreground">Invoice Date</CardTitle></CardHeader><CardContent className="px-3 pb-2 text-sm">{formatDate(inv.invoiceDate)}</CardContent></Card>
                 <Card><CardHeader className="py-2 px-3"><CardTitle className="text-xs text-muted-foreground">Due Date</CardTitle></CardHeader><CardContent className="px-3 pb-2 text-sm">{formatDate(inv.dueDate)}</CardContent></Card>
               </div>
@@ -380,8 +394,8 @@ export default function InvoicesPage() {
                   <CardContent className="px-3 pb-2">
                     <div className="grid grid-cols-3 gap-4 text-sm">
                       <div><span className="text-muted-foreground text-xs block">Payment Date</span><span>{formatDate(inv.paymentDate || null)}</span></div>
-                      <div><span className="text-muted-foreground text-xs block">Method</span><span>{inv.paymentMethod || "—"}</span></div>
-                      <div><span className="text-muted-foreground text-xs block">Reference</span><span>{inv.paymentReference || "—"}</span></div>
+                      <div><span className="text-muted-foreground text-xs block">Method</span><span>{inv.paymentMethod || "\u2014"}</span></div>
+                      <div><span className="text-muted-foreground text-xs block">Reference</span><span>{inv.paymentReference || "\u2014"}</span></div>
                     </div>
                   </CardContent>
                 </Card>
@@ -407,8 +421,12 @@ export default function InvoicesPage() {
           <DialogContent className="sm:max-w-sm bg-card">
             <DialogHeader><DialogTitle className="text-base">Record Payment</DialogTitle></DialogHeader>
             <div className="space-y-3 py-2">
-              <div className="space-y-1"><Label className="text-xs">Payment Date</Label><Input type="date" value={paymentForm.paymentDate} onChange={e => setPaymentForm(p => ({ ...p, paymentDate: e.target.value }))} className="h-8 text-sm" /></div>
-              <div className="space-y-1"><Label className="text-xs">Payment Method</Label>
+              <div className="space-y-1">
+                <Label className="text-xs">Payment Date</Label>
+                <Input type="date" value={paymentForm.paymentDate} onChange={e => setPaymentForm(p => ({ ...p, paymentDate: e.target.value }))} className="h-8 text-sm" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Payment Method</Label>
                 <Select value={paymentForm.paymentMethod} onValueChange={v => setPaymentForm(p => ({ ...p, paymentMethod: v }))}>
                   <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select..." /></SelectTrigger>
                   <SelectContent>
@@ -420,7 +438,10 @@ export default function InvoicesPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1"><Label className="text-xs">Reference</Label><Input value={paymentForm.reference} onChange={e => setPaymentForm(p => ({ ...p, reference: e.target.value }))} className="h-8 text-sm" placeholder="Payment ref..." /></div>
+              <div className="space-y-1">
+                <Label className="text-xs">Reference</Label>
+                <Input value={paymentForm.reference} onChange={e => setPaymentForm(p => ({ ...p, reference: e.target.value }))} className="h-8 text-sm" placeholder="Payment ref..." />
+              </div>
             </div>
             <DialogFooter className="gap-2">
               <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setPaymentDialogId(null)}>Cancel</Button>
@@ -458,6 +479,15 @@ export default function InvoicesPage() {
               ))}
             </SelectContent>
           </Select>
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <Input
+              placeholder="Search..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="h-8 text-sm pl-7 w-44"
+            />
+          </div>
           <span className="text-xs text-muted-foreground ml-auto tabular-nums">{total} invoice{total !== 1 ? "s" : ""}</span>
           <Button size="sm" className="h-8 text-xs gap-1.5" onClick={() => setCreateOpen(true)}>
             <Plus className="w-3.5 h-3.5" /> New Invoice
@@ -468,7 +498,7 @@ export default function InvoicesPage() {
       <div className="flex-1 overflow-auto">
         {isLoading ? (
           <div className="p-4 space-y-2">{[...Array(8)].map((_, i) => <Skeleton key={i} className="h-10 w-full rounded" />)}</div>
-        ) : invoices.length === 0 ? (
+        ) : filteredInvoices.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
             <FileText className="w-10 h-10 opacity-30" />
             <p className="text-sm">No invoices found</p>
@@ -487,14 +517,12 @@ export default function InvoicesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {invoices.map((inv: any) => {
+              {filteredInvoices.map((inv: any) => {
                 const st = STATUS_CONFIG[inv.status] || { label: inv.status, className: "" };
                 return (
-                  <TableRow key={inv.id} className="border-b border-border hover:bg-muted/30 cursor-pointer">
+                  <TableRow key={inv.id} className="border-b border-border hover:bg-muted/30 cursor-pointer" onClick={() => setDetailId(inv.id)}>
                     <TableCell className="px-3 py-2">
-                      <button onClick={() => setDetailId(inv.id)} className="text-sm font-medium text-primary hover:underline">
-                        {inv.invoiceNumber || `INV-${inv.id}`}
-                      </button>
+                      <span className="text-sm font-medium text-primary">{inv.invoiceNumber || `INV-${inv.id}`}</span>
                     </TableCell>
                     <TableCell className="px-3 py-2 text-sm">{getCustomerName(inv, customerMap)}</TableCell>
                     <TableCell className="px-3 py-2 text-xs text-muted-foreground">{formatDate(inv.invoiceDate)}</TableCell>
@@ -503,7 +531,7 @@ export default function InvoicesPage() {
                     <TableCell className="px-3 py-2">
                       <Badge variant="outline" className={`text-[10px] px-1.5 py-0 border ${st.className}`}>{st.label}</Badge>
                     </TableCell>
-                    <TableCell className="px-3 py-2">
+                    <TableCell className="px-3 py-2" onClick={e => e.stopPropagation()}>
                       <div className="flex gap-1">
                         <button onClick={() => setDetailId(inv.id)} className="p-1 rounded hover:bg-muted" title="View"><Eye className="w-3.5 h-3.5 text-muted-foreground" /></button>
                         {inv.status === "draft" && <button onClick={() => sendMutation.mutate(inv.id)} className="p-1 rounded hover:bg-muted" title="Mark as Sent"><Send className="w-3.5 h-3.5 text-blue-400" /></button>}
@@ -535,7 +563,7 @@ export default function InvoicesPage() {
 
       {/* Create Invoice Dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="sm:max-w-2xl bg-card max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-3xl bg-card max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle className="text-base font-semibold">Create Invoice</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-2 gap-3">
@@ -656,8 +684,12 @@ export default function InvoicesPage() {
         <DialogContent className="sm:max-w-sm bg-card">
           <DialogHeader><DialogTitle className="text-base">Record Payment</DialogTitle></DialogHeader>
           <div className="space-y-3 py-2">
-            <div className="space-y-1"><Label className="text-xs">Payment Date</Label><Input type="date" value={paymentForm.paymentDate} onChange={e => setPaymentForm(p => ({ ...p, paymentDate: e.target.value }))} className="h-8 text-sm" /></div>
-            <div className="space-y-1"><Label className="text-xs">Payment Method</Label>
+            <div className="space-y-1">
+              <Label className="text-xs">Payment Date</Label>
+              <Input type="date" value={paymentForm.paymentDate} onChange={e => setPaymentForm(p => ({ ...p, paymentDate: e.target.value }))} className="h-8 text-sm" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Payment Method</Label>
               <Select value={paymentForm.paymentMethod} onValueChange={v => setPaymentForm(p => ({ ...p, paymentMethod: v }))}>
                 <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select..." /></SelectTrigger>
                 <SelectContent>
@@ -669,7 +701,10 @@ export default function InvoicesPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1"><Label className="text-xs">Reference</Label><Input value={paymentForm.reference} onChange={e => setPaymentForm(p => ({ ...p, reference: e.target.value }))} className="h-8 text-sm" placeholder="Payment ref..." /></div>
+            <div className="space-y-1">
+              <Label className="text-xs">Reference</Label>
+              <Input value={paymentForm.reference} onChange={e => setPaymentForm(p => ({ ...p, reference: e.target.value }))} className="h-8 text-sm" placeholder="Payment ref..." />
+            </div>
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setPaymentDialogId(null)}>Cancel</Button>
