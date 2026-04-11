@@ -28,9 +28,15 @@ import ProjectDetailPage from "@/pages/project-detail";
 import QualityPage from "@/pages/quality";
 import VendorPortalPage from "@/pages/vendor-portal";
 
+// Phase 2: Financial module
+import InvoicesPage from "@/pages/invoices";
+import PurchaseOrdersPage from "@/pages/purchase-orders";
+import FinancialDashboardPage from "@/pages/financial-dashboard";
+
 import {
   LogOut, BarChart3, Sun, Moon, Bell, CheckCheck, Menu, X,
-  Users, Building2, FolderKanban, Award, LayoutDashboard, History, Settings, UserCircle
+  Users, Building2, FolderKanban, Award, LayoutDashboard, History, Settings, UserCircle,
+  DollarSign, FileText, ShoppingCart,
 } from "lucide-react";
 
 // Theme context
@@ -213,6 +219,15 @@ function AppLayout() {
             <SidebarLink href="/quality" label="Quality" icon={<Award className="w-4 h-4 shrink-0" />} />
           </div>
 
+          {(["gm", "operations_manager", "pm_team_lead"].includes(userRole)) && (
+            <div className="mb-3">
+              {!sidebarCollapsed && <p className="px-3 mb-1 text-[10px] font-semibold text-white/20 uppercase tracking-wider">Finances</p>}
+              <SidebarLink href="/finances" label="Dashboard" icon={<DollarSign className="w-4 h-4 shrink-0" />} />
+              <SidebarLink href="/invoices" label="Invoices" icon={<FileText className="w-4 h-4 shrink-0" />} />
+              <SidebarLink href="/purchase-orders" label="Purchase Orders" icon={<ShoppingCart className="w-4 h-4 shrink-0" />} />
+            </div>
+          )}
+
           {canSeeAdmin && (
             <div className="mb-3">
               {!sidebarCollapsed && <p className="px-3 mb-1 text-[10px] font-semibold text-white/20 uppercase tracking-wider">Admin</p>}
@@ -284,6 +299,9 @@ function AppLayout() {
             <SidebarLink href="/customers" label="Customers" icon={<Building2 className="w-4 h-4" />} />
             <SidebarLink href="/projects" label="Projects" icon={<FolderKanban className="w-4 h-4" />} />
             <SidebarLink href="/quality" label="Quality" icon={<Award className="w-4 h-4" />} />
+            <SidebarLink href="/finances" label="Finances" icon={<DollarSign className="w-4 h-4" />} />
+            <SidebarLink href="/invoices" label="Invoices" icon={<FileText className="w-4 h-4" />} />
+            <SidebarLink href="/purchase-orders" label="POs" icon={<ShoppingCart className="w-4 h-4" />} />
             <SidebarLink href="/admin" label="Admin" icon={<Settings className="w-4 h-4" />} />
           </div>
         )}
@@ -301,6 +319,9 @@ function AppLayout() {
             <Route path="/projects">{() => <ProtectedRoute component={ProjectsPage} />}</Route>
             <Route path="/projects/:id">{() => <ProtectedRoute component={ProjectDetailPage} />}</Route>
             <Route path="/quality">{() => <ProtectedRoute component={QualityPage} />}</Route>
+            <Route path="/finances">{() => <ProtectedRoute component={FinancialDashboardPage} />}</Route>
+            <Route path="/invoices">{() => <ProtectedRoute component={InvoicesPage} />}</Route>
+            <Route path="/purchase-orders">{() => <ProtectedRoute component={PurchaseOrdersPage} />}</Route>
             <Route component={NotFound} />
           </Switch>
         </main>

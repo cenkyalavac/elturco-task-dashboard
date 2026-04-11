@@ -3145,15 +3145,36 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   // ---- PURCHASE ORDERS ----
   app.get("/api/purchase-orders", requireAuth, async (req: Request, res: Response) => {
-    const vendorId = req.query.vendorId ? +req.query.vendorId : undefined;
-    const orders = await storage.getPurchaseOrders({ vendorId });
-    res.json(orders);
+    try {
+      const filters: any = {};
+      if (req.query.vendorId) filters.vendorId = +req.query.vendorId;
+      if (req.query.entityId) filters.entityId = +req.query.entityId;
+      if (req.query.status) filters.status = req.query.status;
+      if (req.query.page) filters.page = +req.query.page;
+      if (req.query.limit) filters.limit = +req.query.limit;
+      const [data, total] = await Promise.all([
+        storage.getPurchaseOrders(filters),
+        storage.getPurchaseOrderCount(filters),
+      ]);
+      res.json({ data, total, page: filters.page || 1, limit: filters.limit || 50 });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
   });
 
   app.post("/api/purchase-orders", requireAuth, async (req: Request, res: Response) => {
     try {
-      const order = await storage.createPurchaseOrder(req.body);
-      res.json(order);
+      const data = req.body;
+      // Auto-generate PO number if not provided
+      if (!data.poNumber && data.entityId) {
+        const entity = await storage.getEntity(data.entityId);
+        if (entity) {
+          const year = new Date().getFullYear();
+          data.poNumber = await storage.getNextPoNumber(entity.code, year);
+        }
+      }
+      const order = await storage.createPurchaseOrder(data);
+      res.status(201).json(order);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -3163,6 +3184,267 @@ const freelancers = (Array.isArray(data) ? data : [])
     try {
       const order = await storage.updatePurchaseOrder(+param(req, "id"), req.body);
       res.json(order);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ---- CLIENT INVOICES ----
+  app.get("/api/invoices", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const filters: any = {};
+      if (req.query.customerId) filters.customerId = +req.query.customerId;
+      if (req.query.entityId) filters.entityId = +req.query.entityId;
+      if (req.query.status) filters.status = req.query.status;
+      if (req.query.page) filters.page = +req.query.page;
+      if (req.query.limit) filters.limit = +req.query.limit;
+      const [data, total] = await Promise.all([
+        storage.getInvoices(filters),
+        storage.getInvoiceCount(filters),
+      ]);
+      res.json({ data, total, page: filters.page || 1, limit: filters.limit || 50 });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/invoices/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const invoice = await storage.getInvoice(+param(req, "id"));
+      if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+      const lines = await storage.getInvoiceLines(invoice.id);
+      const customer = invoice.customerId ? await storage.getCustomer(invoice.customerId) : null;
+      const entity = invoice.entityId ? await storage.getEntity(invoice.entityId) : null;
+      res.json({ ...invoice, lines, customer, entity });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/invoices", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { lines, ...invoiceData } = req.body;
+      // Auto-generate invoice number if not provided
+      if (!invoiceData.invoiceNumber && invoiceData.entityId) {
+        const entity = await storage.getEntity(invoiceData.entityId);
+        if (entity) {
+          const year = new Date().getFullYear();
+          invoiceData.invoiceNumber = await storage.getNextInvoiceNumber(entity.code, year);
+        }
+      }
+      // Calculate totals from lines
+      if (lines && lines.length > 0) {
+        const subtotal = lines.reduce((sum: number, l: any) => sum + (parseFloat(l.amount) || 0), 0);
+        invoiceData.subtotal = String(subtotal);
+        invoiceData.taxAmount = invoiceData.taxAmount || "0";
+        invoiceData.total = String(subtotal + parseFloat(invoiceData.taxAmount || "0"));
+      }
+      const invoice = await storage.createInvoice(invoiceData);
+      // Create line items
+      if (lines && lines.length > 0) {
+        for (const line of lines) {
+          await storage.createInvoiceLine({ ...line, invoiceId: invoice.id });
+        }
+      }
+      const createdLines = await storage.getInvoiceLines(invoice.id);
+      res.status(201).json({ ...invoice, lines: createdLines });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.patch("/api/invoices/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { lines, ...updateData } = req.body;
+      const invoice = await storage.updateInvoice(+param(req, "id"), updateData);
+      if (lines) {
+        await storage.deleteInvoiceLines(invoice!.id);
+        for (const line of lines) {
+          await storage.createInvoiceLine({ ...line, invoiceId: invoice!.id });
+        }
+      }
+      res.json(invoice);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/invoices/:id/send", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const invoice = await storage.updateInvoice(+param(req, "id"), { status: "sent" });
+      res.json(invoice);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/invoices/:id/mark-paid", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { paymentDate, paymentMethod, reference } = req.body;
+      const invoice = await storage.updateInvoice(+param(req, "id"), {
+        status: "paid",
+        paymentReceivedDate: paymentDate || new Date().toISOString().split("T")[0],
+      });
+      // Record payment
+      if (invoice) {
+        await storage.createPayment({
+          type: "receivable",
+          invoiceId: invoice.id,
+          amount: invoice.total,
+          currency: invoice.currency,
+          paymentDate: paymentDate || new Date().toISOString().split("T")[0],
+          paymentMethod: paymentMethod || null,
+          reference: reference || null,
+        });
+      }
+      res.json(invoice);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ---- ENHANCED PURCHASE ORDERS ----
+  app.get("/api/purchase-orders/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const po = await storage.getPurchaseOrder(+param(req, "id"));
+      if (!po) return res.status(404).json({ error: "PO not found" });
+      const vendor = po.vendorId ? await storage.getVendor(po.vendorId) : null;
+      const entity = po.entityId ? await storage.getEntity(po.entityId) : null;
+      res.json({ ...po, vendor, entity });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/purchase-orders/:id/mark-paid", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { paymentDate, paymentMethod, reference } = req.body;
+      const po = await storage.updatePurchaseOrder(+param(req, "id"), {
+        status: "paid",
+        paymentDate: paymentDate || new Date().toISOString().split("T")[0],
+        paymentMethod: paymentMethod || null,
+      });
+      // Record payment
+      if (po) {
+        await storage.createPayment({
+          type: "payable",
+          purchaseOrderId: po.id,
+          amount: po.amount,
+          currency: po.currency,
+          paymentDate: paymentDate || new Date().toISOString().split("T")[0],
+          paymentMethod: paymentMethod || null,
+          reference: reference || null,
+        });
+      }
+      res.json(po);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ---- PAYMENTS ----
+  app.get("/api/payments", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const filters: any = {};
+      if (req.query.invoiceId) filters.invoiceId = +req.query.invoiceId;
+      if (req.query.purchaseOrderId) filters.purchaseOrderId = +req.query.purchaseOrderId;
+      if (req.query.type) filters.type = req.query.type;
+      const data = await storage.getPayments(filters);
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/payments", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const payment = await storage.createPayment(req.body);
+      res.status(201).json(payment);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ---- FINANCIAL DASHBOARD ----
+  app.get("/api/financial/summary", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const filters: any = {};
+      if (req.query.entityId) filters.entityId = +req.query.entityId;
+      if (req.query.startDate) filters.startDate = req.query.startDate;
+      if (req.query.endDate) filters.endDate = req.query.endDate;
+      const summary = await storage.getFinancialSummary(filters);
+      res.json(summary);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/financial/ar-aging", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const entityId = req.query.entityId ? +req.query.entityId : undefined;
+      const aging = await storage.getARAgingReport(entityId);
+      res.json(aging);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/financial/revenue-by-customer", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const entityId = req.query.entityId ? +req.query.entityId : undefined;
+      const limit = req.query.limit ? +req.query.limit : 10;
+      const data = await storage.getRevenueByCustomer(limit, entityId);
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/financial/cost-by-vendor", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const entityId = req.query.entityId ? +req.query.entityId : undefined;
+      const limit = req.query.limit ? +req.query.limit : 10;
+      const data = await storage.getCostByVendor(limit, entityId);
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/financial/monthly-trend", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const entityId = req.query.entityId ? +req.query.entityId : undefined;
+      const months = req.query.months ? +req.query.months : 12;
+      const data = await storage.getMonthlyTrend(months, entityId);
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/financial/revenue-by-entity", requireAuth, async (_req: Request, res: Response) => {
+    try {
+      const data = await storage.getRevenueByEntity();
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/projects/:id/financials", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const financials = await storage.getProjectFinancials(+param(req, "id"));
+      res.json(financials);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/invoices/uninvoiced-jobs", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const customerId = req.query.customerId ? +req.query.customerId : undefined;
+      const data = await storage.getUninvoicedJobs(customerId);
+      res.json(data);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
