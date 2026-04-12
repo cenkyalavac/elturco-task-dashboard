@@ -1,9 +1,10 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -69,6 +70,10 @@ import {
   CreditCard,
   FileCheck,
   ChevronRight,
+  Upload,
+  Download,
+  BarChart3,
+  Crown,
 } from "lucide-react";
 
 // ── Constants ──
@@ -112,6 +117,18 @@ const RATE_TYPES = [
   "per_word", "per_hour", "per_page", "per_minute",
   "per_project", "per_character", "per_day",
 ];
+
+const VENDOR_TIERS = ["Premium", "Standard", "Economy", "Probation", "Blacklisted"];
+
+const TIER_COLORS: Record<string, string> = {
+  Premium: "bg-amber-500/15 text-amber-400 border-amber-500/25",
+  Standard: "bg-blue-500/15 text-blue-400 border-blue-500/25",
+  Economy: "bg-zinc-500/15 text-zinc-400 border-zinc-500/25",
+  Probation: "bg-amber-600/15 text-amber-500 border-amber-600/25",
+  Blacklisted: "bg-red-500/15 text-red-400 border-red-500/25",
+};
+
+const DOCUMENT_TYPES = ["CV", "NDA", "Certificate", "Test Result", "Contract", "Other"];
 
 // ── Types ──
 
@@ -179,6 +196,7 @@ interface Vendor {
   canDoLqa?: boolean | null;
   lqaLanguages?: string | null;
   lqaSpecializations?: string | null;
+  tier?: string | null;
   notes?: string | null;
   specialInstructions?: string | null;
   createdAt?: string;
@@ -224,6 +242,26 @@ interface QualityReport {
   reviewerName?: string | null;
   status?: string | null;
   feedback?: string | null;
+}
+
+interface VendorFileUpload {
+  id: number;
+  vendorId: number;
+  fileName: string;
+  fileUrl: string;
+  docType: string;
+  fileSize?: number | null;
+  mimeType?: string | null;
+  uploadedAt?: string;
+}
+
+interface PerformanceData {
+  qsTrend: { date: string; score: number }[];
+  lqaTrend: { date: string; score: number }[];
+  onTimeRate: number | null;
+  totalWordCount: number;
+  totalJobs: number;
+  totalEarnings: number;
 }
 
 interface ActivityLogEntry {
@@ -2240,12 +2278,350 @@ function QualityTab({
   );
 }
 
-// ── Tab: Documents ──
+// ── Tab: Performance ──
 
-function DocumentsTab({ vendor }: { vendor: Vendor }) {
+function PerformanceTab({
+  vendorId,
+  vendor,
+}: {
+  vendorId: string;
+  vendor: Vendor;
+}) {
+  const { data: performance, isLoading } = useQuery<PerformanceData>({
+    queryKey: [`/api/vendors/${vendorId}/performance`],
+    queryFn: async () => {
+      const res = await apiRequest(
+        "GET",
+        `/api/vendors/${vendorId}/performance`,
+      );
+      return res.json();
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        {[1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-48 bg-white/[0.04] rounded-xl" />
+        ))}
+      </div>
+    );
+  }
+
+  const qsData = performance?.qsTrend || [];
+  const lqaData = performance?.lqaTrend || [];
+
   return (
     <div className="space-y-4">
-      <Card className="bg-white/[0.03] border-white/[0.06]">
+      {/* Volume Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
+          <CardContent className="pt-5 pb-4">
+            <div className="flex flex-col items-center gap-1">
+              <span className="text-2xl font-bold text-white">
+                {performance?.totalJobs ?? 0}
+              </span>
+              <span className="text-[10px] text-white/40 uppercase tracking-wider font-medium">
+                Total Jobs
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
+          <CardContent className="pt-5 pb-4">
+            <div className="flex flex-col items-center gap-1">
+              <span className="text-2xl font-bold text-white">
+                {(performance?.totalWordCount ?? 0).toLocaleString()}
+              </span>
+              <span className="text-[10px] text-white/40 uppercase tracking-wider font-medium">
+                Total Words
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
+          <CardContent className="pt-5 pb-4">
+            <div className="flex flex-col items-center gap-1">
+              <span className="text-2xl font-bold text-white">
+                {vendor.currency || "EUR"} {(performance?.totalEarnings ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+              <span className="text-[10px] text-white/40 uppercase tracking-wider font-medium">
+                Total Earnings
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
+          <CardContent className="pt-5 pb-4">
+            <div className="flex flex-col items-center gap-2">
+              <span className="text-2xl font-bold text-white">
+                {performance?.onTimeRate != null ? `${performance.onTimeRate}%` : "\u2014"}
+              </span>
+              <span className="text-[10px] text-white/40 uppercase tracking-wider font-medium">
+                On-Time Delivery
+              </span>
+              {performance?.onTimeRate != null && (
+                <Progress
+                  value={performance.onTimeRate}
+                  className="h-2 w-full bg-white/[0.06]"
+                />
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* QS Score Trend */}
+      <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium text-white/70 flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-teal-400" />
+            QS Score Trend
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {qsData.length >= 2 ? (
+            <div className="h-48">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={qsData} style={{ background: "transparent" }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 10 }}
+                    stroke="rgba(255,255,255,0.1)"
+                  />
+                  <YAxis
+                    tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 10 }}
+                    stroke="rgba(255,255,255,0.1)"
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#1a1a2e",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      borderRadius: 8,
+                      color: "#fff",
+                      fontSize: 12,
+                    }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="score"
+                    stroke="#14b8a6"
+                    strokeWidth={2}
+                    dot={{ r: 3, fill: "#14b8a6" }}
+                    connectNulls
+                    name="QS Score"
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-white/30">
+              <BarChart3 className="w-7 h-7 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">Not enough QS data points for a trend chart.</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* LQA Score Trend */}
+      <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium text-white/70 flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-emerald-400" />
+            LQA Score Trend
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {lqaData.length >= 2 ? (
+            <div className="h-48">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={lqaData} style={{ background: "transparent" }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 10 }}
+                    stroke="rgba(255,255,255,0.1)"
+                  />
+                  <YAxis
+                    tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 10 }}
+                    stroke="rgba(255,255,255,0.1)"
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#1a1a2e",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      borderRadius: 8,
+                      color: "#fff",
+                      fontSize: 12,
+                    }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="score"
+                    stroke="#10b981"
+                    strokeWidth={2}
+                    dot={{ r: 3, fill: "#10b981" }}
+                    connectNulls
+                    name="LQA Score"
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-white/30">
+              <BarChart3 className="w-7 h-7 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">Not enough LQA data points for a trend chart.</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Current Scores Summary */}
+      <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium text-white/70 flex items-center gap-2">
+            <Star className="w-4 h-4 text-amber-400" />
+            Current Scores
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-12 flex-wrap">
+            <ScoreDisplay
+              score={vendor.averageQsScore}
+              label="QS Average"
+              size="lg"
+            />
+            <ScoreDisplay
+              score={vendor.averageLqaScore}
+              label="LQA Average"
+              size="lg"
+            />
+            <ScoreDisplay
+              score={vendor.combinedQualityScore}
+              label="Combined"
+              size="lg"
+            />
+            <div className="flex flex-col items-center gap-0.5">
+              <span className="text-3xl font-bold text-white">
+                {vendor.totalReviewsCount ?? 0}
+              </span>
+              <span className="text-xs text-white/40 uppercase tracking-wide">
+                Total Reviews
+              </span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ── Tab: Documents ──
+
+function DocumentsTab({
+  vendorId,
+  vendor,
+}: {
+  vendorId: string;
+  vendor: Vendor;
+}) {
+  const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadDocType, setUploadDocType] = useState("Other");
+
+  const { data: documents, isLoading } = useQuery<VendorFileUpload[]>({
+    queryKey: [`/api/vendors/${vendorId}/documents`],
+    queryFn: async () => {
+      const res = await apiRequest(
+        "GET",
+        `/api/vendors/${vendorId}/documents`,
+      );
+      return res.json();
+    },
+  });
+
+  const uploadMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("docType", uploadDocType);
+      const res = await fetch(`/api/vendors/${vendorId}/documents`, {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Upload failed" }));
+        throw new Error(err.error || "Upload failed");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: [`/api/vendors/${vendorId}/documents`],
+      });
+      toast({ title: "Document uploaded" });
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Upload failed",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (docId: number) => {
+      await apiRequest(
+        "DELETE",
+        `/api/vendors/${vendorId}/documents/${docId}`,
+      );
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: [`/api/vendors/${vendorId}/documents`],
+      });
+      toast({ title: "Document deleted" });
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Delete failed",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) {
+      uploadMutation.mutate(file);
+    }
+  }
+
+  function formatFileSize(bytes?: number | null): string {
+    if (!bytes) return "";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  const docTypeBadgeColors: Record<string, string> = {
+    CV: "bg-blue-500/15 text-blue-400 border-blue-500/25",
+    NDA: "bg-purple-500/15 text-purple-400 border-purple-500/25",
+    Certificate: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25",
+    "Test Result": "bg-amber-500/15 text-amber-400 border-amber-500/25",
+    Contract: "bg-cyan-500/15 text-cyan-400 border-cyan-500/25",
+    Other: "bg-zinc-500/15 text-zinc-400 border-zinc-500/25",
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Checklist */}
+      <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium text-white/70 flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-blue-400" />
@@ -2274,11 +2650,12 @@ function DocumentsTab({ vendor }: { vendor: Vendor }) {
         </CardContent>
       </Card>
 
-      <Card className="bg-white/[0.03] border-white/[0.06]">
+      {/* Legacy Document Links */}
+      <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium text-white/70 flex items-center gap-2">
-            <FileText className="w-4 h-4 text-purple-400" />
-            Documents
+            <FileCheck className="w-4 h-4 text-purple-400" />
+            Profile Documents
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -2300,7 +2677,6 @@ function DocumentsTab({ vendor }: { vendor: Vendor }) {
               <span className="text-sm text-white/30">Not uploaded</span>
             )}
           </div>
-
           <div className="flex items-center justify-between py-2 border-b border-white/[0.04]">
             <div className="flex items-center gap-3">
               <FileCheck className="w-4 h-4 text-white/30" />
@@ -2319,7 +2695,6 @@ function DocumentsTab({ vendor }: { vendor: Vendor }) {
               <span className="text-sm text-white/30">Not uploaded</span>
             )}
           </div>
-
           <div className="flex items-center justify-between py-2">
             <div className="flex items-center gap-3">
               <FileCheck className="w-4 h-4 text-white/30" />
@@ -2338,6 +2713,130 @@ function DocumentsTab({ vendor }: { vendor: Vendor }) {
               <span className="text-sm text-white/30">Not uploaded</span>
             )}
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Upload + Document List */}
+      <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
+        <CardHeader className="pb-2 flex flex-row items-center justify-between">
+          <CardTitle className="text-sm font-medium text-white/70 flex items-center gap-2">
+            <Upload className="w-4 h-4 text-teal-400" />
+            Uploaded Documents
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            <Select value={uploadDocType} onValueChange={setUploadDocType}>
+              <SelectTrigger className="w-32 bg-white/[0.04] border-white/[0.08] text-white text-xs h-8">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="bg-[#1a1d27] border-white/[0.08]">
+                {DOCUMENT_TYPES.map((t) => (
+                  <SelectItem
+                    key={t}
+                    value={t}
+                    className="text-white text-xs"
+                  >
+                    {t}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              onChange={handleFileSelect}
+            />
+            <Button
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadMutation.isPending}
+              className="h-8 bg-blue-600 hover:bg-blue-500 text-white text-xs"
+            >
+              {uploadMutation.isPending ? (
+                <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+              ) : (
+                <Upload className="w-3.5 h-3.5 mr-1.5" />
+              )}
+              Upload
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="space-y-2">
+              {[1, 2, 3].map((i) => (
+                <Skeleton
+                  key={i}
+                  className="h-12 bg-white/[0.04] rounded"
+                />
+              ))}
+            </div>
+          ) : !documents || documents.length === 0 ? (
+            <div className="text-center py-8 text-white/30">
+              <FileText className="w-7 h-7 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">No documents uploaded yet.</p>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                className="mt-2 text-blue-400 hover:text-blue-300 text-xs"
+              >
+                <Upload className="w-3.5 h-3.5 mr-1.5" />
+                Upload your first document
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {documents.map((doc) => (
+                <div
+                  key={doc.id}
+                  className="flex items-center justify-between py-3 px-3 rounded-lg bg-white/[0.02] border border-white/[0.04] hover:bg-white/[0.03] transition-colors"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Badge
+                      variant="secondary"
+                      className={`text-[10px] shrink-0 border ${docTypeBadgeColors[doc.docType] || docTypeBadgeColors.Other}`}
+                    >
+                      {doc.docType}
+                    </Badge>
+                    <div className="min-w-0">
+                      <p className="text-sm text-white truncate">
+                        {doc.fileName}
+                      </p>
+                      <p className="text-[11px] text-white/30">
+                        {formatDate(doc.uploadedAt)}
+                        {doc.fileSize ? ` \u00B7 ${formatFileSize(doc.fileSize)}` : ""}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0 ml-3">
+                    <a
+                      href={doc.fileUrl}
+                      download={doc.fileName}
+                      className="inline-flex"
+                    >
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0 text-white/30 hover:text-blue-400 hover:bg-blue-500/10"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                      </Button>
+                    </a>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => deleteMutation.mutate(doc.id)}
+                      disabled={deleteMutation.isPending}
+                      className="h-7 w-7 p-0 text-white/30 hover:text-red-400 hover:bg-red-500/10"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
@@ -2697,6 +3196,28 @@ export default function VendorDetailPage() {
     },
   });
 
+  const tierMutation = useMutation({
+    mutationFn: async (newTier: string) => {
+      const res = await apiRequest("PATCH", `/api/vendors/${vendorId}`, {
+        tier: newTier,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: [`/api/vendors/${vendorId}`],
+      });
+      toast({ title: "Tier updated" });
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Tier update failed",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   if (!vendorId) {
     return (
       <div className="flex items-center justify-center h-full text-white/40 text-sm">
@@ -2783,6 +3304,28 @@ export default function VendorDetailPage() {
           <div className="flex items-center gap-3">
             <StatusBadge status={vendor.status} />
 
+            {/* Tier Badge + Dropdown */}
+            <Select
+              value={vendor.tier || "Standard"}
+              onValueChange={(val) => tierMutation.mutate(val)}
+            >
+              <SelectTrigger className="w-auto h-auto p-0 border-0 bg-transparent shadow-none focus:ring-0 [&>svg]:hidden">
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium cursor-pointer ${TIER_COLORS[vendor.tier || "Standard"] || TIER_COLORS.Standard}`}
+                >
+                  <Crown className="w-3 h-3" />
+                  {vendor.tier || "Standard"}
+                </span>
+              </SelectTrigger>
+              <SelectContent className="bg-[#1a1d27] border-white/[0.08]">
+                {VENDOR_TIERS.map((t) => (
+                  <SelectItem key={t} value={t} className="text-white text-xs">
+                    {t}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
             {vendor.combinedQualityScore != null && (
               <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/[0.04] border border-white/[0.08]">
                 <Star className="w-3.5 h-3.5 text-amber-400" />
@@ -2863,6 +3406,13 @@ export default function VendorDetailPage() {
               Quality
             </TabsTrigger>
             <TabsTrigger
+              value="performance"
+              className="text-xs text-white/50 data-[state=active]:text-white data-[state=active]:bg-white/[0.08] flex items-center gap-1.5 px-3 py-1.5"
+            >
+              <BarChart3 className="w-3 h-3" />
+              Performance
+            </TabsTrigger>
+            <TabsTrigger
               value="documents"
               className="text-xs text-white/50 data-[state=active]:text-white data-[state=active]:bg-white/[0.08] flex items-center gap-1.5 px-3 py-1.5"
             >
@@ -2901,8 +3451,12 @@ export default function VendorDetailPage() {
             <QualityTab vendorId={vendorId} vendor={vendor} />
           </TabsContent>
 
+          <TabsContent value="performance" className="mt-4">
+            <PerformanceTab vendorId={vendorId} vendor={vendor} />
+          </TabsContent>
+
           <TabsContent value="documents" className="mt-4">
-            <DocumentsTab vendor={vendor} />
+            <DocumentsTab vendorId={vendorId} vendor={vendor} />
           </TabsContent>
 
           <TabsContent value="activity" className="mt-4">

@@ -3459,9 +3459,10 @@ const freelancers = (Array.isArray(data) ? data : [])
         if (r.lqaScore != null && date) {
           lqaTrend.push({ date, score: Number(r.lqaScore) });
         }
-        if (r.status === "completed" || r.status === "finalized") {
+        const st = (r.status || "").toLowerCase();
+        if (st === "completed" || st === "finalized" || st === "late") {
           totalDeliveries++;
-          if (r.status !== "late") onTimeCount++;
+          if (st !== "late") onTimeCount++;
         }
         totalJobs++;
       }

@@ -310,6 +310,9 @@ export const vendors = pgTable("vendors", {
   lqaLanguages: jsonb("lqa_languages"),
   lqaSpecializations: text("lqa_specializations").array(),
 
+  // Tier
+  tier: varchar("tier", { length: 50 }).default("Standard"),
+
   notes: text("notes"),
   specialInstructions: text("special_instructions"),
 
@@ -388,6 +391,18 @@ export const vendorDocuments = pgTable("vendor_documents", {
   requiresSignature: boolean("requires_signature").default(false),
   requiredForApproval: boolean("required_for_approval").default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// Vendor File Uploads (per-vendor uploaded files like CV, NDA, certificates)
+export const vendorFileUploads = pgTable("vendor_file_uploads", {
+  id: serial("id").primaryKey(),
+  vendorId: integer("vendor_id").notNull().references(() => vendors.id, { onDelete: "cascade" }),
+  fileName: varchar("file_name", { length: 500 }).notNull(),
+  fileUrl: varchar("file_url", { length: 500 }).notNull(),
+  docType: varchar("doc_type", { length: 100 }).notNull(),
+  fileSize: integer("file_size"),
+  mimeType: varchar("mime_type", { length: 200 }),
+  uploadedAt: timestamp("uploaded_at", { withTimezone: true }).defaultNow(),
 });
 
 // Document Signatures
@@ -740,6 +755,7 @@ export const insertVendorLanguagePairSchema = createInsertSchema(vendorLanguageP
 export const insertVendorRateCardSchema = createInsertSchema(vendorRateCards).omit({ id: true });
 export const insertQualityReportSchema = createInsertSchema(qualityReports).omit({ id: true });
 export const insertVendorDocumentSchema = createInsertSchema(vendorDocuments).omit({ id: true });
+export const insertVendorFileUploadSchema = createInsertSchema(vendorFileUploads).omit({ id: true });
 export const insertVendorDocumentSignatureSchema = createInsertSchema(vendorDocumentSignatures).omit({ id: true });
 export const insertVendorActivitySchema = createInsertSchema(vendorActivities).omit({ id: true });
 export const insertVendorNoteSchema = createInsertSchema(vendorNotes).omit({ id: true });
@@ -796,6 +812,7 @@ export type VendorLanguagePair = typeof vendorLanguagePairs.$inferSelect;
 export type VendorRateCard = typeof vendorRateCards.$inferSelect;
 export type QualityReport = typeof qualityReports.$inferSelect;
 export type VendorDocument = typeof vendorDocuments.$inferSelect;
+export type VendorFileUpload = typeof vendorFileUploads.$inferSelect;
 export type VendorDocumentSignature = typeof vendorDocumentSignatures.$inferSelect;
 export type VendorActivity = typeof vendorActivities.$inferSelect;
 export type VendorNote = typeof vendorNotes.$inferSelect;
