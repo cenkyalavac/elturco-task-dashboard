@@ -929,6 +929,48 @@ export const vendorFilterPresets = pgTable("vendor_filter_presets", {
 });
 
 // ============================================
+// VM EXPERIENCE (Faz 3)
+// ============================================
+
+// Vendor Email Templates
+export const vendorEmailTemplates = pgTable("vendor_email_templates", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 200 }).notNull(),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  category: varchar("category", { length: 100 }),
+  isActive: boolean("is_active").default(true),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+// Vendor Emails (sent email log)
+export const vendorEmails = pgTable("vendor_emails", {
+  id: serial("id").primaryKey(),
+  vendorId: integer("vendor_id").notNull().references(() => vendors.id, { onDelete: "cascade" }),
+  templateId: integer("template_id").references(() => vendorEmailTemplates.id),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  sentBy: integer("sent_by").references(() => users.id),
+  sentAt: timestamp("sent_at", { withTimezone: true }).defaultNow(),
+  status: varchar("status", { length: 50 }).default("sent"),
+  resendMessageId: varchar("resend_message_id", { length: 255 }),
+});
+
+// Vendor Onboarding Tasks
+export const vendorOnboardingTasks = pgTable("vendor_onboarding_tasks", {
+  id: serial("id").primaryKey(),
+  vendorId: integer("vendor_id").notNull().references(() => vendors.id, { onDelete: "cascade" }),
+  taskName: varchar("task_name", { length: 200 }).notNull(),
+  taskType: varchar("task_type", { length: 50 }).notNull(),
+  status: varchar("status", { length: 50 }).default("pending"),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  dueDate: date("due_date"),
+  notes: text("notes"),
+});
+
+// ============================================
 // INSERT SCHEMAS (Zod)
 // ============================================
 export const insertPmUserSchema = createInsertSchema(pmUsers).omit({ id: true });
@@ -985,6 +1027,11 @@ export const insertQuizAttemptSchema = createInsertSchema(quizAttempts).omit({ i
 export const insertVendorApplicationSchema = createInsertSchema(vendorApplications).omit({ id: true });
 export const insertVendorStageHistorySchema = createInsertSchema(vendorStageHistory).omit({ id: true });
 export const insertVendorFilterPresetSchema = createInsertSchema(vendorFilterPresets).omit({ id: true });
+
+// Faz 3 insert schemas
+export const insertVendorEmailTemplateSchema = createInsertSchema(vendorEmailTemplates).omit({ id: true });
+export const insertVendorEmailSchema = createInsertSchema(vendorEmails).omit({ id: true });
+export const insertVendorOnboardingTaskSchema = createInsertSchema(vendorOnboardingTasks).omit({ id: true });
 
 // ============================================
 // TYPES
@@ -1061,3 +1108,11 @@ export type VendorApplication = typeof vendorApplications.$inferSelect;
 export type InsertVendorApplication = z.infer<typeof insertVendorApplicationSchema>;
 export type VendorStageHistory = typeof vendorStageHistory.$inferSelect;
 export type VendorFilterPreset = typeof vendorFilterPresets.$inferSelect;
+
+// Faz 3 types
+export type VendorEmailTemplate = typeof vendorEmailTemplates.$inferSelect;
+export type InsertVendorEmailTemplate = z.infer<typeof insertVendorEmailTemplateSchema>;
+export type VendorEmail = typeof vendorEmails.$inferSelect;
+export type InsertVendorEmail = z.infer<typeof insertVendorEmailSchema>;
+export type VendorOnboardingTask = typeof vendorOnboardingTasks.$inferSelect;
+export type InsertVendorOnboardingTask = z.infer<typeof insertVendorOnboardingTaskSchema>;
