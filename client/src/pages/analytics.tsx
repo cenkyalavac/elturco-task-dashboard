@@ -569,7 +569,7 @@ export default function AnalyticsPage() {
         {/* Translator Workload Balance — horizontal BarChart */}
         <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg" data-testid="chart-workload-balance">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <CardTitle className="text-sm font-semibold text-white flex items-center gap-2">
               Translator Workload
               {data.avgOngoingPerTranslator > 0 && (
                 <span className="text-[10px] font-normal text-muted-foreground">
@@ -759,16 +759,16 @@ function KpiCard({ icon, label, value, color, testId, onClick }: {
 }) {
   return (
     <Card
-      className={`bg-card border border-white/[0.06] transition-all duration-150 ${onClick ? "cursor-pointer hover:border-white/[0.15] hover:shadow-lg hover:shadow-black/10" : ""}`}
+      className={`bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg transition-all duration-150 ${onClick ? "cursor-pointer hover:border-white/[0.15] hover:shadow-xl hover:shadow-black/10" : ""}`}
       data-testid={testId}
       onClick={onClick}
     >
       <CardContent className="p-4">
         <div className="flex items-center gap-2 mb-1">
           <span className={color}>{icon}</span>
-          <span className="text-xs text-muted-foreground">{label}</span>
+          <span className="text-xs text-white/40">{label}</span>
         </div>
-        <p className="text-2xl font-bold text-foreground tabular-nums">{value}</p>
+        <p className="text-2xl font-bold text-white tabular-nums">{value}</p>
       </CardContent>
     </Card>
   );
@@ -776,6 +776,9 @@ function KpiCard({ icon, label, value, color, testId, onClick }: {
 
 function EmptyChart() {
   return (
-    <p className="text-center text-muted-foreground py-12 text-sm">No data</p>
+    <div className="text-center py-12">
+      <BarChart3 className="w-8 h-8 text-white/20 mx-auto mb-2" />
+      <p className="text-white/40 text-sm">No data available</p>
+    </div>
   );
 }

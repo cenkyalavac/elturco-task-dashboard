@@ -239,17 +239,17 @@ export default function AutoAcceptPage() {
                 ) : (
                   <Table>
                     <TableHeader>
-                      <TableRow>
-                        <TableHead>Time</TableHead>
-                        <TableHead>Task ID</TableHead>
-                        <TableHead>Source</TableHead>
-                        <TableHead>Action</TableHead>
-                        <TableHead>Rule</TableHead>
+                      <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
+                        <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Time</TableHead>
+                        <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Task ID</TableHead>
+                        <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Source</TableHead>
+                        <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Action</TableHead>
+                        <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Rule</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {logData.logs.map((log: any) => (
-                        <TableRow key={log.id}>
+                        <TableRow key={log.id} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
                           <TableCell className="text-xs">{log.matchedAt ? new Date(log.matchedAt).toLocaleString() : "-"}</TableCell>
                           <TableCell className="font-mono text-xs">{log.taskId || "-"}</TableCell>
                           <TableCell><Badge variant="outline" className="text-xs">{log.portalSource}</Badge></TableCell>
@@ -312,8 +312,8 @@ export default function AutoAcceptPage() {
               )}
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setShowTestDialog(false)}>Close</Button>
-              <Button onClick={() => testMutation.mutate()} disabled={testMutation.isPending}>
+              <Button variant="outline" className="bg-white/[0.06] text-white/80 hover:bg-white/[0.1] border-white/[0.06] rounded-lg" onClick={() => setShowTestDialog(false)}>Close</Button>
+              <Button className="bg-white text-black hover:bg-white/90 font-medium rounded-lg" onClick={() => testMutation.mutate()} disabled={testMutation.isPending}>
                 <Play className="w-4 h-4 mr-1" /> {testMutation.isPending ? "Testing..." : "Run Test"}
               </Button>
             </DialogFooter>
@@ -419,7 +419,7 @@ function RuleDialog({ rule, fieldConfig, onClose }: { rule: AutoAcceptRule | nul
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-medium text-muted-foreground">Conditions (all must match)</label>
-              <Button variant="outline" size="sm" onClick={addCondition}>
+              <Button variant="outline" size="sm" className="bg-white/[0.06] text-white/80 hover:bg-white/[0.1] border-white/[0.06] rounded-lg" onClick={addCondition}>
                 <Plus className="w-3.5 h-3.5 mr-1" /> Add Condition
               </Button>
             </div>
@@ -482,8 +482,8 @@ function RuleDialog({ rule, fieldConfig, onClose }: { rule: AutoAcceptRule | nul
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || !name || !portalSource}>
+          <Button variant="outline" className="bg-white/[0.06] text-white/80 hover:bg-white/[0.1] border-white/[0.06] rounded-lg" onClick={onClose}>Cancel</Button>
+          <Button className="bg-white text-black hover:bg-white/90 font-medium rounded-lg" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || !name || !portalSource}>
             {saveMutation.isPending ? "Saving..." : isEdit ? "Update Rule" : "Create Rule"}
           </Button>
         </DialogFooter>
