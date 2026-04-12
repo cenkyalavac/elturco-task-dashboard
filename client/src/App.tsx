@@ -84,6 +84,7 @@ function NotificationBell() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
+  // Fetch from both legacy and v2 notification endpoints
   const { data } = useQuery({
     queryKey: ["/api/notifications"],
     queryFn: async () => {
@@ -92,19 +93,53 @@ function NotificationBell() {
     },
     refetchInterval: 30000,
   });
+  const { data: v2Data } = useQuery({
+    queryKey: ["/api/notifications-v2"],
+    queryFn: async () => {
+      try {
+        const r = await apiRequest("GET", "/api/notifications-v2");
+        return r.json();
+      } catch { return { notifications: [], unreadCount: 0 }; }
+    },
+    refetchInterval: 30000,
+  });
 
   const markAllRead = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/notifications/read-all"),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/notifications"] }),
+    mutationFn: async () => {
+      await apiRequest("POST", "/api/notifications/read-all");
+      await apiRequest("POST", "/api/notifications-v2/read-all").catch(() => {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications-v2"] });
+    },
   });
 
   const markRead = useMutation({
-    mutationFn: (id: number) => apiRequest("POST", `/api/notifications/${id}/read`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/notifications"] }),
+    mutationFn: async (id: number) => {
+      await apiRequest("POST", `/api/notifications/${id}/read`).catch(() => {});
+      await apiRequest("PATCH", `/api/notifications-v2/${id}/read`).catch(() => {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications-v2"] });
+    },
   });
 
-  const unread = data?.unreadCount || 0;
-  const notifications = data?.notifications || [];
+  // Merge notifications from both endpoints
+  const legacyNotifications = data?.notifications || [];
+  const v2Notifications = (v2Data?.notifications || []).map((n: any) => ({
+    ...n,
+    createdAt: n.createdAt,
+    read: n.read,
+    title: n.title,
+    message: n.message,
+    type: n.type,
+  }));
+  const unread = (data?.unreadCount || 0) + (v2Data?.unreadCount || 0);
+  const notifications = [...v2Notifications, ...legacyNotifications]
+    .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 20);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -119,6 +154,12 @@ function NotificationBell() {
       case "offer_accepted": return "text-emerald-400";
       case "offer_rejected": return "text-red-400";
       case "task_completed": return "text-blue-400";
+      case "task_accepted": return "text-emerald-400";
+      case "project_status_change": return "text-yellow-400";
+      case "invoice_generated": return "text-indigo-400";
+      case "task_incoming": return "text-amber-400";
+      case "job_delivered": return "text-cyan-400";
+      case "deadline_warning": return "text-red-400";
       default: return "text-white/40";
     }
   };
@@ -169,7 +210,7 @@ function NotificationBell() {
                   className={`px-4 py-3 border-b border-white/[0.03] hover:bg-white/[0.02] cursor-pointer transition-colors ${
                     !n.read ? "bg-blue-500/[0.03]" : ""
                   }`}
-                  onClick={() => { if (!n.read) markRead.mutate(n.id); }}
+                  onClick={() => { if (!n.read) markRead.mutate(n.id); if (n.link) { window.location.hash = n.link; setOpen(false); } }}
                 >
                   <div className="flex items-start gap-3">
                     <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${!n.read ? "bg-blue-400" : "bg-transparent"}`} />

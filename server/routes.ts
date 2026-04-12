@@ -5,7 +5,9 @@ import { taskNotes, pmFavorites, customerRateCards, projects, qualityReports, jo
   autoAcceptRules as autoAcceptRulesTable, autoAcceptLog as autoAcceptLogTable,
   portalCredentials as portalCredentialsTable, portalTasks as portalTasksTable,
   vendorRateCards, vendorFiles, clientInvoices, clientInvoiceLines, poLineItems, purchaseOrders, payments, entities, customers, auditLog, users,
+  notificationsV2, pmUsers, customerSubAccounts, pmCustomerAssignments, customerContacts,
 } from "@shared/schema";
+import { validateProjectTransition, validateJobTransition, getValidProjectActions, getValidJobActions } from "@shared/state-machines";
 import { wsBroadcast } from "./ws";
 import { gsWriteToColumn, gsIsAvailable, gsReadSheet, type SheetWriteConfig } from "./gsheets";
 import { createToken, verifyToken } from "./jwt";
@@ -3771,6 +3773,474 @@ const freelancers = (Array.isArray(data) ? data : [])
       res.json({ success: true });
     } catch (e: any) {
       res.status(500).json({ error: safeError("Internal server error", e) });
+    }
+  });
+
+  // ---- STATE MACHINE TRANSITIONS (Phase D) ----
+  app.post("/api/projects/:id/transition", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const id = +param(req, "id");
+      const { action } = req.body;
+      if (!action) return res.status(400).json({ error: "Action is required" });
+      const project = await storage.getProject(id);
+      if (!project) return res.status(404).json({ error: "Project not found" });
+      const newStatus = validateProjectTransition(project.status || "draft", action);
+      if (!newStatus) return res.status(400).json({ error: `Invalid transition: cannot '${action}' from '${project.status}'`, validActions: getValidProjectActions(project.status || "draft") });
+      const updates: any = { status: newStatus };
+      if (newStatus === "completed") updates.completedAt = new Date().toISOString();
+      const updated = await storage.updateProject(id, updates);
+      await logAudit((req as any).pmUserId, "transition", "project", id, { status: project.status }, { status: newStatus, action }, getClientIp(req));
+      // Create notification for state change
+      await createNotificationV2((req as any).pmUserId, "project_status_change", `Project ${project.projectName} → ${newStatus}`, `Status changed from ${project.status} to ${newStatus}`, `/projects/${id}`);
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to transition project", e) });
+    }
+  });
+
+  app.get("/api/projects/:id/valid-actions", requireAuth, async (req: Request, res: Response) => {
+    const project = await storage.getProject(+param(req, "id"));
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    res.json({ actions: getValidProjectActions(project.status || "draft") });
+  });
+
+  app.post("/api/projects/:projectId/jobs/:jobId/transition", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const jobId = +param(req, "jobId");
+      const { action } = req.body;
+      if (!action) return res.status(400).json({ error: "Action is required" });
+      const jobList = await storage.getJobs(+param(req, "projectId"));
+      const job = jobList.find((j: any) => j.id === jobId);
+      if (!job) return res.status(404).json({ error: "Job not found" });
+      const currentStatus = job.status || "unassigned";
+      const newStatus = validateJobTransition(currentStatus, action);
+      if (!newStatus) return res.status(400).json({ error: `Invalid transition: cannot '${action}' from '${currentStatus}'`, validActions: getValidJobActions(currentStatus) });
+      const updates: any = { status: newStatus };
+      if (newStatus === "delivered") updates.deliveredAt = new Date().toISOString();
+      if (newStatus === "approved") updates.approvedAt = new Date().toISOString();
+      const updated = await storage.updateJob(jobId, updates);
+      await logAudit((req as any).pmUserId, "transition", "job", jobId, { status: currentStatus }, { status: newStatus, action }, getClientIp(req));
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to transition job", e) });
+    }
+  });
+
+  // ---- PORTAL TASKS (Phase A) ----
+  app.get("/api/portal-tasks", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { status, portal, page, limit } = req.query;
+      const pageNum = page ? +page : 1;
+      const limitNum = limit ? +limit : 50;
+      const offset = (pageNum - 1) * limitNum;
+      let query = db.select().from(portalTasksTable).orderBy(desc(portalTasksTable.createdAt));
+      const conditions: any[] = [];
+      if (status) conditions.push(eq(portalTasksTable.status, status as string));
+      if (portal) conditions.push(eq(portalTasksTable.portalSource, portal as string));
+      if (conditions.length > 0) query = query.where(and(...conditions)) as any;
+      const tasks = await (query as any).limit(limitNum).offset(offset);
+      const [countResult] = await db.select({ cnt: sql<number>`count(*)::int` }).from(portalTasksTable).where(conditions.length > 0 ? and(...conditions) : undefined);
+      res.json({ data: tasks, total: countResult?.cnt || 0, page: pageNum, limit: limitNum });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to list portal tasks", e) });
+    }
+  });
+
+  app.get("/api/portal-tasks/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const [task] = await db.select().from(portalTasksTable).where(eq(portalTasksTable.id, +param(req, "id")));
+      if (!task) return res.status(404).json({ error: "Portal task not found" });
+      res.json(task);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to get portal task", e) });
+    }
+  });
+
+  app.post("/api/portal-tasks/:id/accept", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const taskId = +param(req, "id");
+      const [task] = await db.select().from(portalTasksTable).where(eq(portalTasksTable.id, taskId));
+      if (!task) return res.status(404).json({ error: "Portal task not found" });
+      if (task.status !== "pending") return res.status(400).json({ error: `Task already processed (status: ${task.status})` });
+      const pmUserId = (req as any).pmUserId;
+      const taskData = task.taskData as any;
+      // Find or match customer
+      let customerId = req.body.customerId;
+      if (!customerId) {
+        // Try to find customer by portal source name
+        const portalName = task.portalSource;
+        const [cust] = await db.select().from(customers).where(sql`LOWER(${customers.name}) = LOWER(${portalName})`);
+        if (cust) customerId = cust.id;
+        else {
+          // Create a customer for this portal
+          const newCust = await storage.createCustomer({ name: portalName, code: portalName.toUpperCase().slice(0, 10), status: "ACTIVE" } as any);
+          customerId = newCust.id;
+        }
+      }
+      // Create project
+      const year = new Date().getFullYear();
+      const prefix = task.portalSource.toUpperCase().slice(0, 3);
+      const [countResult] = await db.select({ cnt: sql<number>`count(*)::int` }).from(projects).where(sql`extract(year from ${projects.createdAt}) = ${year}`);
+      const seq = (countResult?.cnt || 0) + 1;
+      const projectCode = `${prefix}-${year}-${String(seq).padStart(4, "0")}`;
+      const project = await storage.createProject({
+        projectName: taskData.projectName || taskData.name || `${task.portalSource} - ${task.externalId}`,
+        customerId,
+        source: task.portalSource,
+        externalId: task.externalId,
+        externalUrl: task.externalUrl || undefined,
+        status: "confirmed",
+        projectCode,
+        metadata: task.taskData,
+        deadline: taskData.deadline || undefined,
+        notes: taskData.instructions || undefined,
+      } as any);
+      // Create jobs from target languages
+      const targetLanguages = taskData.targetLanguages || taskData.target_languages || [];
+      const sourceLanguage = taskData.sourceLanguage || taskData.source_language || "";
+      if (Array.isArray(targetLanguages) && targetLanguages.length > 0) {
+        for (let i = 0; i < targetLanguages.length; i++) {
+          await storage.createJob({
+            projectId: project.id,
+            jobCode: `J${String(i + 1).padStart(3, "0")}`,
+            jobName: `${sourceLanguage} → ${targetLanguages[i]}`,
+            sourceLanguage,
+            targetLanguage: targetLanguages[i],
+            serviceType: taskData.serviceType || taskData.service_type || "translation",
+            wordCount: taskData.wordCount || taskData.word_count || null,
+            unitType: "words",
+            unitCount: String(taskData.wordCount || taskData.word_count || 0),
+            status: "unassigned",
+            deadline: taskData.deadline || undefined,
+          } as any);
+        }
+      } else {
+        // Single job if no target languages array
+        await storage.createJob({
+          projectId: project.id,
+          jobCode: "J001",
+          jobName: taskData.projectName || taskData.name || `Job for ${task.externalId}`,
+          sourceLanguage,
+          targetLanguage: taskData.targetLanguage || taskData.target_language || "",
+          serviceType: taskData.serviceType || taskData.service_type || "translation",
+          wordCount: taskData.wordCount || taskData.word_count || null,
+          unitType: "words",
+          unitCount: String(taskData.wordCount || taskData.word_count || 0),
+          status: "unassigned",
+        } as any);
+      }
+      // Update portal task
+      await db.update(portalTasksTable).set({
+        status: "manually_accepted",
+        projectId: project.id,
+        acceptedBy: pmUserId,
+        acceptedAt: new Date(),
+        processedAt: new Date(),
+      }).where(eq(portalTasksTable.id, taskId));
+      await logAudit(pmUserId, "accept_portal_task", "portal_task", taskId, { status: "pending" }, { status: "manually_accepted", projectId: project.id }, getClientIp(req));
+      await createNotificationV2(pmUserId, "task_accepted", `Portal task accepted`, `${task.portalSource} task ${task.externalId} accepted and project created`, `/projects/${project.id}`);
+      res.json({ success: true, project });
+    } catch (e: any) {
+      console.error("Accept portal task error:", e);
+      res.status(500).json({ error: safeError("Failed to accept portal task", e) });
+    }
+  });
+
+  app.post("/api/portal-tasks/:id/reject", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const taskId = +param(req, "id");
+      const { reason } = req.body;
+      const [task] = await db.select().from(portalTasksTable).where(eq(portalTasksTable.id, taskId));
+      if (!task) return res.status(404).json({ error: "Portal task not found" });
+      if (task.status !== "pending") return res.status(400).json({ error: `Task already processed (status: ${task.status})` });
+      await db.update(portalTasksTable).set({
+        status: "rejected",
+        rejectionReason: reason || null,
+        processedAt: new Date(),
+      }).where(eq(portalTasksTable.id, taskId));
+      await logAudit((req as any).pmUserId, "reject_portal_task", "portal_task", taskId, { status: "pending" }, { status: "rejected", reason }, getClientIp(req));
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to reject portal task", e) });
+    }
+  });
+
+  // ---- JOB ASSIGNMENT + VENDOR (Phase B) ----
+  app.post("/api/projects/:projectId/jobs/:jobId/assign", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const jobId = +param(req, "jobId");
+      const { vendorId } = req.body;
+      if (!vendorId) return res.status(400).json({ error: "vendorId is required" });
+      const pmUserId = (req as any).pmUserId;
+      // Look up vendor rate card
+      let vendorRate = null;
+      const jobList = await storage.getJobs(+param(req, "projectId"));
+      const job = jobList.find((j: any) => j.id === jobId);
+      if (job) {
+        const rateCards = await db.select().from(vendorRateCards).where(
+          and(eq(vendorRateCards.vendorId, vendorId),
+            job.sourceLanguage ? eq(vendorRateCards.sourceLanguage, job.sourceLanguage) : undefined,
+            job.targetLanguage ? eq(vendorRateCards.targetLanguage, job.targetLanguage) : undefined,
+          )
+        );
+        if (rateCards.length > 0) vendorRate = rateCards[0].rateValue;
+      }
+      const updates: any = {
+        vendorId,
+        status: "assigned",
+        assignedAt: new Date().toISOString(),
+        assignedBy: pmUserId,
+      };
+      if (vendorRate) updates.vendorRate = vendorRate;
+      const updated = await storage.updateJob(jobId, updates);
+      await logAudit(pmUserId, "assign_vendor", "job", jobId, null, { vendorId }, getClientIp(req));
+      // Auto-generate PO if settings allow (Phase C)
+      try { await autoGeneratePO(jobId, +param(req, "projectId"), vendorId); } catch (e) { console.error("Auto PO error:", e); }
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to assign vendor", e) });
+    }
+  });
+
+  app.post("/api/projects/:projectId/jobs/:jobId/unassign", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const jobId = +param(req, "jobId");
+      const updated = await storage.updateJob(jobId, { vendorId: null, status: "unassigned", assignedAt: null, assignedBy: null, vendorRate: null } as any);
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to unassign vendor", e) });
+    }
+  });
+
+  app.post("/api/projects/:projectId/jobs/batch", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const projectId = +param(req, "projectId");
+      const { jobs: jobsData } = req.body;
+      if (!Array.isArray(jobsData) || jobsData.length === 0) return res.status(400).json({ error: "jobs array is required" });
+      const created = [];
+      for (let i = 0; i < jobsData.length; i++) {
+        const job = await storage.createJob({
+          projectId,
+          jobCode: `J${String(i + 1).padStart(3, "0")}`,
+          status: "unassigned",
+          ...jobsData[i],
+        } as any);
+        created.push(job);
+      }
+      res.json(created);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to batch create jobs", e) });
+    }
+  });
+
+  // ---- AUTO-PO / AUTO-INVOICE (Phase C) ----
+  async function autoGeneratePO(jobId: number, projectId: number, vendorId: number) {
+    const jobList = await storage.getJobs(projectId);
+    const job = jobList.find((j: any) => j.id === jobId);
+    if (!job) return;
+    const project = await storage.getProject(projectId);
+    if (!project) return;
+    // Look up rate
+    const rateCards = await db.select().from(vendorRateCards).where(
+      and(eq(vendorRateCards.vendorId, vendorId),
+        job.sourceLanguage ? eq(vendorRateCards.sourceLanguage, job.sourceLanguage) : undefined,
+        job.targetLanguage ? eq(vendorRateCards.targetLanguage, job.targetLanguage) : undefined,
+      )
+    );
+    const rate = rateCards.length > 0 ? parseFloat(rateCards[0].rateValue) : 0;
+    const units = parseFloat(job.unitCount || "0") || parseInt(String(job.wordCount || 0)) || 0;
+    const amount = rate * units;
+    if (amount <= 0) return;
+    // Generate PO number
+    const year = new Date().getFullYear();
+    const entityCode = project.entityId ? (await db.select().from(entities).where(eq(entities.id, project.entityId)))?.[0]?.code?.toUpperCase() || "VRB" : "VRB";
+    const [poCount] = await db.select({ cnt: sql<number>`count(*)::int` }).from(purchaseOrders).where(sql`extract(year from ${purchaseOrders.createdAt}) = ${year}`);
+    const poSeq = (poCount?.cnt || 0) + 1;
+    const poNumber = `${entityCode}-PO-${year}-${String(poSeq).padStart(4, "0")}`;
+    const po = await storage.createPurchaseOrder({
+      vendorId,
+      entityId: project.entityId || undefined,
+      projectId,
+      jobId,
+      poNumber,
+      amount: String(amount),
+      currency: project.currency || "EUR",
+      status: "draft",
+    } as any);
+    // Link PO to job
+    await storage.updateJob(jobId, { poId: po.id, vendorRate: String(rate), vendorTotal: String(amount) } as any);
+    // Create PO line item
+    await db.insert(poLineItems).values({
+      purchaseOrderId: po.id,
+      description: `${job.sourceLanguage} → ${job.targetLanguage} ${job.serviceType || "translation"}`,
+      quantity: String(units),
+      unit: job.unitType || "words",
+      unitPrice: String(rate),
+      amount: String(amount),
+    });
+    return po;
+  }
+
+  app.post("/api/jobs/:jobId/generate-po", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const jobId = +param(req, "jobId");
+      // Find the job's project and vendor
+      const [job] = await db.select().from(jobs).where(eq(jobs.id, jobId));
+      if (!job) return res.status(404).json({ error: "Job not found" });
+      if (!job.vendorId) return res.status(400).json({ error: "Job has no vendor assigned" });
+      const po = await autoGeneratePO(jobId, job.projectId, job.vendorId);
+      res.json({ success: true, po });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to generate PO", e) });
+    }
+  });
+
+  app.post("/api/projects/:projectId/generate-invoice", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const projectId = +param(req, "projectId");
+      const project = await storage.getProject(projectId);
+      if (!project) return res.status(404).json({ error: "Project not found" });
+      const jobList = await storage.getJobs(projectId);
+      // Calculate totals from jobs
+      let subtotal = 0;
+      const lines: any[] = [];
+      for (const job of jobList) {
+        // Look up client rate
+        const clientRateCards = await db.select().from(customerRateCards).where(
+          and(eq(customerRateCards.customerId, project.customerId),
+            job.sourceLanguage ? eq(customerRateCards.sourceLanguage, job.sourceLanguage) : undefined,
+            job.targetLanguage ? eq(customerRateCards.targetLanguage, job.targetLanguage) : undefined,
+          )
+        );
+        const rate = clientRateCards.length > 0 ? parseFloat(clientRateCards[0].rateValue) : parseFloat(job.clientRate || job.unitRate || "0") || 0;
+        const units = parseFloat(job.unitCount || "0") || parseInt(String(job.wordCount || 0)) || 0;
+        const amount = rate * units;
+        subtotal += amount;
+        lines.push({
+          projectId,
+          jobId: job.id,
+          description: `${job.sourceLanguage} → ${job.targetLanguage} ${job.serviceType || "translation"}`,
+          quantity: String(units),
+          unit: job.unitType || "words",
+          unitPrice: String(rate),
+          amount: String(amount),
+        });
+        // Update job with client rate
+        await storage.updateJob(job.id, { clientRate: String(rate), clientTotal: String(amount) } as any);
+      }
+      // Generate invoice number
+      const year = new Date().getFullYear();
+      const entityCode = project.entityId ? (await db.select().from(entities).where(eq(entities.id, project.entityId)))?.[0]?.code?.toUpperCase() || "VRB" : "VRB";
+      const [invCount] = await db.select({ cnt: sql<number>`count(*)::int` }).from(clientInvoices).where(sql`extract(year from ${clientInvoices.createdAt}) = ${year}`);
+      const invSeq = (invCount?.cnt || 0) + 1;
+      const invoiceNumber = `${entityCode}-INV-${year}-${String(invSeq).padStart(4, "0")}`;
+      const invoice = await storage.createInvoice({
+        customerId: project.customerId,
+        entityId: project.entityId || undefined,
+        invoiceNumber,
+        invoiceDate: new Date().toISOString().split("T")[0],
+        subtotal: String(subtotal),
+        total: String(subtotal),
+        currency: project.currency || "EUR",
+        status: "draft",
+      } as any);
+      // Create line items
+      for (const line of lines) {
+        await db.insert(clientInvoiceLines).values({ invoiceId: invoice.id, ...line });
+      }
+      // Update jobs with invoice reference
+      for (const job of jobList) {
+        await storage.updateJob(job.id, { invoiceId: invoice.id } as any);
+      }
+      await logAudit((req as any).pmUserId, "auto_generate_invoice", "invoice", invoice.id, null, { projectId, subtotal }, getClientIp(req));
+      await createNotificationV2((req as any).pmUserId, "invoice_generated", `Invoice ${invoiceNumber} generated`, `Auto-generated invoice for project`, `/invoices`);
+      res.json({ success: true, invoice });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to generate invoice", e) });
+    }
+  });
+
+  // ---- NOTIFICATIONS V2 (Phase F) ----
+  async function createNotificationV2(pmUserId: number, type: string, title: string, message: string, link?: string) {
+    try {
+      await db.insert(notificationsV2).values({ pmUserId, type, title, message, link });
+      wsBroadcast({ event: "notification", type, title, message });
+    } catch (e) { console.error("Notification create error:", e); }
+  }
+
+  app.get("/api/notifications-v2", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const pmUserId = (req as any).pmUserId;
+      const nots = await db.select().from(notificationsV2).where(eq(notificationsV2.pmUserId, pmUserId)).orderBy(desc(notificationsV2.createdAt)).limit(50);
+      const [unreadResult] = await db.select({ cnt: sql<number>`count(*)::int` }).from(notificationsV2).where(and(eq(notificationsV2.pmUserId, pmUserId), eq(notificationsV2.read, false)));
+      res.json({ notifications: nots, unreadCount: unreadResult?.cnt || 0 });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to get notifications", e) });
+    }
+  });
+
+  app.patch("/api/notifications-v2/:id/read", requireAuth, async (req: Request, res: Response) => {
+    try {
+      await db.update(notificationsV2).set({ read: true }).where(eq(notificationsV2.id, +param(req, "id")));
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to mark notification read", e) });
+    }
+  });
+
+  app.post("/api/notifications-v2/read-all", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const pmUserId = (req as any).pmUserId;
+      await db.update(notificationsV2).set({ read: true }).where(and(eq(notificationsV2.pmUserId, pmUserId), eq(notificationsV2.read, false)));
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to mark all read", e) });
+    }
+  });
+
+  app.delete("/api/notifications-v2/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      await db.update(notificationsV2).set({ read: true }).where(eq(notificationsV2.id, +param(req, "id")));
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to dismiss notification", e) });
+    }
+  });
+
+  // ---- PM ASSIGNMENTS (Phase E) ----
+  app.get("/api/pm-assignments", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const rows = await db.select().from(pmCustomerAssignments).orderBy(desc(pmCustomerAssignments.createdAt));
+      res.json(rows);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to get PM assignments", e) });
+    }
+  });
+
+  app.post("/api/pm-assignments", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { userId, customerId, subAccountId, isPrimary, assignmentType } = req.body;
+      if (!userId || !customerId) return res.status(400).json({ error: "userId and customerId are required" });
+      const [existing] = await db.select().from(pmCustomerAssignments).where(
+        and(eq(pmCustomerAssignments.userId, userId), eq(pmCustomerAssignments.customerId, customerId))
+      );
+      if (existing) {
+        const updated = await db.update(pmCustomerAssignments).set({ isPrimary, assignmentType }).where(eq(pmCustomerAssignments.id, existing.id)).returning();
+        return res.json(updated[0]);
+      }
+      const [created] = await db.insert(pmCustomerAssignments).values({ userId, customerId, subAccountId, isPrimary: isPrimary ?? true, assignmentType: assignmentType || "primary" }).returning();
+      res.json(created);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to create PM assignment", e) });
+    }
+  });
+
+  app.delete("/api/pm-assignments/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      await db.delete(pmCustomerAssignments).where(eq(pmCustomerAssignments.id, +param(req, "id")));
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to delete PM assignment", e) });
     }
   });
 

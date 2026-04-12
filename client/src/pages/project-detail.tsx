@@ -71,22 +71,54 @@ interface UserRecord { id: number; name: string; email: string; }
 interface Customer { id: number; name: string; }
 
 const STATUS_COLORS: Record<string, string> = {
-  active: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25",
-  completed: "bg-blue-500/15 text-blue-400 border-blue-500/25",
-  invoiced: "bg-purple-500/15 text-purple-400 border-purple-500/25",
+  draft: "bg-zinc-500/15 text-zinc-400 border-zinc-500/25",
+  quoted: "bg-purple-500/15 text-purple-400 border-purple-500/25",
+  confirmed: "bg-blue-500/15 text-blue-400 border-blue-500/25",
+  in_progress: "bg-yellow-500/15 text-yellow-400 border-yellow-500/25",
+  delivered: "bg-cyan-500/15 text-cyan-400 border-cyan-500/25",
+  completed: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25",
+  invoiced: "bg-indigo-500/15 text-indigo-400 border-indigo-500/25",
+  closed: "bg-white/5 text-white/40 border-white/10",
   cancelled: "bg-red-500/15 text-red-400 border-red-500/25",
+  active: "bg-yellow-500/15 text-yellow-400 border-yellow-500/25",
   on_hold: "bg-amber-500/15 text-amber-400 border-amber-500/25",
 };
 
 const JOB_STATUS_COLORS: Record<string, string> = {
-  pending: "bg-zinc-500/15 text-zinc-400 border-zinc-500/25",
-  in_progress: "bg-cyan-500/15 text-cyan-400 border-cyan-500/25",
-  completed: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25",
-  delivered: "bg-blue-500/15 text-blue-400 border-blue-500/25",
+  unassigned: "bg-zinc-500/15 text-zinc-400 border-zinc-500/25",
+  assigned: "bg-blue-500/15 text-blue-400 border-blue-500/25",
+  in_progress: "bg-yellow-500/15 text-yellow-400 border-yellow-500/25",
+  delivered: "bg-cyan-500/15 text-cyan-400 border-cyan-500/25",
+  approved: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25",
+  invoiced: "bg-indigo-500/15 text-indigo-400 border-indigo-500/25",
+  revision: "bg-orange-500/15 text-orange-400 border-orange-500/25",
   cancelled: "bg-red-500/15 text-red-400 border-red-500/25",
+  pending: "bg-zinc-500/15 text-zinc-400 border-zinc-500/25",
+  completed: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25",
 };
 
-const PROJECT_STATUSES = ["active", "completed", "on_hold", "cancelled", "invoiced"];
+const PROJECT_STATUSES = ["draft", "quoted", "confirmed", "in_progress", "delivered", "completed", "invoiced", "closed", "cancelled"];
+
+const PROJECT_TRANSITION_LABELS: Record<string, { label: string; color: string }> = {
+  quote: { label: "Send Quote", color: "bg-purple-600 hover:bg-purple-700" },
+  confirm: { label: "Confirm", color: "bg-blue-600 hover:bg-blue-700" },
+  start: { label: "Start", color: "bg-yellow-600 hover:bg-yellow-700" },
+  deliver: { label: "Deliver", color: "bg-cyan-600 hover:bg-cyan-700" },
+  complete: { label: "Complete", color: "bg-emerald-600 hover:bg-emerald-700" },
+  invoice: { label: "Invoice", color: "bg-indigo-600 hover:bg-indigo-700" },
+  close: { label: "Close", color: "bg-zinc-600 hover:bg-zinc-700" },
+  cancel: { label: "Cancel", color: "bg-red-600 hover:bg-red-700" },
+};
+
+const JOB_TRANSITION_LABELS: Record<string, { label: string; color: string }> = {
+  assign: { label: "Assign", color: "bg-blue-600 hover:bg-blue-700" },
+  start: { label: "Start", color: "bg-yellow-600 hover:bg-yellow-700" },
+  deliver: { label: "Deliver", color: "bg-cyan-600 hover:bg-cyan-700" },
+  approve: { label: "Approve", color: "bg-emerald-600 hover:bg-emerald-700" },
+  invoice: { label: "Invoice", color: "bg-indigo-600 hover:bg-indigo-700" },
+  revision: { label: "Revision", color: "bg-orange-600 hover:bg-orange-700" },
+  cancel: { label: "Cancel", color: "bg-red-600 hover:bg-red-700" },
+};
 const SOURCES = ["Manual", "Symfonie", "APS", "Junction", "XTRF", "Plunet"];
 const SERVICE_TYPES = ["Translation", "MTPE", "Review", "LQA", "Proofreading", "Subtitling", "DTP", "TEP"];
 const UNIT_TYPES = ["words", "hours", "pages", "minutes", "characters", "days"];
@@ -211,6 +243,61 @@ export default function ProjectDetailPage() {
     },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
+
+  const transitionMutation = useMutation({
+    mutationFn: async (action: string) => { const r = await apiRequest("POST", `/api/projects/${projectId}/transition`, { action }); return r.json(); },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      toast({ title: "Project status updated" });
+    },
+    onError: (e: any) => toast({ title: "Transition failed", description: e.message, variant: "destructive" }),
+  });
+
+  const jobTransitionMutation = useMutation({
+    mutationFn: async ({ jobId, action }: { jobId: number; action: string }) => { const r = await apiRequest("POST", `/api/projects/${projectId}/jobs/${jobId}/transition`, { action }); return r.json(); },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "jobs"] });
+      toast({ title: "Job status updated" });
+    },
+    onError: (e: any) => toast({ title: "Transition failed", description: e.message, variant: "destructive" }),
+  });
+
+  const assignVendorMutation = useMutation({
+    mutationFn: async ({ jobId, vendorId }: { jobId: number; vendorId: number }) => { const r = await apiRequest("POST", `/api/projects/${projectId}/jobs/${jobId}/assign`, { vendorId }); return r.json(); },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "jobs"] });
+      toast({ title: "Vendor assigned" });
+    },
+    onError: (e: any) => toast({ title: "Assignment failed", description: e.message, variant: "destructive" }),
+  });
+
+  const generateInvoiceMutation = useMutation({
+    mutationFn: async () => { const r = await apiRequest("POST", `/api/projects/${projectId}/generate-invoice`); return r.json(); },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "jobs"] });
+      toast({ title: "Invoice generated" });
+    },
+    onError: (e: any) => toast({ title: "Invoice generation failed", description: e.message, variant: "destructive" }),
+  });
+
+  // Get valid actions for current project state
+  const validProjectActions = useMemo(() => {
+    if (!project) return [];
+    const status = project.status || "draft";
+    const transitions: Record<string, string[]> = {
+      draft: ["quote", "cancel"],
+      quoted: ["confirm", "cancel"],
+      confirmed: ["start", "cancel"],
+      in_progress: ["deliver", "cancel"],
+      delivered: ["complete", "cancel"],
+      completed: ["invoice", "cancel"],
+      invoiced: ["close", "cancel"],
+      // Legacy compat
+      active: ["deliver", "cancel"],
+    };
+    return transitions[status] || [];
+  }, [project]);
 
   const addJobMutation = useMutation({
     mutationFn: async (body: any) => { const r = await apiRequest("POST", `/api/projects/${projectId}/jobs`, body); return r.json(); },
@@ -386,19 +473,24 @@ export default function ProjectDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {project.status === "active" && (
-            <Button size="sm" className="text-xs bg-blue-600 hover:bg-blue-700 text-white gap-1" onClick={() => statusMutation.mutate("completed")} disabled={statusMutation.isPending}>
-              <Check className="w-3 h-3" /> Mark Complete
-            </Button>
-          )}
+          {/* State machine transition buttons */}
+          {validProjectActions.filter(a => a !== "cancel").map(action => {
+            const t = PROJECT_TRANSITION_LABELS[action];
+            if (!t) return null;
+            return (
+              <Button key={action} size="sm" className={`text-xs text-white gap-1 ${t.color}`} onClick={() => transitionMutation.mutate(action)} disabled={transitionMutation.isPending}>
+                {t.label}
+              </Button>
+            );
+          })}
           {project.status === "completed" && (
-            <Button size="sm" className="text-xs bg-purple-600 hover:bg-purple-700 text-white gap-1" onClick={() => statusMutation.mutate("invoiced")} disabled={statusMutation.isPending}>
-              <FileText className="w-3 h-3" /> Mark Invoiced
+            <Button size="sm" className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white gap-1" onClick={() => generateInvoiceMutation.mutate()} disabled={generateInvoiceMutation.isPending}>
+              <FileText className="w-3 h-3" /> Generate Invoice
             </Button>
           )}
-          {(project.status === "on_hold" || project.status === "cancelled") && (
-            <Button size="sm" className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white gap-1" onClick={() => statusMutation.mutate("active")} disabled={statusMutation.isPending}>
-              Reactivate
+          {validProjectActions.includes("cancel") && (
+            <Button size="sm" variant="outline" className="text-xs text-red-400 border-red-500/30 hover:bg-red-500/10" onClick={() => transitionMutation.mutate("cancel")} disabled={transitionMutation.isPending}>
+              Cancel
             </Button>
           )}
           <DropdownMenu>
@@ -644,6 +736,9 @@ export default function ProjectDetailPage() {
                         onToggle={() => hasCat && setExpandedJob(isExpanded ? null : job.id)}
                         onEdit={() => startEditJob(job)}
                         onDelete={() => deleteJobMutation.mutate(job.id)}
+                        onTransition={(action) => jobTransitionMutation.mutate({ jobId: job.id, action })}
+                        onAssignVendor={(vendorId) => assignVendorMutation.mutate({ jobId: job.id, vendorId })}
+                        vendors={(vendorsQuery.data || []).map(v => ({ id: v.id, name: (v as any).fullName || (v as any).full_name || v.name || `Vendor #${v.id}` }))}
                       />
                     );
                   })}
@@ -950,9 +1045,22 @@ export default function ProjectDetailPage() {
 }
 
 // Extracted to a component to avoid React key issues with fragments in table rows
-function JobTableRows({ job, currency, isExpanded, hasCat, onToggle, onEdit, onDelete }: {
+function JobTableRows({ job, currency, isExpanded, hasCat, onToggle, onEdit, onDelete, onTransition, onAssignVendor, vendors }: {
   job: Job; currency: string; isExpanded: boolean; hasCat: boolean; onToggle: () => void; onEdit: () => void; onDelete: () => void;
+  onTransition: (action: string) => void; onAssignVendor: (vendorId: number) => void; vendors: { id: number; name: string }[];
 }) {
+  const [showVendorPicker, setShowVendorPicker] = useState(false);
+  // Determine valid actions for this job's current status
+  const jobActions: Record<string, string[]> = {
+    unassigned: ["cancel"],
+    assigned: ["start", "cancel"],
+    in_progress: ["deliver", "cancel"],
+    delivered: ["approve", "revision", "cancel"],
+    approved: ["invoice"],
+    pending: ["cancel"],
+  };
+  const validActions = jobActions[job.status] || [];
+
   return (
     <>
       <TableRow className="border-white/[0.06] hover:bg-white/[0.02] cursor-pointer" onClick={onToggle}>
@@ -965,20 +1073,44 @@ function JobTableRows({ job, currency, isExpanded, hasCat, onToggle, onEdit, onD
         <TableCell className="text-[11px] text-white/50 px-3 py-2 text-right">{job.unitRate ? Number(job.unitRate).toFixed(4) : "\u2014"}</TableCell>
         <TableCell className="text-[11px] text-emerald-400 px-3 py-2 text-right font-medium">{job.totalRevenue ? formatCurrency(Number(job.totalRevenue), currency) : "\u2014"}</TableCell>
         <TableCell className="text-[11px] text-orange-400 px-3 py-2 text-right font-medium">{job.totalCost ? formatCurrency(Number(job.totalCost), currency) : "\u2014"}</TableCell>
-        <TableCell className="text-[11px] text-white/50 px-3 py-2">{job.vendorName || (job.vendorId ? `Vendor #${job.vendorId}` : "\u2014")}</TableCell>
+        <TableCell className="text-[11px] text-white/50 px-3 py-2 relative">
+          {job.vendorId ? (
+            <span>{(job as any).vendorName || `Vendor #${job.vendorId}`}</span>
+          ) : (
+            <button onClick={(e) => { e.stopPropagation(); setShowVendorPicker(!showVendorPicker); }} className="text-blue-400 hover:text-blue-300 text-[11px]">+ Assign</button>
+          )}
+          {showVendorPicker && (
+            <div className="absolute top-full left-0 z-50 bg-[#1a1d27] border border-white/10 rounded-lg shadow-xl w-52 max-h-48 overflow-y-auto mt-1">
+              {vendors.map(v => (
+                <button key={v.id} onClick={(e) => { e.stopPropagation(); onAssignVendor(v.id); setShowVendorPicker(false); }}
+                  className="w-full text-left px-3 py-1.5 text-[11px] text-white/60 hover:bg-white/5 hover:text-white truncate">{v.name}</button>
+              ))}
+              {vendors.length === 0 && <p className="px-3 py-2 text-[11px] text-white/30">No vendors</p>}
+            </div>
+          )}
+        </TableCell>
         <TableCell className="px-3 py-2">
           <Badge className={`text-[10px] border ${JOB_STATUS_COLORS[job.status] || "bg-zinc-500/15 text-zinc-400 border-zinc-500/25"}`}>{job.status.replace(/_/g, " ")}</Badge>
         </TableCell>
         <TableCell className="text-[11px] text-white/40 px-3 py-2">{formatDate(job.deadline)}</TableCell>
         <TableCell className="px-3 py-2">
           <div className="flex items-center gap-1">
+            {validActions.filter(a => a !== "cancel").map(action => {
+              const t = JOB_TRANSITION_LABELS[action];
+              return t ? (
+                <button key={action} onClick={(e) => { e.stopPropagation(); onTransition(action); }}
+                  className={`px-1.5 py-0.5 rounded text-[9px] text-white ${t.color}`}>{t.label}</button>
+              ) : null;
+            })}
             {hasCat && <ChevronRight className={`w-3.5 h-3.5 text-white/20 transition-transform ${isExpanded ? "rotate-90" : ""}`} />}
             <button onClick={(e) => { e.stopPropagation(); onEdit(); }} className="p-1 rounded hover:bg-blue-500/10" title="Edit job">
               <Edit2 className="w-3 h-3 text-white/20 hover:text-blue-400" />
             </button>
-            <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="p-1 rounded hover:bg-red-500/10" title="Delete job">
-              <Trash2 className="w-3 h-3 text-white/20 hover:text-red-400" />
-            </button>
+            {(job.status === "unassigned" || job.status === "pending") && (
+              <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="p-1 rounded hover:bg-red-500/10" title="Delete job">
+                <Trash2 className="w-3 h-3 text-white/20 hover:text-red-400" />
+              </button>
+            )}
           </div>
         </TableCell>
       </TableRow>

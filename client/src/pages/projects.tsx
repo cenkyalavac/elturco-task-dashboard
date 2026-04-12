@@ -82,14 +82,21 @@ interface QuickCreateForm {
 // ── Status config ──
 
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
-  active: { label: "Active", className: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" },
-  pending: { label: "Pending", className: "bg-yellow-500/15 text-yellow-400 border-yellow-500/20" },
-  completed: { label: "Completed", className: "bg-blue-500/15 text-blue-400 border-blue-500/20" },
+  draft: { label: "Draft", className: "bg-zinc-500/15 text-zinc-400 border-zinc-500/20" },
+  quoted: { label: "Quoted", className: "bg-purple-500/15 text-purple-400 border-purple-500/20" },
+  confirmed: { label: "Confirmed", className: "bg-blue-500/15 text-blue-400 border-blue-500/20" },
+  in_progress: { label: "In Progress", className: "bg-yellow-500/15 text-yellow-400 border-yellow-500/20" },
+  delivered: { label: "Delivered", className: "bg-cyan-500/15 text-cyan-400 border-cyan-500/20" },
+  completed: { label: "Completed", className: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" },
+  invoiced: { label: "Invoiced", className: "bg-indigo-500/15 text-indigo-400 border-indigo-500/20" },
+  closed: { label: "Closed", className: "bg-white/5 text-white/40 border-white/10" },
   cancelled: { label: "Cancelled", className: "bg-red-500/15 text-red-400 border-red-500/20" },
-  on_hold: { label: "On Hold", className: "bg-slate-500/15 text-slate-400 border-slate-500/20" },
+  active: { label: "Active", className: "bg-yellow-500/15 text-yellow-400 border-yellow-500/20" },
+  pending: { label: "Pending", className: "bg-zinc-500/15 text-zinc-400 border-zinc-500/20" },
+  on_hold: { label: "On Hold", className: "bg-amber-500/15 text-amber-400 border-amber-500/20" },
 };
 
-const STATUSES = ["active", "pending", "completed", "cancelled", "on_hold"];
+const STATUSES = ["draft", "quoted", "confirmed", "in_progress", "delivered", "completed", "invoiced", "closed", "cancelled", "active", "on_hold"];
 
 const COMMON_LANGUAGES = [
   "EN", "TR", "AR", "DE", "FR", "ES", "PT", "IT", "NL", "PL",
