@@ -1090,6 +1090,81 @@ export const insertAutoDispatchRuleSchema = createInsertSchema(autoDispatchRules
 export const insertJobDependencySchema = createInsertSchema(jobDependencies).omit({ id: true });
 
 // ============================================
+// FAZ 5 — FINANCIAL ENGINE
+// ============================================
+
+// Vendor Invoices (AP)
+export const vendorInvoices = pgTable("vendor_invoices", {
+  id: serial("id").primaryKey(),
+  vendorId: integer("vendor_id").notNull().references(() => vendors.id),
+  poId: integer("po_id").references(() => purchaseOrders.id),
+  invoiceNumber: varchar("invoice_number", { length: 100 }).notNull(),
+  invoiceDate: date("invoice_date").notNull(),
+  dueDate: date("due_date"),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  currency: varchar("currency", { length: 3 }).default("EUR"),
+  taxAmount: decimal("tax_amount", { precision: 12, scale: 2 }).default("0"),
+  totalAmount: decimal("total_amount", { precision: 12, scale: 2 }).notNull(),
+  status: varchar("status", { length: 50 }).default("submitted"),
+  reviewedBy: integer("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  paymentDate: date("payment_date"),
+  notes: text("notes"),
+  fileUrl: varchar("file_url", { length: 500 }),
+  entityId: integer("entity_id").references(() => entities.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+// Payment Queue
+export const paymentQueue = pgTable("payment_queue", {
+  id: serial("id").primaryKey(),
+  vendorInvoiceId: integer("vendor_invoice_id").references(() => vendorInvoices.id),
+  vendorId: integer("vendor_id").notNull().references(() => vendors.id),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  currency: varchar("currency", { length: 3 }).default("EUR"),
+  status: varchar("status", { length: 50 }).default("pending"),
+  paymentMethod: varchar("payment_method", { length: 50 }),
+  paymentReference: varchar("payment_reference", { length: 200 }),
+  scheduledDate: date("scheduled_date"),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+  entityId: integer("entity_id").references(() => entities.id),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// Payment Reminders
+export const paymentReminders = pgTable("payment_reminders", {
+  id: serial("id").primaryKey(),
+  invoiceId: integer("invoice_id").notNull().references(() => clientInvoices.id),
+  customerId: integer("customer_id").notNull().references(() => customers.id),
+  reminderType: varchar("reminder_type", { length: 50 }).notNull(),
+  sentAt: timestamp("sent_at", { withTimezone: true }).defaultNow(),
+  sentBy: integer("sent_by").references(() => users.id),
+  emailSentTo: varchar("email_sent_to", { length: 300 }),
+  response: text("response"),
+});
+
+// Tax Codes
+export const taxCodes = pgTable("tax_codes", {
+  id: serial("id").primaryKey(),
+  code: varchar("code", { length: 50 }).notNull(),
+  name: varchar("name", { length: 200 }).notNull(),
+  rate: decimal("rate", { precision: 5, scale: 2 }).notNull(),
+  country: varchar("country", { length: 3 }),
+  description: text("description"),
+  isActive: boolean("is_active").default(true),
+  entityId: integer("entity_id").references(() => entities.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// Faz 5 insert schemas
+export const insertVendorInvoiceSchema = createInsertSchema(vendorInvoices).omit({ id: true });
+export const insertPaymentQueueSchema = createInsertSchema(paymentQueue).omit({ id: true });
+export const insertPaymentReminderSchema = createInsertSchema(paymentReminders).omit({ id: true });
+export const insertTaxCodeSchema = createInsertSchema(taxCodes).omit({ id: true });
+
+// ============================================
 // TYPES
 // ============================================
 export type PmUser = typeof pmUsers.$inferSelect;
@@ -1180,3 +1255,13 @@ export type AutoDispatchRule = typeof autoDispatchRules.$inferSelect;
 export type InsertAutoDispatchRule = z.infer<typeof insertAutoDispatchRuleSchema>;
 export type JobDependency = typeof jobDependencies.$inferSelect;
 export type InsertJobDependency = z.infer<typeof insertJobDependencySchema>;
+
+// Faz 5 types
+export type VendorInvoice = typeof vendorInvoices.$inferSelect;
+export type InsertVendorInvoice = z.infer<typeof insertVendorInvoiceSchema>;
+export type PaymentQueueEntry = typeof paymentQueue.$inferSelect;
+export type InsertPaymentQueueEntry = z.infer<typeof insertPaymentQueueSchema>;
+export type PaymentReminder = typeof paymentReminders.$inferSelect;
+export type InsertPaymentReminder = z.infer<typeof insertPaymentReminderSchema>;
+export type TaxCode = typeof taxCodes.$inferSelect;
+export type InsertTaxCode = z.infer<typeof insertTaxCodeSchema>;

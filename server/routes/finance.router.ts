@@ -58,7 +58,7 @@
  */
 import { Router, Request, Response } from "express";
 import { z } from "zod";
-import { eq, and, sql, desc } from "drizzle-orm";
+import { eq, and, sql, desc, gte, lte, asc } from "drizzle-orm";
 import { storage, db } from "../storage";
 import {
   purchaseOrders,
@@ -73,7 +73,14 @@ import {
   jobs,
   projects,
   qualityReports,
+  vendorInvoices,
+  paymentQueue,
+  paymentReminders,
+  taxCodes,
+  customers,
 } from "@shared/schema";
+import { wiseService } from "../services/wise";
+import { qboService } from "../services/qbo";
 import {
   requireAuth,
   requireRole,
@@ -83,6 +90,7 @@ import {
   logAudit,
   getClientIp,
   createNotificationV2,
+  sendEmail,
 } from "./shared";
 
 const router = Router();
@@ -1056,6 +1064,869 @@ router.get("/export/vendors", requireAuth, async (_req: Request, res: Response) 
     res.send(csv);
   } catch (e: any) {
     res.status(500).json({ error: safeError("Export failed", e) });
+  }
+});
+
+// ============================================
+// FAZ 5: ENTITY FINANCIAL SETTINGS
+// ============================================
+
+router.patch("/entities/:id/financial-settings", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
+  try {
+    const id = +param(req, "id");
+    const schema = z.object({
+      taxId: z.string().optional(),
+      billingAddress: z.string().optional(),
+      bankDetails: z.any().optional(),
+      invoicePrefix: z.string().optional(),
+      invoiceNextNumber: z.number().optional(),
+      defaultPaymentTerms: z.number().optional(),
+      logoUrl: z.string().optional(),
+      wiseProfileId: z.string().optional(),
+      qboCompanyId: z.string().optional(),
+    });
+    const body = validate(schema, req.body, res);
+    if (!body) return;
+    const [updated] = await db.update(entities).set(body).where(eq(entities.id, id)).returning();
+    if (!updated) return res.status(404).json({ error: "Entity not found" });
+    await logAudit((req as any).pmUserId, "update", "entity_financial_settings", id, null, body, getClientIp(req));
+    res.json(updated);
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to update entity financial settings", e) });
+  }
+});
+
+// ============================================
+// FAZ 5: AUTO-INVOICE FROM PROJECT
+// ============================================
+
+router.post("/projects/:projectId/auto-invoice", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
+  try {
+    const projectId = +param(req, "projectId");
+    const project = await storage.getProject(projectId);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+
+    const jobList = await storage.getJobs(projectId);
+    if (jobList.length === 0) return res.status(400).json({ error: "No jobs in project" });
+
+    // Look up entity for prefix
+    let invoiceNumber = `INV-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
+    let entityId = project.entityId;
+    if (entityId) {
+      const entity = await storage.getEntity(entityId);
+      if (entity) {
+        const prefix = (entity as any).invoicePrefix || "INV";
+        const nextNum = (entity as any).invoiceNextNumber || 1;
+        invoiceNumber = `${prefix}-${new Date().getFullYear()}-${String(nextNum).padStart(4, "0")}`;
+        // Increment the next number
+        await db.update(entities).set(sql`invoice_next_number = COALESCE(invoice_next_number, 1) + 1`).where(eq(entities.id, entityId));
+      }
+    }
+
+    // Resolve currency
+    let currency = project.currency || "EUR";
+    if (!project.currency && entityId) {
+      const entity = await storage.getEntity(entityId);
+      if (entity) currency = entity.defaultCurrency || entity.currency || "EUR";
+    }
+
+    // Calculate totals from jobs
+    const lineItems = jobList.map(j => ({
+      description: `${j.jobName || j.jobCode || "Job"} — ${j.sourceLanguage || ""}→${j.targetLanguage || ""} (${j.serviceType || "Translation"})`,
+      quantity: parseFloat(j.unitCount || "1") || 1,
+      unitPrice: parseFloat(j.clientRate || j.unitRate || "0") || 0,
+      amount: parseFloat(j.clientTotal || j.totalRevenue || "0") || 0,
+    }));
+
+    const subtotal = Math.round(lineItems.reduce((s, l) => s + l.amount, 0) * 100) / 100;
+
+    // Create the invoice
+    const [invoice] = await db.insert(clientInvoices).values({
+      entityId,
+      customerId: project.customerId,
+      invoiceNumber,
+      invoiceDate: new Date().toISOString().split("T")[0],
+      dueDate: new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0],
+      subtotal: String(subtotal),
+      taxAmount: "0",
+      total: String(subtotal),
+      currency,
+      status: "draft",
+      paymentTerms: "net_30",
+      notes: `Auto-generated from project: ${project.projectName}`,
+    } as any).returning();
+
+    // Add projectId
+    await db.execute(sql`UPDATE client_invoices SET project_id = ${projectId} WHERE id = ${invoice.id}`);
+
+    // Create line items
+    for (const li of lineItems) {
+      await db.insert(clientInvoiceLines).values({
+        invoiceId: invoice.id,
+        description: li.description,
+        quantity: String(li.quantity),
+        unitPrice: String(li.unitPrice),
+        amount: String(li.amount),
+      });
+    }
+
+    await logAudit((req as any).pmUserId, "auto_invoice", "client_invoice", invoice.id, null, { projectId, subtotal }, getClientIp(req));
+    res.json({ ...invoice, lineItems });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Auto-invoice generation failed", e) });
+  }
+});
+
+// ============================================
+// FAZ 5: INVOICE APPROVAL WORKFLOW
+// ============================================
+
+router.post("/invoices/:id/approve", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
+  try {
+    const id = +param(req, "id");
+    const [invoice] = await db.select().from(clientInvoices).where(eq(clientInvoices.id, id));
+    if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+
+    await db.execute(sql`UPDATE client_invoices SET approval_status = 'approved', approved_by = ${(req as any).pmUserId}, approved_at = NOW() WHERE id = ${id}`);
+    await logAudit((req as any).pmUserId, "approve", "client_invoice", id, null, { approvalStatus: "approved" }, getClientIp(req));
+    const [updated] = await db.select().from(clientInvoices).where(eq(clientInvoices.id, id));
+    res.json(updated);
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Invoice approval failed", e) });
+  }
+});
+
+// ============================================
+// FAZ 5: INVOICE PDF GENERATION (HTML-based)
+// ============================================
+
+router.post("/invoices/:id/pdf", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const id = +param(req, "id");
+    const [invoice] = await db.select().from(clientInvoices).where(eq(clientInvoices.id, id));
+    if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+
+    const lines = await db.select().from(clientInvoiceLines).where(eq(clientInvoiceLines.invoiceId, id));
+    const [customer] = invoice.customerId ? await db.select().from(customers).where(eq(customers.id, invoice.customerId)) : [null];
+    let entity: any = null;
+    if (invoice.entityId) {
+      [entity] = await db.select().from(entities).where(eq(entities.id, invoice.entityId));
+    }
+
+    const symbol = invoice.currency === "GBP" ? "£" : invoice.currency === "EUR" ? "€" : "$";
+
+    // Generate HTML invoice
+    const html = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Invoice ${invoice.invoiceNumber}</title>
+<style>
+  body { font-family: 'Helvetica Neue', Arial, sans-serif; margin: 0; padding: 40px; color: #1a1a1a; font-size: 14px; }
+  .header { display: flex; justify-content: space-between; margin-bottom: 40px; }
+  .company { font-size: 24px; font-weight: bold; color: #333; }
+  .invoice-title { font-size: 32px; font-weight: bold; color: #4F46E5; text-align: right; }
+  .meta { display: flex; justify-content: space-between; margin-bottom: 30px; }
+  .meta-block { }
+  .meta-label { font-size: 11px; color: #888; text-transform: uppercase; }
+  .meta-value { font-size: 14px; font-weight: 500; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+  th { background: #f7f7f7; padding: 10px; text-align: left; font-size: 12px; color: #666; border-bottom: 2px solid #e5e5e5; }
+  td { padding: 10px; border-bottom: 1px solid #eee; }
+  .totals { text-align: right; }
+  .totals td { border: none; padding: 6px 10px; }
+  .totals .total-row { font-weight: bold; font-size: 18px; }
+  .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; color: #888; font-size: 12px; }
+</style></head>
+<body>
+  <div class="header">
+    <div>
+      <div class="company">${entity?.name || "El Turco Translation Services"}</div>
+      ${entity?.billingAddress ? `<div style="color:#888;margin-top:4px;white-space:pre-line">${(entity as any).billingAddress}</div>` : ""}
+      ${(entity as any)?.taxId ? `<div style="color:#888;margin-top:4px">Tax ID: ${(entity as any).taxId}</div>` : ""}
+    </div>
+    <div>
+      <div class="invoice-title">INVOICE</div>
+      <div style="text-align:right;margin-top:8px">
+        <div class="meta-label">Invoice Number</div>
+        <div class="meta-value">${invoice.invoiceNumber || "—"}</div>
+      </div>
+    </div>
+  </div>
+  <div class="meta">
+    <div class="meta-block">
+      <div class="meta-label">Bill To</div>
+      <div class="meta-value">${customer?.name || "—"}</div>
+      ${customer?.email ? `<div style="color:#888">${customer.email}</div>` : ""}
+    </div>
+    <div class="meta-block">
+      <div class="meta-label">Invoice Date</div>
+      <div class="meta-value">${invoice.invoiceDate || "—"}</div>
+      <div class="meta-label" style="margin-top:8px">Due Date</div>
+      <div class="meta-value">${invoice.dueDate || "—"}</div>
+    </div>
+    <div class="meta-block">
+      <div class="meta-label">Currency</div>
+      <div class="meta-value">${invoice.currency || "EUR"}</div>
+      <div class="meta-label" style="margin-top:8px">Payment Terms</div>
+      <div class="meta-value">${invoice.paymentTerms || "Net 30"}</div>
+    </div>
+  </div>
+  <table>
+    <thead><tr><th>Description</th><th style="text-align:right">Qty</th><th style="text-align:right">Unit Price</th><th style="text-align:right">Amount</th></tr></thead>
+    <tbody>
+      ${lines.map(l => `<tr><td>${l.description || "—"}</td><td style="text-align:right">${l.quantity || 1}</td><td style="text-align:right">${symbol}${Number(l.unitPrice || 0).toFixed(2)}</td><td style="text-align:right">${symbol}${Number(l.amount || 0).toFixed(2)}</td></tr>`).join("")}
+    </tbody>
+  </table>
+  <table class="totals"><tbody>
+    <tr><td>Subtotal</td><td>${symbol}${Number(invoice.subtotal || 0).toFixed(2)}</td></tr>
+    <tr><td>Tax</td><td>${symbol}${Number(invoice.taxAmount || 0).toFixed(2)}</td></tr>
+    <tr class="total-row"><td>Total</td><td>${symbol}${Number(invoice.total || 0).toFixed(2)}</td></tr>
+  </tbody></table>
+  ${invoice.notes ? `<div class="footer"><strong>Notes:</strong> ${invoice.notes}</div>` : ""}
+  ${entity?.bankDetails ? `<div class="footer"><strong>Bank Details:</strong><br/>${JSON.stringify(entity.bankDetails)}</div>` : ""}
+</body></html>`;
+
+    res.setHeader("Content-Type", "text/html");
+    res.setHeader("Content-Disposition", `inline; filename=invoice-${invoice.invoiceNumber || id}.html`);
+    res.send(html);
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("PDF generation failed", e) });
+  }
+});
+
+// ============================================
+// FAZ 5: VENDOR INVOICES (AP)
+// ============================================
+
+router.get("/vendor-invoices", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const status = req.query.status as string | undefined;
+    const vendorId = req.query.vendorId ? +req.query.vendorId : undefined;
+    const entityId = req.query.entityId ? +req.query.entityId : undefined;
+
+    let conditions: any[] = [];
+    if (status) conditions.push(eq(vendorInvoices.status, status));
+    if (vendorId) conditions.push(eq(vendorInvoices.vendorId, vendorId));
+    if (entityId) conditions.push(eq(vendorInvoices.entityId, entityId));
+
+    const data = await db.select({
+      vendorInvoice: vendorInvoices,
+      vendorName: vendors.fullName,
+    }).from(vendorInvoices)
+      .leftJoin(vendors, eq(vendorInvoices.vendorId, vendors.id))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(vendorInvoices.createdAt));
+
+    res.json({ vendorInvoices: data, total: data.length });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to list vendor invoices", e) });
+  }
+});
+
+router.post("/vendor-invoices", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const schema = z.object({
+      vendorId: z.number().int().positive(),
+      poId: z.number().optional(),
+      invoiceNumber: z.string().min(1),
+      invoiceDate: z.string().min(1),
+      dueDate: z.string().optional(),
+      amount: z.any(),
+      currency: z.string().max(3).optional(),
+      taxAmount: z.any().optional(),
+      totalAmount: z.any(),
+      notes: z.string().optional(),
+      fileUrl: z.string().optional(),
+      entityId: z.number().optional(),
+    });
+    const body = validate(schema, req.body, res);
+    if (!body) return;
+
+    const [created] = await db.insert(vendorInvoices).values({
+      ...body,
+      amount: String(body.amount),
+      taxAmount: String(body.taxAmount || 0),
+      totalAmount: String(body.totalAmount),
+    } as any).returning();
+
+    await logAudit((req as any).pmUserId, "create", "vendor_invoice", created.id, null, created, getClientIp(req));
+    res.json(created);
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to create vendor invoice", e) });
+  }
+});
+
+router.patch("/vendor-invoices/:id", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const id = +param(req, "id");
+    const updates: any = { ...req.body, updatedAt: new Date() };
+    if (updates.amount) updates.amount = String(updates.amount);
+    if (updates.taxAmount) updates.taxAmount = String(updates.taxAmount);
+    if (updates.totalAmount) updates.totalAmount = String(updates.totalAmount);
+    const [updated] = await db.update(vendorInvoices).set(updates).where(eq(vendorInvoices.id, id)).returning();
+    if (!updated) return res.status(404).json({ error: "Vendor invoice not found" });
+    await logAudit((req as any).pmUserId, "update", "vendor_invoice", id, null, updates, getClientIp(req));
+    res.json(updated);
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to update vendor invoice", e) });
+  }
+});
+
+router.post("/vendor-invoices/:id/approve", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
+  try {
+    const id = +param(req, "id");
+    const [vi] = await db.select().from(vendorInvoices).where(eq(vendorInvoices.id, id));
+    if (!vi) return res.status(404).json({ error: "Vendor invoice not found" });
+
+    const [updated] = await db.update(vendorInvoices).set({
+      status: "approved",
+      reviewedBy: (req as any).pmUserId,
+      reviewedAt: new Date(),
+    } as any).where(eq(vendorInvoices.id, id)).returning();
+
+    // Add to payment queue
+    const [queueEntry] = await db.insert(paymentQueue).values({
+      vendorInvoiceId: id,
+      vendorId: vi.vendorId,
+      amount: vi.totalAmount,
+      currency: vi.currency || "EUR",
+      entityId: vi.entityId,
+      createdBy: (req as any).pmUserId,
+    } as any).returning();
+
+    await logAudit((req as any).pmUserId, "approve", "vendor_invoice", id, null, { status: "approved", queueEntryId: queueEntry.id }, getClientIp(req));
+    res.json({ vendorInvoice: updated, queueEntry });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Vendor invoice approval failed", e) });
+  }
+});
+
+router.post("/vendor-invoices/:id/reject", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
+  try {
+    const id = +param(req, "id");
+    const notes = req.body.notes || "";
+    const [updated] = await db.update(vendorInvoices).set({
+      status: "rejected",
+      reviewedBy: (req as any).pmUserId,
+      reviewedAt: new Date(),
+      notes,
+    } as any).where(eq(vendorInvoices.id, id)).returning();
+    if (!updated) return res.status(404).json({ error: "Vendor invoice not found" });
+    await logAudit((req as any).pmUserId, "reject", "vendor_invoice", id, null, { status: "rejected" }, getClientIp(req));
+    res.json(updated);
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Vendor invoice rejection failed", e) });
+  }
+});
+
+// ============================================
+// FAZ 5: PAYMENT QUEUE
+// ============================================
+
+router.get("/payment-queue", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
+  try {
+    const status = req.query.status as string | undefined;
+    let conditions: any[] = [];
+    if (status) conditions.push(eq(paymentQueue.status, status));
+
+    const data = await db.select({
+      queue: paymentQueue,
+      vendorName: vendors.fullName,
+    }).from(paymentQueue)
+      .leftJoin(vendors, eq(paymentQueue.vendorId, vendors.id))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(paymentQueue.createdAt));
+
+    res.json({ queue: data, total: data.length });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to list payment queue", e) });
+  }
+});
+
+router.post("/payment-queue/:id/process", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
+  try {
+    const id = +param(req, "id");
+    const { paymentMethod, paymentReference } = req.body;
+
+    const [entry] = await db.select().from(paymentQueue).where(eq(paymentQueue.id, id));
+    if (!entry) return res.status(404).json({ error: "Payment queue entry not found" });
+
+    // If Wise transfer requested and vendor has wise recipient ID
+    if (paymentMethod === "wise" && entry.vendorId) {
+      const [vendor] = await db.select().from(vendors).where(eq(vendors.id, entry.vendorId));
+      if (vendor && (vendor as any).wiseRecipientId) {
+        const result = await wiseService.createTransfer(
+          (vendor as any).wiseRecipientId,
+          parseFloat(entry.amount),
+          entry.currency || "EUR",
+          paymentReference,
+        );
+        await logAudit((req as any).pmUserId, "wise_transfer", "payment_queue", id, null, result, getClientIp(req));
+      }
+    }
+
+    const [updated] = await db.update(paymentQueue).set({
+      status: "completed",
+      paymentMethod: paymentMethod || entry.paymentMethod,
+      paymentReference: paymentReference || entry.paymentReference,
+      processedAt: new Date(),
+    } as any).where(eq(paymentQueue.id, id)).returning();
+
+    // Also update the vendor invoice to paid
+    if (entry.vendorInvoiceId) {
+      await db.update(vendorInvoices).set({ status: "paid", paymentDate: new Date().toISOString().split("T")[0] } as any).where(eq(vendorInvoices.id, entry.vendorInvoiceId));
+    }
+
+    await logAudit((req as any).pmUserId, "process", "payment_queue", id, null, { paymentMethod, paymentReference }, getClientIp(req));
+    res.json(updated);
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Payment processing failed", e) });
+  }
+});
+
+router.post("/payment-queue/batch-process", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
+  try {
+    const schema = z.object({
+      ids: z.array(z.number()),
+      paymentMethod: z.string().optional(),
+    });
+    const body = validate(schema, req.body, res);
+    if (!body) return;
+
+    const results: any[] = [];
+    for (const id of body.ids) {
+      try {
+        const [updated] = await db.update(paymentQueue).set({
+          status: "completed",
+          paymentMethod: body.paymentMethod || "bank_transfer",
+          processedAt: new Date(),
+        } as any).where(eq(paymentQueue.id, id)).returning();
+        if (updated) {
+          if (updated.vendorInvoiceId) {
+            await db.update(vendorInvoices).set({ status: "paid", paymentDate: new Date().toISOString().split("T")[0] } as any).where(eq(vendorInvoices.id, updated.vendorInvoiceId));
+          }
+          results.push({ id, status: "completed" });
+        }
+      } catch (err: any) {
+        results.push({ id, status: "failed", error: err.message });
+      }
+    }
+
+    await logAudit((req as any).pmUserId, "batch_process", "payment_queue", 0, null, { ids: body.ids, results }, getClientIp(req));
+    res.json({ results });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Batch processing failed", e) });
+  }
+});
+
+// ============================================
+// FAZ 5: ENHANCED P&L
+// ============================================
+
+router.get("/financial/pnl/export", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
+  try {
+    const entityId = req.query.entityId ? +req.query.entityId : undefined;
+    const startDate = req.query.startDate as string;
+    const endDate = req.query.endDate as string;
+
+    let conditions: any[] = [];
+    if (entityId) conditions.push(eq(clientInvoices.entityId, entityId));
+    if (startDate) conditions.push(gte(clientInvoices.invoiceDate, startDate));
+    if (endDate) conditions.push(lte(clientInvoices.invoiceDate, endDate));
+
+    const invoicesData = await db.select().from(clientInvoices).where(conditions.length > 0 ? and(...conditions) : undefined);
+    const revenue = invoicesData.reduce((sum, inv) => sum + parseFloat(inv.total || "0"), 0);
+
+    let poConds: any[] = [];
+    if (entityId) poConds.push(eq(purchaseOrders.entityId, entityId));
+    const posData = await db.select().from(purchaseOrders).where(poConds.length > 0 ? and(...poConds) : undefined);
+    const vendorCost = posData.reduce((sum, po) => sum + parseFloat(po.amount || "0"), 0);
+
+    const grossMargin = revenue - vendorCost;
+    const marginPct = revenue > 0 ? (grossMargin / revenue) * 100 : 0;
+
+    const rows = [
+      { category: "Revenue", amount: revenue.toFixed(2) },
+      { category: "Vendor Costs", amount: vendorCost.toFixed(2) },
+      { category: "Gross Margin", amount: grossMargin.toFixed(2) },
+      { category: "Margin %", amount: marginPct.toFixed(1) + "%" },
+    ];
+
+    const headers = ["category", "amount"];
+    const csv = [headers.join(","), ...rows.map(r => headers.map(h => `"${String((r as any)[h] || "")}"`).join(","))].join("\n");
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", "attachment; filename=pnl-report.csv");
+    res.send(csv);
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("P&L export failed", e) });
+  }
+});
+
+// ============================================
+// FAZ 5: CASH FLOW FORECAST
+// ============================================
+
+router.get("/financial/cash-forecast", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
+  try {
+    const days = req.query.days ? +req.query.days : 90;
+    const entityId = req.query.entityId ? +req.query.entityId : undefined;
+
+    const today = new Date();
+    const endDate = new Date(today.getTime() + days * 86400000);
+
+    // Get all unpaid invoices (expected AR inflows)
+    let arConds: any[] = [sql`${clientInvoices.status} IN ('sent', 'draft')`];
+    if (entityId) arConds.push(eq(clientInvoices.entityId, entityId));
+    const unpaidInvoices = await db.select().from(clientInvoices).where(and(...arConds));
+
+    // Get all pending vendor invoices (expected AP outflows)
+    let apConds: any[] = [sql`${vendorInvoices.status} IN ('submitted', 'approved')`];
+    if (entityId) apConds.push(eq(vendorInvoices.entityId, entityId));
+    const pendingVendorInvoices = await db.select().from(vendorInvoices).where(and(...apConds));
+
+    // Get pending payment queue
+    const pendingPayments = await db.select().from(paymentQueue).where(eq(paymentQueue.status, "pending"));
+
+    // Build daily forecast
+    const forecast: Array<{ date: string; expectedInflow: number; expectedOutflow: number; balance: number }> = [];
+    let runningBalance = 0;
+
+    // Aggregate by date
+    const inflowsByDate: Record<string, number> = {};
+    const outflowsByDate: Record<string, number> = {};
+
+    for (const inv of unpaidInvoices) {
+      const dueDate = inv.dueDate || inv.invoiceDate;
+      if (dueDate) {
+        inflowsByDate[dueDate] = (inflowsByDate[dueDate] || 0) + parseFloat(inv.total || "0");
+      }
+    }
+
+    for (const vi of pendingVendorInvoices) {
+      const dueDate = vi.dueDate || vi.invoiceDate;
+      if (dueDate) {
+        outflowsByDate[dueDate] = (outflowsByDate[dueDate] || 0) + parseFloat(vi.totalAmount || "0");
+      }
+    }
+
+    for (const pq of pendingPayments) {
+      const schedDate = pq.scheduledDate || new Date().toISOString().split("T")[0];
+      outflowsByDate[schedDate] = (outflowsByDate[schedDate] || 0) + parseFloat(pq.amount || "0");
+    }
+
+    // Generate daily entries for next N days
+    for (let i = 0; i < days; i++) {
+      const d = new Date(today.getTime() + i * 86400000);
+      const dateStr = d.toISOString().split("T")[0];
+      const inflow = inflowsByDate[dateStr] || 0;
+      const outflow = outflowsByDate[dateStr] || 0;
+      runningBalance += inflow - outflow;
+      if (inflow > 0 || outflow > 0 || i === 0 || i === days - 1 || i % 7 === 0) {
+        forecast.push({ date: dateStr, expectedInflow: Math.round(inflow * 100) / 100, expectedOutflow: Math.round(outflow * 100) / 100, balance: Math.round(runningBalance * 100) / 100 });
+      }
+    }
+
+    // Scenario analysis
+    const totalAR = unpaidInvoices.reduce((s, i) => s + parseFloat(i.total || "0"), 0);
+    const totalAP = pendingVendorInvoices.reduce((s, i) => s + parseFloat(i.totalAmount || "0"), 0) + pendingPayments.reduce((s, p) => s + parseFloat(p.amount || "0"), 0);
+
+    res.json({
+      forecast,
+      scenarios: {
+        best: { label: "Best case (all AR paid on time)", netPosition: Math.round((totalAR - totalAP) * 100) / 100 },
+        worst: { label: "Worst case (30% AR late)", netPosition: Math.round((totalAR * 0.7 - totalAP) * 100) / 100 },
+        likely: { label: "Likely (85% AR on time)", netPosition: Math.round((totalAR * 0.85 - totalAP) * 100) / 100 },
+      },
+      summary: { totalExpectedInflow: Math.round(totalAR * 100) / 100, totalExpectedOutflow: Math.round(totalAP * 100) / 100, days },
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Cash forecast failed", e) });
+  }
+});
+
+// ============================================
+// FAZ 5: PAYMENT REMINDERS
+// ============================================
+
+router.post("/invoices/:id/send-reminder", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
+  try {
+    const id = +param(req, "id");
+    const [invoice] = await db.select().from(clientInvoices).where(eq(clientInvoices.id, id));
+    if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+
+    const [customer] = await db.select().from(customers).where(eq(customers.id, invoice.customerId));
+    if (!customer || !customer.email) return res.status(400).json({ error: "Customer has no email" });
+
+    // Determine reminder type based on existing reminders
+    const existingReminders = await db.select().from(paymentReminders).where(eq(paymentReminders.invoiceId, id));
+    const reminderTypes = ["first", "second", "third", "final"];
+    const reminderType = reminderTypes[Math.min(existingReminders.length, reminderTypes.length - 1)];
+
+    const symbol = invoice.currency === "GBP" ? "£" : invoice.currency === "EUR" ? "€" : "$";
+    const subject = `Payment Reminder — Invoice ${invoice.invoiceNumber || id}`;
+    const body = `<p>Dear ${customer.name},</p>
+<p>This is a ${reminderType} reminder that invoice <strong>${invoice.invoiceNumber}</strong> for <strong>${symbol}${Number(invoice.total || 0).toFixed(2)}</strong> was due on <strong>${invoice.dueDate || "N/A"}</strong>.</p>
+<p>Please arrange payment at your earliest convenience.</p>
+<p>Thank you,<br/>El Turco Translation Services</p>`;
+
+    try {
+      await sendEmail([customer.email], subject, body);
+    } catch {
+      // Email send failure is non-fatal
+    }
+
+    const [reminder] = await db.insert(paymentReminders).values({
+      invoiceId: id,
+      customerId: invoice.customerId,
+      reminderType,
+      sentBy: (req as any).pmUserId,
+      emailSentTo: customer.email,
+    }).returning();
+
+    await logAudit((req as any).pmUserId, "send_reminder", "client_invoice", id, null, { reminderType, email: customer.email }, getClientIp(req));
+    res.json(reminder);
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Send reminder failed", e) });
+  }
+});
+
+router.get("/invoices/:id/reminders", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const id = +param(req, "id");
+    const reminders = await db.select().from(paymentReminders).where(eq(paymentReminders.invoiceId, id)).orderBy(desc(paymentReminders.sentAt));
+    res.json({ reminders });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to get reminders", e) });
+  }
+});
+
+router.post("/invoices/auto-reminders", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
+  try {
+    // Find overdue invoices
+    const today = new Date().toISOString().split("T")[0];
+    const overdueInvoices = await db.select().from(clientInvoices).where(
+      and(
+        sql`${clientInvoices.status} IN ('sent', 'draft')`,
+        sql`${clientInvoices.dueDate} < ${today}`,
+      )
+    );
+
+    const results: any[] = [];
+    for (const inv of overdueInvoices) {
+      try {
+        const [customer] = await db.select().from(customers).where(eq(customers.id, inv.customerId));
+        if (!customer?.email) continue;
+
+        const dueDate = new Date(inv.dueDate!);
+        const overdueDays = Math.floor((Date.now() - dueDate.getTime()) / 86400000);
+
+        // Check if we should send based on 7/14/30 day schedule
+        const existingReminders = await db.select().from(paymentReminders).where(eq(paymentReminders.invoiceId, inv.id));
+        if (existingReminders.length === 0 && overdueDays >= 7) {
+          // Send first reminder
+        } else if (existingReminders.length === 1 && overdueDays >= 14) {
+          // Send second
+        } else if (existingReminders.length === 2 && overdueDays >= 30) {
+          // Send third
+        } else {
+          continue; // Not time yet
+        }
+
+        const reminderTypes = ["first", "second", "third", "final"];
+        const reminderType = reminderTypes[Math.min(existingReminders.length, 3)];
+
+        const symbol = inv.currency === "GBP" ? "£" : inv.currency === "EUR" ? "€" : "$";
+        const subject = `Payment Reminder (${reminderType}) — Invoice ${inv.invoiceNumber || inv.id}`;
+        const html = `<p>Dear ${customer.name},</p><p>This is a ${reminderType} reminder for invoice <strong>${inv.invoiceNumber}</strong> of <strong>${symbol}${Number(inv.total || 0).toFixed(2)}</strong> (due: ${inv.dueDate}). Now ${overdueDays} days overdue.</p><p>Please arrange payment promptly.</p>`;
+
+        try { await sendEmail([customer.email], subject, html); } catch { /* non-fatal */ }
+
+        const [reminder] = await db.insert(paymentReminders).values({
+          invoiceId: inv.id,
+          customerId: inv.customerId,
+          reminderType,
+          sentBy: (req as any).pmUserId,
+          emailSentTo: customer.email,
+        }).returning();
+
+        results.push({ invoiceId: inv.id, reminderType, sent: true });
+      } catch {
+        results.push({ invoiceId: inv.id, sent: false });
+      }
+    }
+
+    await logAudit((req as any).pmUserId, "auto_reminders", "client_invoice", 0, null, { count: results.filter(r => r.sent).length }, getClientIp(req));
+    res.json({ processed: results.length, sent: results.filter(r => r.sent).length, results });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Auto-reminders failed", e) });
+  }
+});
+
+// ============================================
+// FAZ 5: TAX CODE MANAGEMENT
+// ============================================
+
+router.get("/tax-codes", requireAuth, async (_req: Request, res: Response) => {
+  try {
+    const codes = await db.select().from(taxCodes).orderBy(asc(taxCodes.code));
+    res.json({ taxCodes: codes });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to list tax codes", e) });
+  }
+});
+
+router.post("/tax-codes", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
+  try {
+    const schema = z.object({
+      code: z.string().min(1).max(50),
+      name: z.string().min(1).max(200),
+      rate: z.any(),
+      country: z.string().max(3).optional(),
+      description: z.string().optional(),
+      entityId: z.number().optional(),
+    });
+    const body = validate(schema, req.body, res);
+    if (!body) return;
+    const [created] = await db.insert(taxCodes).values({ ...body, rate: String(body.rate) } as any).returning();
+    await logAudit((req as any).pmUserId, "create", "tax_code", created.id, null, created, getClientIp(req));
+    res.json(created);
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to create tax code", e) });
+  }
+});
+
+router.patch("/tax-codes/:id", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
+  try {
+    const id = +param(req, "id");
+    const updates: any = { ...req.body };
+    if (updates.rate !== undefined) updates.rate = String(updates.rate);
+    const [updated] = await db.update(taxCodes).set(updates).where(eq(taxCodes.id, id)).returning();
+    if (!updated) return res.status(404).json({ error: "Tax code not found" });
+    await logAudit((req as any).pmUserId, "update", "tax_code", id, null, updates, getClientIp(req));
+    res.json(updated);
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to update tax code", e) });
+  }
+});
+
+router.delete("/tax-codes/:id", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
+  try {
+    const id = +param(req, "id");
+    await db.delete(taxCodes).where(eq(taxCodes.id, id));
+    await logAudit((req as any).pmUserId, "delete", "tax_code", id, null, null, getClientIp(req));
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to delete tax code", e) });
+  }
+});
+
+// ============================================
+// FAZ 5: QBO SYNC STATUS
+// ============================================
+
+router.post("/invoices/:id/qbo-sync", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
+  try {
+    const id = +param(req, "id");
+    const [invoice] = await db.select().from(clientInvoices).where(eq(clientInvoices.id, id));
+    if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+
+    const result = await qboService.syncInvoice(id, invoice);
+    if (result.synced) {
+      await db.update(clientInvoices).set({
+        qboInvoiceId: result.qboInvoiceId,
+        qboSyncStatus: "synced",
+        qboLastSynced: new Date(),
+      }).where(eq(clientInvoices.id, id));
+    }
+    await logAudit((req as any).pmUserId, "qbo_sync", "client_invoice", id, null, result, getClientIp(req));
+    res.json(result);
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("QBO sync failed", e) });
+  }
+});
+
+// ============================================
+// FAZ 5: ENHANCED DASHBOARD KPIs
+// ============================================
+
+router.get("/dashboard/finance-kpis", requireAuth, async (_req: Request, res: Response) => {
+  try {
+    // Overdue invoices
+    const today = new Date().toISOString().split("T")[0];
+    const overdueInvoices = await db.select().from(clientInvoices).where(
+      and(sql`${clientInvoices.status} IN ('sent', 'draft')`, sql`${clientInvoices.dueDate} < ${today}`)
+    );
+    const overdueTotal = overdueInvoices.reduce((s, i) => s + parseFloat(i.total || "0"), 0);
+
+    // Payment queue summary
+    const pendingQueue = await db.select().from(paymentQueue).where(eq(paymentQueue.status, "pending"));
+    const queueTotal = pendingQueue.reduce((s, p) => s + parseFloat(p.amount || "0"), 0);
+
+    // Top 5 customers by revenue (last 30 days)
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
+    const recentInvoices = await db.select({
+      customerId: clientInvoices.customerId,
+      total: clientInvoices.total,
+    }).from(clientInvoices).where(gte(clientInvoices.invoiceDate, thirtyDaysAgo));
+
+    const customerRevMap: Record<number, number> = {};
+    for (const inv of recentInvoices) {
+      customerRevMap[inv.customerId] = (customerRevMap[inv.customerId] || 0) + parseFloat(inv.total || "0");
+    }
+    const topCustomerIds = Object.entries(customerRevMap)
+      .sort(([, a], [, b]) => b - a).slice(0, 5);
+
+    const topCustomers: Array<{ id: number; name: string; revenue: number }> = [];
+    for (const [cid, rev] of topCustomerIds) {
+      const [c] = await db.select().from(customers).where(eq(customers.id, +cid));
+      topCustomers.push({ id: +cid, name: c?.name || `Customer #${cid}`, revenue: Math.round(rev * 100) / 100 });
+    }
+
+    // Top 5 vendors by cost
+    const recentPOs = await db.select({
+      vendorId: purchaseOrders.vendorId,
+      amount: purchaseOrders.amount,
+    }).from(purchaseOrders).where(gte(purchaseOrders.createdAt, new Date(Date.now() - 30 * 86400000)));
+
+    const vendorCostMap: Record<number, number> = {};
+    for (const po of recentPOs) {
+      vendorCostMap[po.vendorId] = (vendorCostMap[po.vendorId] || 0) + parseFloat(po.amount || "0");
+    }
+    const topVendorIds = Object.entries(vendorCostMap)
+      .sort(([, a], [, b]) => b - a).slice(0, 5);
+
+    const topVendors: Array<{ id: number; name: string; cost: number }> = [];
+    for (const [vid, cost] of topVendorIds) {
+      const [v] = await db.select().from(vendors).where(eq(vendors.id, +vid));
+      topVendors.push({ id: +vid, name: (v as any)?.fullName || `Vendor #${vid}`, cost: Math.round(cost * 100) / 100 });
+    }
+
+    res.json({
+      overdueInvoices: { count: overdueInvoices.length, total: Math.round(overdueTotal * 100) / 100 },
+      paymentQueue: { count: pendingQueue.length, total: Math.round(queueTotal * 100) / 100 },
+      topCustomers,
+      topVendors,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Finance KPIs failed", e) });
+  }
+});
+
+// ============================================
+// FAZ 5: WISE SERVICE STATUS
+// ============================================
+
+router.get("/integrations/wise/status", requireAuth, requireFinanceRole, async (_req: Request, res: Response) => {
+  try {
+    res.json({ live: wiseService.isLive(), message: wiseService.isLive() ? "Wise API connected" : "Wise running in stub mode — set WISE_API_KEY to enable" });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Wise status check failed", e) });
+  }
+});
+
+router.get("/integrations/qbo/status", requireAuth, requireFinanceRole, async (_req: Request, res: Response) => {
+  try {
+    res.json({ live: qboService.isLive(), message: qboService.isLive() ? "QuickBooks Online connected" : "QBO running in stub mode — set QBO_CLIENT_ID and QBO_CLIENT_SECRET to enable" });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("QBO status check failed", e) });
   }
 });
 

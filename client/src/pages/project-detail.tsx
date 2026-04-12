@@ -19,7 +19,7 @@ import {
   ArrowLeft, Save, Calendar, FolderKanban, Plus, Briefcase, DollarSign,
   Building2, Edit2, ChevronDown, ChevronRight, ExternalLink, Check,
   FileText, Upload, TrendingUp, Hash, Clock, User, Tag, Globe, Trash2,
-  Zap, Award, Star,
+  Zap, Award, Star, Lock, ArrowRight, Link2, Bot,
 } from "lucide-react";
 
 interface ProjectDetail {
@@ -277,6 +277,16 @@ export default function ProjectDetailPage() {
     onError: (e: any) => toast({ title: "Assignment failed", description: e.message, variant: "destructive" }),
   });
 
+  // FIX-4: Auto-dispatch mutation
+  const autoDispatchMutation = useMutation({
+    mutationFn: async (jobId: number) => { const r = await apiRequest("POST", `/api/projects/${projectId}/jobs/${jobId}/auto-dispatch`); return r.json(); },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "jobs"] });
+      toast({ title: "Auto-dispatched", description: `Job assigned to vendor` });
+    },
+    onError: (e: any) => toast({ title: "Auto-dispatch", description: e.message || "No matching rule found", variant: "destructive" }),
+  });
+
   const generateInvoiceMutation = useMutation({
     mutationFn: async () => { const r = await apiRequest("POST", `/api/projects/${projectId}/generate-invoice`); return r.json(); },
     onSuccess: () => {
@@ -336,6 +346,51 @@ export default function ProjectDetailPage() {
       toast({ title: "Job updated" });
     },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  // FIX-5: Dependency chain state
+  const [showDepDialog, setShowDepDialog] = useState(false);
+  const [depSourceJobId, setDepSourceJobId] = useState<number | null>(null);
+  const [showDepChain, setShowDepChain] = useState(false);
+
+  const depChainQuery = useQuery({
+    queryKey: ["/api/projects", projectId, "dependency-chain"],
+    queryFn: async () => { const r = await apiRequest("GET", `/api/projects/${projectId}/dependency-chain`); return r.json(); },
+    enabled: !!projectId,
+  });
+
+  const addDepMutation = useMutation({
+    mutationFn: async ({ jobId, dependsOnJobId }: { jobId: number; dependsOnJobId: number }) => {
+      const r = await apiRequest("POST", `/api/projects/${projectId}/jobs/${jobId}/dependencies`, { dependsOnJobId });
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "dependency-chain"] });
+      setShowDepDialog(false);
+      setDepSourceJobId(null);
+      toast({ title: "Dependency added" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const removeDepMutation = useMutation({
+    mutationFn: async ({ jobId, depId }: { jobId: number; depId: number }) => {
+      const r = await apiRequest("DELETE", `/api/projects/${projectId}/jobs/${jobId}/dependencies/${depId}`);
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "dependency-chain"] });
+      toast({ title: "Dependency removed" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  // FIX-3: Project-level smart match
+  const [showProjectSmartMatch, setShowProjectSmartMatch] = useState(false);
+  const projectSmartMatchQuery = useQuery({
+    queryKey: ["/api/projects", projectId, "smart-match"],
+    queryFn: async () => { const r = await apiRequest("GET", `/api/projects/${projectId}/smart-match`); return r.json(); },
+    enabled: showProjectSmartMatch && !!projectId,
   });
 
   // Derived data
@@ -697,10 +752,65 @@ export default function ProjectDetailPage() {
         <TabsContent value="jobs" className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-white/70">Jobs</h3>
-            <Button size="sm" onClick={() => setShowAddJob(true)} className="bg-blue-600 hover:bg-blue-700 text-white text-xs">
-              <Plus className="w-3 h-3 mr-1" />Add Job
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={() => setShowProjectSmartMatch(true)} className="text-xs border-amber-500/30 text-amber-400 hover:bg-amber-500/10">
+                <Bot className="w-3 h-3 mr-1" />Smart Match
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setShowDepChain(!showDepChain)} className="text-xs border-white/10">
+                <Link2 className="w-3 h-3 mr-1" />{showDepChain ? "Hide" : "Show"} Dependencies
+              </Button>
+              <Button size="sm" onClick={() => setShowAddJob(true)} className="bg-blue-600 hover:bg-blue-700 text-white text-xs">
+                <Plus className="w-3 h-3 mr-1" />Add Job
+              </Button>
+            </div>
           </div>
+          {/* FIX-5: Dependency Chain Visualization */}
+          {showDepChain && (
+            <Card className="bg-white/[0.03] border-white/[0.06]">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-white/70 flex items-center gap-2"><Link2 className="w-3.5 h-3.5" /> Dependency Chain</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {depChainQuery.isLoading ? (
+                  <Skeleton className="h-20 bg-white/[0.04] rounded" />
+                ) : (
+                  <div className="space-y-2">
+                    {(depChainQuery.data?.chain || []).length === 0 ? (
+                      <p className="text-xs text-white/30 text-center py-4">No dependencies configured. Use the link icon on each job to add dependencies.</p>
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-2">
+                        {(depChainQuery.data?.chain || []).map((node: any, idx: number) => (
+                          <div key={node.jobId} className="flex items-center gap-2">
+                            <div className={`px-3 py-2 rounded-lg border text-xs ${node.isBlocked ? "bg-red-500/10 border-red-500/25 text-red-400" : "bg-white/[0.04] border-white/[0.08] text-white/70"}`}>
+                              <div className="flex items-center gap-1.5">
+                                {node.isBlocked && <Lock className="w-3 h-3" />}
+                                <span className="font-medium">{node.jobName || node.jobCode || `Job #${node.jobId}`}</span>
+                              </div>
+                              <div className="text-[10px] text-white/30 mt-0.5">{node.status}</div>
+                              {node.dependencies?.length > 0 && (
+                                <div className="mt-1 space-y-0.5">
+                                  {node.dependencies.map((dep: any) => (
+                                    <div key={dep.dependencyId} className="flex items-center gap-1 text-[10px]">
+                                      <span className="text-white/20">depends on:</span>
+                                      <span className={dep.status === "delivered" || dep.status === "approved" ? "text-emerald-400" : "text-amber-400"}>
+                                        {dep.jobName || `Job #${dep.jobId}`}
+                                      </span>
+                                      <button onClick={() => removeDepMutation.mutate({ jobId: node.jobId, depId: dep.dependencyId })} className="text-red-400/50 hover:text-red-400 ml-1">x</button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            {idx < (depChainQuery.data?.chain || []).length - 1 && <ArrowRight className="w-3 h-3 text-white/20 shrink-0" />}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
           {jobsQuery.isLoading ? (
             <Skeleton className="h-32 bg-white/[0.04] rounded" />
           ) : jobs.length === 0 ? (
@@ -744,6 +854,9 @@ export default function ProjectDetailPage() {
                         onDelete={() => deleteJobMutation.mutate(job.id)}
                         onTransition={(action) => jobTransitionMutation.mutate({ jobId: job.id, action })}
                         onAssignVendor={(vendorId) => assignVendorMutation.mutate({ jobId: job.id, vendorId })}
+                        onAutoDispatch={() => autoDispatchMutation.mutate(job.id)}
+                        onAddDependency={() => { setDepSourceJobId(job.id); setShowDepDialog(true); }}
+                        depChain={depChainQuery.data?.chain?.find((c: any) => c.jobId === job.id)}
                         vendors={(vendorsQuery.data || []).map(v => ({ id: v.id, name: (v as any).fullName || (v as any).full_name || v.name || `Vendor #${v.id}` }))}
                       />
                     );
@@ -947,6 +1060,66 @@ export default function ProjectDetailPage() {
         </DialogContent>
       </Dialog>
 
+      {/* FIX-3: PROJECT-LEVEL SMART MATCH DIALOG */}
+      <Dialog open={showProjectSmartMatch} onOpenChange={setShowProjectSmartMatch}>
+        <DialogContent className="bg-[#1a1d27] border-white/10 text-white max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="text-sm flex items-center gap-2"><Bot className="w-4 h-4 text-amber-400" /> Project Smart Match</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto min-h-0 space-y-2 py-2">
+            {projectSmartMatchQuery.isLoading ? (
+              <div className="space-y-2">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-16" />)}</div>
+            ) : (projectSmartMatchQuery.data?.matches || []).length === 0 ? (
+              <div className="text-center py-8 text-white/30 text-sm">No matches found for this project</div>
+            ) : (
+              (projectSmartMatchQuery.data?.matches || []).slice(0, 5).map((m: any, i: number) => (
+                <div key={m.vendorId || i} className="flex items-center gap-3 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg hover:bg-white/[0.05] transition-colors">
+                  <div className="w-8 h-8 rounded-full bg-amber-500/20 flex items-center justify-center text-xs font-bold text-amber-400 shrink-0">{i + 1}</div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-white font-medium truncate">{m.vendorName || m.fullName || `Vendor #${m.vendorId}`}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      {m.factors && Object.entries(m.factors).map(([k, v]) => (
+                        <span key={k} className="text-[9px] px-1 py-0.5 bg-white/[0.04] rounded text-white/40">{k}: {String(v)}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="text-center shrink-0">
+                    <p className="text-lg font-bold text-emerald-400">{m.score || m.matchScore || 0}</p>
+                    <p className="text-[9px] text-white/20">score</p>
+                  </div>
+                  {jobs.filter(j => !j.vendorId).length > 0 && (
+                    <Select onValueChange={(jobId) => assignVendorMutation.mutate({ jobId: +jobId, vendorId: m.vendorId })}>
+                      <SelectTrigger className="w-32 h-7 text-[10px]"><SelectValue placeholder="Assign to..." /></SelectTrigger>
+                      <SelectContent>
+                        {jobs.filter(j => !j.vendorId).map(j => <SelectItem key={j.id} value={String(j.id)}>{j.jobName || `Job #${j.id}`}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* FIX-5: ADD DEPENDENCY DIALOG */}
+      <Dialog open={showDepDialog} onOpenChange={(open) => { if (!open) { setShowDepDialog(false); setDepSourceJobId(null); } }}>
+        <DialogContent className="bg-[#1a1d27] border-white/[0.08] text-white max-w-md">
+          <DialogHeader><DialogTitle className="text-sm">Add Dependency</DialogTitle></DialogHeader>
+          <p className="text-xs text-white/40">Select the job that <span className="text-white/70">{jobs.find(j => j.id === depSourceJobId)?.jobName || `Job #${depSourceJobId}`}</span> depends on (must complete before this job can start):</p>
+          <div className="space-y-1 max-h-60 overflow-y-auto mt-2">
+            {jobs.filter(j => j.id !== depSourceJobId).map(j => (
+              <button key={j.id} onClick={() => depSourceJobId && addDepMutation.mutate({ jobId: depSourceJobId, dependsOnJobId: j.id })}
+                className="w-full text-left px-3 py-2 rounded-md bg-white/[0.04] hover:bg-white/[0.08] text-sm text-white/70 transition-colors flex items-center gap-2">
+                <Badge className={`text-[9px] border ${JOB_STATUS_COLORS[j.status] || ""}`}>{j.status}</Badge>
+                {j.jobName || j.jobCode || `Job #${j.id}`}
+              </button>
+            ))}
+          </div>
+          <DialogFooter><Button variant="outline" size="sm" onClick={() => { setShowDepDialog(false); setDepSourceJobId(null); }}>Cancel</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* EDIT JOB DIALOG */}
       <Dialog open={showEditJob} onOpenChange={(open) => { if (!open) { setShowEditJob(false); setEditingJobId(null); } }}>
         <DialogContent className="bg-[#1a1d27] border-white/[0.08] text-white max-w-3xl max-h-[85vh] overflow-y-auto">
@@ -1051,9 +1224,11 @@ export default function ProjectDetailPage() {
 }
 
 // Extracted to a component to avoid React key issues with fragments in table rows
-function JobTableRows({ job, currency, isExpanded, hasCat, onToggle, onEdit, onDelete, onTransition, onAssignVendor, vendors }: {
+function JobTableRows({ job, currency, isExpanded, hasCat, onToggle, onEdit, onDelete, onTransition, onAssignVendor, onAutoDispatch, onAddDependency, depChain, vendors }: {
   job: Job; currency: string; isExpanded: boolean; hasCat: boolean; onToggle: () => void; onEdit: () => void; onDelete: () => void;
-  onTransition: (action: string) => void; onAssignVendor: (vendorId: number) => void; vendors: { id: number; name: string }[];
+  onTransition: (action: string) => void; onAssignVendor: (vendorId: number) => void;
+  onAutoDispatch: () => void; onAddDependency: () => void; depChain?: any;
+  vendors: { id: number; name: string }[];
 }) {
   const [showVendorPicker, setShowVendorPicker] = useState(false);
   const [showSmartMatch, setShowSmartMatch] = useState(false);
@@ -1087,6 +1262,7 @@ function JobTableRows({ job, currency, isExpanded, hasCat, onToggle, onEdit, onD
             <div className="flex items-center gap-1">
               <button onClick={(e) => { e.stopPropagation(); setShowVendorPicker(!showVendorPicker); }} className="text-blue-400 hover:text-blue-300 text-[11px]">+ Assign</button>
               <button onClick={(e) => { e.stopPropagation(); setShowSmartMatch(true); }} className="text-amber-400 hover:text-amber-300 text-[11px] flex items-center gap-0.5"><Zap className="w-2.5 h-2.5" />Smart</button>
+              <button onClick={(e) => { e.stopPropagation(); onAutoDispatch(); }} className="text-purple-400 hover:text-purple-300 text-[11px] flex items-center gap-0.5" title="Auto-Dispatch"><Bot className="w-2.5 h-2.5" />Auto</button>
             </div>
           )}
           {showVendorPicker && (
@@ -1100,7 +1276,10 @@ function JobTableRows({ job, currency, isExpanded, hasCat, onToggle, onEdit, onD
           )}
         </TableCell>
         <TableCell className="px-3 py-2">
-          <Badge className={`text-[10px] border ${JOB_STATUS_COLORS[job.status] || "bg-zinc-500/15 text-zinc-400 border-zinc-500/25"}`}>{job.status.replace(/_/g, " ")}</Badge>
+          <div className="flex items-center gap-1">
+            {depChain?.isBlocked && <Lock className="w-3 h-3 text-red-400" title={`Blocked by: ${depChain.dependencies?.filter((d: any) => d.status !== "delivered" && d.status !== "approved").map((d: any) => d.jobName || `Job #${d.jobId}`).join(", ")}`} />}
+            <Badge className={`text-[10px] border ${JOB_STATUS_COLORS[job.status] || "bg-zinc-500/15 text-zinc-400 border-zinc-500/25"}`}>{job.status.replace(/_/g, " ")}</Badge>
+          </div>
         </TableCell>
         <TableCell className="text-[11px] text-white/40 px-3 py-2">{formatDate(job.deadline)}</TableCell>
         <TableCell className="px-3 py-2">
@@ -1113,6 +1292,9 @@ function JobTableRows({ job, currency, isExpanded, hasCat, onToggle, onEdit, onD
               ) : null;
             })}
             {hasCat && <ChevronRight className={`w-3.5 h-3.5 text-white/20 transition-transform ${isExpanded ? "rotate-90" : ""}`} />}
+            <button onClick={(e) => { e.stopPropagation(); onAddDependency(); }} className="p-1 rounded hover:bg-purple-500/10" title="Add dependency">
+              <Link2 className="w-3 h-3 text-white/20 hover:text-purple-400" />
+            </button>
             <button onClick={(e) => { e.stopPropagation(); onEdit(); }} className="p-1 rounded hover:bg-blue-500/10" title="Edit job">
               <Edit2 className="w-3 h-3 text-white/20 hover:text-blue-400" />
             </button>

@@ -190,6 +190,24 @@ export default function FinancialDashboardPage() {
     },
   });
 
+  // Faz 5: Cash forecast
+  const { data: cashForecast } = useQuery({
+    queryKey: ["/api/financial/cash-forecast"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/financial/cash-forecast?days=90");
+      return r.json();
+    },
+  });
+
+  // Faz 5: Enhanced finance KPIs
+  const { data: financeKpis } = useQuery({
+    queryKey: ["/api/dashboard/finance-kpis"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/dashboard/finance-kpis");
+      return r.json();
+    },
+  });
+
   const entityList = Array.isArray(entitiesData) ? entitiesData : [];
   const overdueInvoices = overdueData?.data || [];
 
@@ -658,6 +676,120 @@ export default function FinancialDashboardPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Faz 5: Enhanced Dashboard Widgets */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Cash Flow Forecast Mini Chart */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xs font-semibold text-foreground flex items-center gap-2">
+                <TrendingUp className="w-3.5 h-3.5" /> Cash Flow Forecast (90 days)
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-2">
+              {cashForecast?.forecast ? (
+                <div className="h-[180px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={cashForecast.forecast.slice(0, 30)} margin={{ top: 5, right: 5, left: -10, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                      <XAxis dataKey="date" tick={{ fontSize: 9 }} tickFormatter={(v: string) => v.slice(5)} />
+                      <YAxis tick={{ fontSize: 9 }} />
+                      <Tooltip contentStyle={TOOLTIP_STYLE} />
+                      <Bar dataKey="expectedInflow" fill="#10b981" name="Inflow" />
+                      <Bar dataKey="expectedOutflow" fill="#ef4444" name="Outflow" />
+                      <Line type="monotone" dataKey="balance" stroke="#3b82f6" strokeWidth={2} dot={false} name="Balance" />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="py-6 text-center text-xs text-muted-foreground">No forecast data</div>
+              )}
+              {cashForecast?.scenarios && (
+                <div className="grid grid-cols-3 gap-2 mt-2">
+                  {Object.entries(cashForecast.scenarios).map(([key, scenario]: [string, any]) => (
+                    <div key={key} className="text-center p-1.5 bg-white/[0.03] rounded">
+                      <p className="text-[9px] text-muted-foreground capitalize">{key}</p>
+                      <p className={`text-xs font-bold ${scenario.netPosition >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                        {formatCompactCurrency(scenario.netPosition)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Payment Queue & Overdue Alert */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xs font-semibold text-foreground flex items-center gap-2">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-400" /> Alerts & Queue
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center justify-between p-3 bg-red-500/5 border border-red-500/15 rounded-lg">
+                <div>
+                  <p className="text-xs font-medium text-red-400">Overdue Invoices</p>
+                  <p className="text-[10px] text-muted-foreground">{financeKpis?.overdueInvoices?.count || 0} invoices</p>
+                </div>
+                <p className="text-lg font-bold text-red-400">{formatCompactCurrency(financeKpis?.overdueInvoices?.total || 0)}</p>
+              </div>
+              <div className="flex items-center justify-between p-3 bg-yellow-500/5 border border-yellow-500/15 rounded-lg">
+                <div>
+                  <p className="text-xs font-medium text-yellow-400">Payment Queue</p>
+                  <p className="text-[10px] text-muted-foreground">{financeKpis?.paymentQueue?.count || 0} pending</p>
+                </div>
+                <p className="text-lg font-bold text-yellow-400">{formatCompactCurrency(financeKpis?.paymentQueue?.total || 0)}</p>
+              </div>
+              <div className="flex gap-2">
+                <Link href="/vendor-invoices"><Button size="sm" variant="outline" className="text-[10px] h-7">Vendor Invoices</Button></Link>
+                <Link href="/payment-queue"><Button size="sm" variant="outline" className="text-[10px] h-7">Payment Queue</Button></Link>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Top 5 Customers & Vendors (Last 30 Days) */}
+        {(financeKpis?.topCustomers?.length > 0 || financeKpis?.topVendors?.length > 0) && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs font-semibold text-foreground">Top 5 Customers (30d Revenue)</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <Table>
+                  <TableBody>
+                    {(financeKpis?.topCustomers || []).map((c: any, i: number) => (
+                      <TableRow key={c.id} className="border-white/[0.06]">
+                        <TableCell className="text-[11px] text-muted-foreground px-3 py-1.5 w-6">{i + 1}</TableCell>
+                        <TableCell className="text-xs text-foreground px-3 py-1.5">{c.name}</TableCell>
+                        <TableCell className="text-xs text-emerald-400 px-3 py-1.5 text-right font-medium">{formatCurrency(c.revenue)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs font-semibold text-foreground">Top 5 Vendors (30d Cost)</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <Table>
+                  <TableBody>
+                    {(financeKpis?.topVendors || []).map((v: any, i: number) => (
+                      <TableRow key={v.id} className="border-white/[0.06]">
+                        <TableCell className="text-[11px] text-muted-foreground px-3 py-1.5 w-6">{i + 1}</TableCell>
+                        <TableCell className="text-xs text-foreground px-3 py-1.5">{v.name}</TableCell>
+                        <TableCell className="text-xs text-orange-400 px-3 py-1.5 text-right font-medium">{formatCurrency(v.cost)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         {/* Entity Comparison */}
         {entityComparison.length > 0 && (

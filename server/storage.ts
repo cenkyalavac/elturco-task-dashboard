@@ -325,6 +325,98 @@ export class DatabaseStorage implements IStorage {
       );`,
       `CREATE INDEX IF NOT EXISTS idx_job_dependencies_job ON job_dependencies(job_id);`,
       `CREATE INDEX IF NOT EXISTS idx_job_dependencies_dep ON job_dependencies(depends_on_job_id);`,
+
+      // 008: Faz 5 — Financial Engine
+
+      // Entity financial settings
+      `ALTER TABLE entities ADD COLUMN IF NOT EXISTS tax_id VARCHAR(100);`,
+      `ALTER TABLE entities ADD COLUMN IF NOT EXISTS billing_address TEXT;`,
+      `ALTER TABLE entities ADD COLUMN IF NOT EXISTS invoice_prefix VARCHAR(20);`,
+      `ALTER TABLE entities ADD COLUMN IF NOT EXISTS invoice_next_number INTEGER DEFAULT 1;`,
+      `ALTER TABLE entities ADD COLUMN IF NOT EXISTS default_payment_terms INTEGER DEFAULT 30;`,
+      `ALTER TABLE entities ADD COLUMN IF NOT EXISTS logo_url VARCHAR(500);`,
+      `ALTER TABLE entities ADD COLUMN IF NOT EXISTS wise_profile_id VARCHAR(100);`,
+      `ALTER TABLE entities ADD COLUMN IF NOT EXISTS qbo_company_id VARCHAR(100);`,
+
+      // Invoice approval workflow
+      `ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS approval_status VARCHAR(50) DEFAULT 'draft';`,
+      `ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS approved_by INTEGER;`,
+      `ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;`,
+      `ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS pdf_url VARCHAR(500);`,
+      `ALTER TABLE client_invoices ADD COLUMN IF NOT EXISTS project_id INTEGER;`,
+
+      // Vendor payment columns
+      `ALTER TABLE vendors ADD COLUMN IF NOT EXISTS wise_recipient_id VARCHAR(200);`,
+      `ALTER TABLE vendors ADD COLUMN IF NOT EXISTS payment_method VARCHAR(50) DEFAULT 'bank_transfer';`,
+
+      // Vendor invoices (AP)
+      `CREATE TABLE IF NOT EXISTS vendor_invoices (
+        id SERIAL PRIMARY KEY,
+        vendor_id INTEGER NOT NULL REFERENCES vendors(id),
+        po_id INTEGER REFERENCES purchase_orders(id),
+        invoice_number VARCHAR(100) NOT NULL,
+        invoice_date DATE NOT NULL,
+        due_date DATE,
+        amount DECIMAL(12,2) NOT NULL,
+        currency VARCHAR(3) DEFAULT 'EUR',
+        tax_amount DECIMAL(12,2) DEFAULT 0,
+        total_amount DECIMAL(12,2) NOT NULL,
+        status VARCHAR(50) DEFAULT 'submitted',
+        reviewed_by INTEGER REFERENCES users(id),
+        reviewed_at TIMESTAMPTZ,
+        payment_date DATE,
+        notes TEXT,
+        file_url VARCHAR(500),
+        entity_id INTEGER REFERENCES entities(id),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );`,
+      `CREATE INDEX IF NOT EXISTS idx_vendor_invoices_vendor ON vendor_invoices(vendor_id);`,
+      `CREATE INDEX IF NOT EXISTS idx_vendor_invoices_status ON vendor_invoices(status);`,
+
+      // Payment queue
+      `CREATE TABLE IF NOT EXISTS payment_queue (
+        id SERIAL PRIMARY KEY,
+        vendor_invoice_id INTEGER REFERENCES vendor_invoices(id),
+        vendor_id INTEGER NOT NULL REFERENCES vendors(id),
+        amount DECIMAL(12,2) NOT NULL,
+        currency VARCHAR(3) DEFAULT 'EUR',
+        status VARCHAR(50) DEFAULT 'pending',
+        payment_method VARCHAR(50),
+        payment_reference VARCHAR(200),
+        scheduled_date DATE,
+        processed_at TIMESTAMPTZ,
+        entity_id INTEGER REFERENCES entities(id),
+        created_by INTEGER REFERENCES users(id),
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );`,
+      `CREATE INDEX IF NOT EXISTS idx_payment_queue_status ON payment_queue(status);`,
+
+      // Payment reminders
+      `CREATE TABLE IF NOT EXISTS payment_reminders (
+        id SERIAL PRIMARY KEY,
+        invoice_id INTEGER NOT NULL REFERENCES client_invoices(id),
+        customer_id INTEGER NOT NULL REFERENCES customers(id),
+        reminder_type VARCHAR(50) NOT NULL,
+        sent_at TIMESTAMPTZ DEFAULT NOW(),
+        sent_by INTEGER REFERENCES users(id),
+        email_sent_to VARCHAR(300),
+        response TEXT
+      );`,
+      `CREATE INDEX IF NOT EXISTS idx_payment_reminders_invoice ON payment_reminders(invoice_id);`,
+
+      // Tax codes
+      `CREATE TABLE IF NOT EXISTS tax_codes (
+        id SERIAL PRIMARY KEY,
+        code VARCHAR(50) NOT NULL,
+        name VARCHAR(200) NOT NULL,
+        rate DECIMAL(5,2) NOT NULL,
+        country VARCHAR(3),
+        description TEXT,
+        is_active BOOLEAN DEFAULT TRUE,
+        entity_id INTEGER REFERENCES entities(id),
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );`,
     ];
 
     for (const migration of migrations) {

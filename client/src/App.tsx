@@ -62,6 +62,10 @@ import ProjectArchivePage from "@/pages/project-archive";
 import SettingsProjectTemplatesPage from "@/pages/settings-project-templates";
 import SettingsAutoDispatchPage from "@/pages/settings-auto-dispatch";
 
+// Faz 5: Financial Engine
+import VendorInvoicesPage from "@/pages/vendor-invoices";
+import PaymentQueuePage from "@/pages/payment-queue";
+
 import {
   LogOut, BarChart3, Sun, Moon, Bell, CheckCheck, Menu, X,
   Users, Building2, FolderKanban, Award, LayoutDashboard, History, Settings,
@@ -448,6 +452,8 @@ function AppLayout() {
             {canSeeFinances && <SidebarLink href="/finances" label="Finances" icon={<DollarSign className="w-4 h-4" />} />}
             {canSeeFinances && <SidebarLink href="/invoices" label="Invoices" icon={<FileText className="w-4 h-4" />} />}
             {canSeeFinances && <SidebarLink href="/purchase-orders" label="POs" icon={<ShoppingCart className="w-4 h-4" />} />}
+            {canSeeFinances && <SidebarLink href="/vendor-invoices" label="Vendor Invoices" icon={<FileText className="w-4 h-4" />} />}
+            {canSeeFinances && <SidebarLink href="/payment-queue" label="Payment Queue" icon={<DollarSign className="w-4 h-4" />} />}
             {canSeeVendorMgmt && <SidebarLink href="/vm-dashboard" label="VM Dashboard" icon={<LayoutDashboard className="w-4 h-4" />} />}
             {canSeeVendorMgmt && <SidebarLink href="/vm/review-applications" label="Review Apps" icon={<ClipboardCheck className="w-4 h-4" />} />}
             {canSeeVendorMgmt && <SidebarLink href="/vm/capacity-map" label="Capacity Map" icon={<Grid3x3 className="w-4 h-4" />} />}
@@ -484,6 +490,9 @@ function AppLayout() {
             <Route path="/finances">{() => <ProtectedRoute component={FinancialDashboardPage} />}</Route>
             <Route path="/invoices">{() => <ProtectedRoute component={InvoicesPage} />}</Route>
             <Route path="/purchase-orders">{() => <ProtectedRoute component={PurchaseOrdersPage} />}</Route>
+            {/* Faz 5: Financial Engine */}
+            <Route path="/vendor-invoices">{() => <ProtectedRoute component={VendorInvoicesPage} />}</Route>
+            <Route path="/payment-queue">{() => <ProtectedRoute component={PaymentQueuePage} />}</Route>
             <Route path="/auto-accept">{() => <ProtectedRoute component={AutoAcceptPage} />}</Route>
             <Route path="/integrations">{() => <ProtectedRoute component={IntegrationsPage} />}</Route>
             {/* Faz 4: Project Engine & Smart Assignment */}

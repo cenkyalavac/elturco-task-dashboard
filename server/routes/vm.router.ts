@@ -737,7 +737,7 @@ router.get("/vendors/:id/onboarding", requireAuth, requireRole("vm", "operations
 router.patch("/vendors/:id/onboarding/:taskId", requireAuth, requireRole("vm", "operations_manager"), async (req: Request, res: Response) => {
   try {
     const vendorId = parseInt(param(req, "id"));
-    const taskId = parseInt(req.params.taskId);
+    const taskId = parseInt(param(req, "taskId"));
     const schema = z.object({
       status: z.enum(["pending", "completed", "skipped"]),
       notes: z.string().optional(),
