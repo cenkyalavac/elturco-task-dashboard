@@ -480,6 +480,15 @@ export class DatabaseStorage implements IStorage {
     const [result] = await db.select().from(entities).where(eq(entities.id, id));
     return result;
   }
+  async createEntity(data: any) {
+    const [result] = await db.insert(entities).values(data).returning();
+    return result;
+  }
+  async updateEntity(id: number, data: any) {
+    await db.update(entities).set(data).where(eq(entities.id, id));
+    const [result] = await db.select().from(entities).where(eq(entities.id, id));
+    return result;
+  }
 
   // Vendors
   async getVendors(filters: { status?: string; search?: string; page?: number; limit?: number } = {}) {
@@ -579,6 +588,9 @@ export class DatabaseStorage implements IStorage {
   async createVendorNote(data: any) {
     const [result] = await db.insert(vendorNotes).values(data).returning();
     return result;
+  }
+  async deleteVendorNote(id: number) {
+    await db.delete(vendorNotes).where(eq(vendorNotes.id, id));
   }
 
   // Vendor Documents

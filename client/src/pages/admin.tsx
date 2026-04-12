@@ -10,7 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Trash2, Loader2, FileSpreadsheet, Users, Mail, Save, Info, Pencil, X, Check, ExternalLink, Eye, Code, Zap, Play, Timer } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Plus, Trash2, Loader2, FileSpreadsheet, Users, Mail, Save, Info, Pencil, X, Check, ExternalLink, Eye, Code, Zap, Play, Timer, Building2, Settings, UserCog, Shield } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
 // ── Types ──
@@ -66,6 +67,9 @@ export default function AdminPage() {
     <div className="h-full overflow-auto">
       <div className="max-w-4xl mx-auto p-6 space-y-8">
         <h1 className="text-lg font-semibold text-foreground" data-testid="text-admin-title">Admin Panel</h1>
+        <EntityManagementSection />
+        <StaffUsersSection />
+        <SettingsSection />
         <SheetConfigsSection />
         <PmUsersSection />
         <EmailTemplatesSection />
@@ -1344,6 +1348,592 @@ function AutoAssignRulesSection() {
                 </div>
               );
             })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Entity Management ──
+
+interface EntityRecord {
+  id: number;
+  name: string;
+  code: string;
+  jurisdiction: string | null;
+  currency: string | null;
+  qboEnabled: boolean;
+  wiseEnabled: boolean;
+}
+
+function EntityManagementSection() {
+  const { toast } = useToast();
+  const [showAdd, setShowAdd] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [form, setForm] = useState({ name: "", code: "", jurisdiction: "", currency: "GBP", qboEnabled: false, wiseEnabled: false });
+  const [editForm, setEditForm] = useState({ name: "", code: "", jurisdiction: "", currency: "GBP", qboEnabled: false, wiseEnabled: false });
+
+  const { data: entitiesList, isLoading } = useQuery<EntityRecord[]>({
+    queryKey: ["/api/entities"],
+    queryFn: async () => { const res = await apiRequest("GET", "/api/entities"); return res.json(); },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/entities", form);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/entities"] });
+      toast({ title: "Entity created" });
+      setForm({ name: "", code: "", jurisdiction: "", currency: "GBP", qboEnabled: false, wiseEnabled: false });
+      setShowAdd(false);
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("PATCH", `/api/entities/${id}`, editForm);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/entities"] });
+      toast({ title: "Entity updated" });
+      setEditingId(null);
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  function startEdit(e: EntityRecord) {
+    setEditingId(e.id);
+    setEditForm({ name: e.name, code: e.code, jurisdiction: e.jurisdiction || "", currency: e.currency || "GBP", qboEnabled: !!e.qboEnabled, wiseEnabled: !!e.wiseEnabled });
+    setShowAdd(false);
+  }
+
+  return (
+    <Card className="border border-border">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Building2 className="w-4 h-4 text-muted-foreground" />
+            Entity Management
+          </CardTitle>
+          <Button variant="outline" size="sm" onClick={() => { setShowAdd(!showAdd); setEditingId(null); }}>
+            <Plus className="w-3.5 h-3.5 mr-1" /> Add Entity
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {showAdd && (
+          <div className="mb-4 p-3 bg-muted/30 rounded-lg space-y-2">
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Name</label>
+                <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Verbato Ltd" className="h-8 text-sm" />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Code</label>
+                <Input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="verbato" className="h-8 text-sm" />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Jurisdiction</label>
+                <Input value={form.jurisdiction} onChange={(e) => setForm({ ...form, jurisdiction: e.target.value })} placeholder="United Kingdom" className="h-8 text-sm" />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Currency</label>
+                <Select value={form.currency} onValueChange={(v) => setForm({ ...form, currency: v })}>
+                  <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="GBP">GBP</SelectItem>
+                    <SelectItem value="EUR">EUR</SelectItem>
+                    <SelectItem value="USD">USD</SelectItem>
+                    <SelectItem value="TRY">TRY</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-4 pt-5">
+                <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                  <input type="checkbox" checked={form.qboEnabled} onChange={(e) => setForm({ ...form, qboEnabled: e.target.checked })} className="rounded border-border" />
+                  <span className="text-foreground">QBO</span>
+                </label>
+                <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                  <input type="checkbox" checked={form.wiseEnabled} onChange={(e) => setForm({ ...form, wiseEnabled: e.target.checked })} className="rounded border-border" />
+                  <span className="text-foreground">Wise</span>
+                </label>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => createMutation.mutate()} disabled={!form.name || !form.code || createMutation.isPending} className="h-8">
+                {createMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : null} Create
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setShowAdd(false)} className="h-8">Cancel</Button>
+            </div>
+          </div>
+        )}
+        {isLoading ? (
+          <div className="space-y-2">{[...Array(2)].map((_, i) => <Skeleton key={i} className="h-10 w-full rounded" />)}</div>
+        ) : !entitiesList || entitiesList.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-6">No entities yet.</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Name</th>
+                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Code</th>
+                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Jurisdiction</th>
+                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Currency</th>
+                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Integrations</th>
+                <th className="text-right font-medium text-muted-foreground px-3 py-2 text-xs w-16">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entitiesList.map((ent) =>
+                editingId === ent.id ? (
+                  <tr key={ent.id} className="border-b border-border last:border-0 bg-muted/20">
+                    <td className="px-3 py-2"><Input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className="h-7 text-sm" /></td>
+                    <td className="px-3 py-2"><Input value={editForm.code} onChange={(e) => setEditForm({ ...editForm, code: e.target.value })} className="h-7 text-sm" /></td>
+                    <td className="px-3 py-2"><Input value={editForm.jurisdiction} onChange={(e) => setEditForm({ ...editForm, jurisdiction: e.target.value })} className="h-7 text-sm" /></td>
+                    <td className="px-3 py-2">
+                      <Select value={editForm.currency} onValueChange={(v) => setEditForm({ ...editForm, currency: v })}>
+                        <SelectTrigger className="h-7 text-sm"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="GBP">GBP</SelectItem><SelectItem value="EUR">EUR</SelectItem><SelectItem value="USD">USD</SelectItem><SelectItem value="TRY">TRY</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex gap-3">
+                        <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={editForm.qboEnabled} onChange={(e) => setEditForm({ ...editForm, qboEnabled: e.target.checked })} className="rounded border-border" /> QBO</label>
+                        <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={editForm.wiseEnabled} onChange={(e) => setEditForm({ ...editForm, wiseEnabled: e.target.checked })} className="rounded border-border" /> Wise</label>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button size="sm" variant="ghost" onClick={() => updateMutation.mutate(ent.id)} disabled={updateMutation.isPending} className="h-7 w-7 p-0">
+                          {updateMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setEditingId(null)} className="h-7 w-7 p-0 text-muted-foreground"><X className="w-3.5 h-3.5" /></Button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={ent.id} className="border-b border-border last:border-0">
+                    <td className="px-3 py-2 text-foreground font-medium">{ent.name}</td>
+                    <td className="px-3 py-2 text-foreground font-mono text-xs">{ent.code}</td>
+                    <td className="px-3 py-2 text-foreground">{ent.jurisdiction || "—"}</td>
+                    <td className="px-3 py-2"><Badge variant="secondary" className="text-xs">{ent.currency || "GBP"}</Badge></td>
+                    <td className="px-3 py-2">
+                      <div className="flex gap-1">
+                        {ent.qboEnabled && <Badge variant="outline" className="text-[10px]">QBO</Badge>}
+                        {ent.wiseEnabled && <Badge variant="outline" className="text-[10px]">Wise</Badge>}
+                        {!ent.qboEnabled && !ent.wiseEnabled && <span className="text-xs text-muted-foreground">—</span>}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <Button variant="ghost" size="sm" onClick={() => startEdit(ent)} className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground">
+                        <Pencil className="w-3.5 h-3.5" />
+                      </Button>
+                    </td>
+                  </tr>
+                )
+              )}
+            </tbody>
+          </table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Staff Users (from users table) ──
+
+interface StaffUser {
+  id: number;
+  email: string;
+  name: string;
+  initial: string | null;
+  role: string;
+  entityId: number | null;
+  isActive: boolean;
+}
+
+const STAFF_ROLES = [
+  { value: "gm", label: "General Manager" },
+  { value: "operations_manager", label: "Operations Manager" },
+  { value: "pm_team_lead", label: "PM Team Lead" },
+  { value: "pm", label: "Project Manager" },
+  { value: "pc", label: "Project Coordinator" },
+  { value: "vm", label: "Vendor Manager" },
+  { value: "admin", label: "Admin" },
+];
+
+function StaffUsersSection() {
+  const { toast } = useToast();
+  const [showAdd, setShowAdd] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [form, setForm] = useState({ name: "", email: "", initial: "", role: "pm", entityId: "", password: "" });
+  const [editForm, setEditForm] = useState({ name: "", initial: "", role: "", entityId: "", password: "" });
+
+  const { data: staffUsers, isLoading } = useQuery<StaffUser[]>({
+    queryKey: ["/api/users"],
+    queryFn: async () => { const res = await apiRequest("GET", "/api/users"); return res.json(); },
+  });
+
+  const { data: entitiesList } = useQuery<EntityRecord[]>({
+    queryKey: ["/api/entities"],
+    queryFn: async () => { const res = await apiRequest("GET", "/api/entities"); return res.json(); },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const payload: any = { name: form.name, email: form.email, initial: form.initial, role: form.role, passwordHash: form.password };
+      if (form.entityId) payload.entityId = +form.entityId;
+      const res = await apiRequest("POST", "/api/users", payload);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      toast({ title: "Staff user created" });
+      setForm({ name: "", email: "", initial: "", role: "pm", entityId: "", password: "" });
+      setShowAdd(false);
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const payload: any = { name: editForm.name, initial: editForm.initial, role: editForm.role };
+      if (editForm.entityId) payload.entityId = +editForm.entityId;
+      if (editForm.password) payload.passwordHash = editForm.password;
+      const res = await apiRequest("PATCH", `/api/users/${id}`, payload);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      toast({ title: "Staff user updated" });
+      setEditingId(null);
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const deactivateMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("PATCH", `/api/users/${id}`, { isActive: false });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      toast({ title: "User deactivated" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  function startEdit(u: StaffUser) {
+    setEditingId(u.id);
+    setEditForm({ name: u.name, initial: u.initial || "", role: u.role, entityId: u.entityId ? String(u.entityId) : "", password: "" });
+    setShowAdd(false);
+  }
+
+  const roleLabel = (role: string) => STAFF_ROLES.find(r => r.value === role)?.label || role;
+  const entityName = (entityId: number | null) => entitiesList?.find(e => e.id === entityId)?.name || "—";
+
+  return (
+    <Card className="border border-border">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <UserCog className="w-4 h-4 text-muted-foreground" />
+            Staff Users
+          </CardTitle>
+          <Button variant="outline" size="sm" onClick={() => { setShowAdd(!showAdd); setEditingId(null); }}>
+            <Plus className="w-3.5 h-3.5 mr-1" /> Add User
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {showAdd && (
+          <div className="mb-4 p-3 bg-muted/30 rounded-lg space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Name</label>
+                <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Full Name" className="h-8 text-sm" />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Email</label>
+                <Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="user@eltur.co" className="h-8 text-sm" />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Initial</label>
+                <Input value={form.initial} onChange={(e) => setForm({ ...form, initial: e.target.value.toUpperCase() })} placeholder="CY" className="h-8 text-sm" maxLength={5} />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Role</label>
+                <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })}>
+                  <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                  <SelectContent>{STAFF_ROLES.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Entity</label>
+                <Select value={form.entityId || "__none__"} onValueChange={(v) => setForm({ ...form, entityId: v === "__none__" ? "" : v })}>
+                  <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">None</SelectItem>
+                    {entitiesList?.map(e => <SelectItem key={e.id} value={String(e.id)}>{e.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Password</label>
+                <Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="Password" className="h-8 text-sm" />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => createMutation.mutate()} disabled={!form.name || !form.email || !form.password || createMutation.isPending} className="h-8">
+                {createMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : null} Create User
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setShowAdd(false)} className="h-8">Cancel</Button>
+            </div>
+          </div>
+        )}
+        {isLoading ? (
+          <div className="space-y-2">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-10 w-full rounded" />)}</div>
+        ) : !staffUsers || staffUsers.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-6">No staff users yet.</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Name</th>
+                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Email</th>
+                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Initial</th>
+                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Role</th>
+                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Entity</th>
+                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Status</th>
+                <th className="text-right font-medium text-muted-foreground px-3 py-2 text-xs w-20">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {staffUsers.map((u) =>
+                editingId === u.id ? (
+                  <tr key={u.id} className="border-b border-border last:border-0 bg-muted/20">
+                    <td className="px-3 py-2"><Input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className="h-7 text-sm" /></td>
+                    <td className="px-3 py-2 text-muted-foreground text-xs">{u.email}</td>
+                    <td className="px-3 py-2"><Input value={editForm.initial} onChange={(e) => setEditForm({ ...editForm, initial: e.target.value.toUpperCase() })} className="h-7 text-sm w-16" maxLength={5} /></td>
+                    <td className="px-3 py-2">
+                      <Select value={editForm.role} onValueChange={(v) => setEditForm({ ...editForm, role: v })}>
+                        <SelectTrigger className="h-7 text-sm"><SelectValue /></SelectTrigger>
+                        <SelectContent>{STAFF_ROLES.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </td>
+                    <td className="px-3 py-2">
+                      <Select value={editForm.entityId || "__none__"} onValueChange={(v) => setEditForm({ ...editForm, entityId: v === "__none__" ? "" : v })}>
+                        <SelectTrigger className="h-7 text-sm"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">None</SelectItem>
+                          {entitiesList?.map(e => <SelectItem key={e.id} value={String(e.id)}>{e.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </td>
+                    <td className="px-3 py-2">
+                      <Input type="password" value={editForm.password} onChange={(e) => setEditForm({ ...editForm, password: e.target.value })} placeholder="New pw" className="h-7 text-sm w-20" />
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button size="sm" variant="ghost" onClick={() => updateMutation.mutate(u.id)} disabled={!editForm.name || updateMutation.isPending} className="h-7 w-7 p-0">
+                          {updateMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setEditingId(null)} className="h-7 w-7 p-0 text-muted-foreground"><X className="w-3.5 h-3.5" /></Button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={u.id} className={`border-b border-border last:border-0 ${!u.isActive ? "opacity-50" : ""}`}>
+                    <td className="px-3 py-2 text-foreground font-medium">{u.name}</td>
+                    <td className="px-3 py-2 text-foreground text-xs">{u.email}</td>
+                    <td className="px-3 py-2 text-foreground font-mono text-xs">{u.initial || "—"}</td>
+                    <td className="px-3 py-2"><Badge variant="secondary" className="text-xs">{roleLabel(u.role)}</Badge></td>
+                    <td className="px-3 py-2 text-foreground text-xs">{entityName(u.entityId)}</td>
+                    <td className="px-3 py-2">
+                      <Badge variant={u.isActive ? "default" : "secondary"} className="text-xs">{u.isActive ? "Active" : "Inactive"}</Badge>
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => startEdit(u)} className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground">
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                        {u.isActive && (
+                          <Button variant="ghost" size="sm" onClick={() => deactivateMutation.mutate(u.id)} className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive">
+                            <Shield className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )
+              )}
+            </tbody>
+          </table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Settings Section ──
+
+interface SettingRecord {
+  id: number;
+  key: string;
+  value: any;
+  category: string | null;
+  description: string | null;
+}
+
+function SettingsSection() {
+  const { toast } = useToast();
+  const [showAdd, setShowAdd] = useState(false);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [form, setForm] = useState({ key: "", value: "", category: "", description: "" });
+
+  const { data: settingsList, isLoading } = useQuery<SettingRecord[]>({
+    queryKey: ["/api/settings"],
+    queryFn: async () => { const res = await apiRequest("GET", "/api/settings"); return res.json(); },
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: async ({ key, value }: { key: string; value: string }) => {
+      let parsedValue: any;
+      try { parsedValue = JSON.parse(value); } catch { parsedValue = value; }
+      const res = await apiRequest("PATCH", `/api/settings/${key}`, { value: parsedValue });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      toast({ title: "Setting saved" });
+      setEditingKey(null);
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      let parsedValue: any;
+      try { parsedValue = JSON.parse(form.value); } catch { parsedValue = form.value; }
+      const res = await apiRequest("POST", "/api/settings", {
+        key: form.key,
+        value: parsedValue,
+        category: form.category || null,
+        description: form.description || null,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      toast({ title: "Setting created" });
+      setForm({ key: "", value: "", category: "", description: "" });
+      setShowAdd(false);
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  function startEdit(s: SettingRecord) {
+    setEditingKey(s.key);
+    setEditValue(typeof s.value === "string" ? s.value : JSON.stringify(s.value));
+    setShowAdd(false);
+  }
+
+  function displayValue(v: any): string {
+    if (typeof v === "string") return v;
+    return JSON.stringify(v);
+  }
+
+  return (
+    <Card className="border border-border">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Settings className="w-4 h-4 text-muted-foreground" />
+            Settings
+          </CardTitle>
+          <Button variant="outline" size="sm" onClick={() => { setShowAdd(!showAdd); setEditingKey(null); }}>
+            <Plus className="w-3.5 h-3.5 mr-1" /> Add Setting
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {showAdd && (
+          <div className="mb-4 p-3 bg-muted/30 rounded-lg space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Key</label>
+                <Input value={form.key} onChange={(e) => setForm({ ...form, key: e.target.value })} placeholder="setting_key" className="h-8 text-sm font-mono" />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Category</label>
+                <Input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="general" className="h-8 text-sm" />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Value (JSON or text)</label>
+              <Input value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} placeholder='e.g. "value" or {"key": "val"}' className="h-8 text-sm font-mono" />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Description</label>
+              <Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="What this setting does" className="h-8 text-sm" />
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => createMutation.mutate()} disabled={!form.key || createMutation.isPending} className="h-8">
+                {createMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : null} Create
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setShowAdd(false)} className="h-8">Cancel</Button>
+            </div>
+          </div>
+        )}
+        {isLoading ? (
+          <div className="space-y-2">{[...Array(2)].map((_, i) => <Skeleton key={i} className="h-16 w-full rounded" />)}</div>
+        ) : !settingsList || settingsList.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-6">No settings yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {settingsList.map((s) => (
+              <div key={s.key} className="border border-border rounded-lg p-3">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-mono text-sm font-medium text-foreground">{s.key}</span>
+                      {s.category && <Badge variant="outline" className="text-[10px]">{s.category}</Badge>}
+                    </div>
+                    {s.description && <p className="text-xs text-muted-foreground mb-1">{s.description}</p>}
+                    {editingKey === s.key ? (
+                      <div className="flex items-center gap-2 mt-1">
+                        <Input
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          className="h-7 text-sm font-mono flex-1"
+                        />
+                        <Button size="sm" onClick={() => saveMutation.mutate({ key: s.key, value: editValue })} disabled={saveMutation.isPending} className="h-7 text-xs">
+                          {saveMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Save className="w-3 h-3 mr-1" />} Save
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setEditingKey(null)} className="h-7 text-xs"><X className="w-3 h-3" /></Button>
+                      </div>
+                    ) : (
+                      <code className="text-xs bg-muted/50 px-2 py-0.5 rounded text-foreground break-all">{displayValue(s.value)}</code>
+                    )}
+                  </div>
+                  {editingKey !== s.key && (
+                    <Button variant="ghost" size="sm" onClick={() => startEdit(s)} className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground shrink-0 ml-2">
+                      <Pencil className="w-3.5 h-3.5" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </CardContent>

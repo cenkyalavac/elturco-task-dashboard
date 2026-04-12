@@ -153,8 +153,12 @@ export default function ProjectDetailPage() {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<Partial<ProjectDetail>>({});
   const [showAddJob, setShowAddJob] = useState(false);
+  const [showEditJob, setShowEditJob] = useState(false);
+  const [editingJobId, setEditingJobId] = useState<number | null>(null);
   const [jobForm, setJobForm] = useState<JobFormState>({ ...defaultJobForm });
+  const [editJobForm, setEditJobForm] = useState<JobFormState>({ ...defaultJobForm });
   const [showCatAnalysis, setShowCatAnalysis] = useState(false);
+  const [showEditCatAnalysis, setShowEditCatAnalysis] = useState(false);
   const [expandedJob, setExpandedJob] = useState<number | null>(null);
 
   // Queries
@@ -228,6 +232,18 @@ export default function ProjectDetailPage() {
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const editJobMutation = useMutation({
+    mutationFn: async ({ jobId, body }: { jobId: number; body: any }) => { const r = await apiRequest("PATCH", `/api/projects/${projectId}/jobs/${jobId}`, body); return r.json(); },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "jobs"] });
+      setShowEditJob(false);
+      setEditingJobId(null);
+      setEditJobForm({ ...defaultJobForm });
+      toast({ title: "Job updated" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
   // Derived data
   const jobs: Job[] = jobsQuery.data || [];
   const vendors: Vendor[] = vendorsQuery.data || [];
@@ -252,6 +268,8 @@ export default function ProjectDetailPage() {
   const setFormField = (key: keyof ProjectDetail, value: any) => { setForm((prev) => ({ ...prev, [key]: value })); };
   const setJobFormField = (key: keyof JobFormState, value: any) => { setJobForm((prev) => ({ ...prev, [key]: value })); };
   const setCatField = (key: string, value: number) => { setJobForm((prev) => ({ ...prev, catAnalysis: { ...prev.catAnalysis, [key]: value } })); };
+  const setEditJobFormField = (key: keyof JobFormState, value: any) => { setEditJobForm((prev) => ({ ...prev, [key]: value })); };
+  const setEditCatField = (key: string, value: number) => { setEditJobForm((prev) => ({ ...prev, catAnalysis: { ...prev.catAnalysis, [key]: value } })); };
 
   const handleAddJob = () => {
     const autoRevenue = jobRevenueCalc > 0 ? jobRevenueCalc.toFixed(2) : null;
@@ -272,6 +290,52 @@ export default function ProjectDetailPage() {
     const hasCat = Object.values(jobForm.catAnalysis).some((v) => v > 0);
     if (hasCat) payload.catAnalysis = jobForm.catAnalysis;
     addJobMutation.mutate(payload);
+  };
+
+  const startEditJob = (job: Job) => {
+    setEditingJobId(job.id);
+    setEditJobForm({
+      jobName: job.jobName || "",
+      sourceLanguage: job.sourceLanguage || "",
+      targetLanguage: job.targetLanguage || "",
+      serviceType: job.serviceType || "",
+      unitType: job.unitType || "words",
+      unitCount: job.unitCount || "",
+      unitRate: job.unitRate || "",
+      totalRevenue: job.totalRevenue || "",
+      vendorId: job.vendorId ? String(job.vendorId) : "",
+      deadline: job.deadline ? job.deadline.slice(0, 16) : "",
+      notes: job.notes || "",
+      catAnalysis: job.catAnalysis ? { ...EMPTY_CAT, ...job.catAnalysis } : { ...EMPTY_CAT },
+    });
+    setShowEditCatAnalysis(job.catAnalysis ? Object.values(job.catAnalysis).some((v: any) => Number(v) > 0) : false);
+    setShowEditJob(true);
+  };
+
+  const editJobRevenueCalc = useMemo(() => {
+    return (parseFloat(editJobForm.unitCount) || 0) * (parseFloat(editJobForm.unitRate) || 0);
+  }, [editJobForm.unitCount, editJobForm.unitRate]);
+
+  const handleEditJob = () => {
+    if (!editingJobId) return;
+    const autoRevenue = editJobRevenueCalc > 0 ? editJobRevenueCalc.toFixed(2) : null;
+    const manualRevenue = editJobForm.totalRevenue ? editJobForm.totalRevenue : null;
+    const payload: any = {
+      jobName: editJobForm.jobName || null,
+      sourceLanguage: editJobForm.sourceLanguage || null,
+      targetLanguage: editJobForm.targetLanguage || null,
+      serviceType: editJobForm.serviceType || null,
+      unitType: editJobForm.unitType || null,
+      unitCount: editJobForm.unitCount || null,
+      unitRate: editJobForm.unitRate || null,
+      totalRevenue: manualRevenue || autoRevenue,
+      vendorId: editJobForm.vendorId ? parseInt(editJobForm.vendorId) : null,
+      deadline: editJobForm.deadline || null,
+      notes: editJobForm.notes || null,
+    };
+    const hasCatEdit = Object.values(editJobForm.catAnalysis).some((v) => v > 0);
+    if (hasCatEdit) payload.catAnalysis = editJobForm.catAnalysis;
+    editJobMutation.mutate({ jobId: editingJobId, body: payload });
   };
 
   // Loading / Not found
@@ -546,6 +610,7 @@ export default function ProjectDetailPage() {
                         isExpanded={isExpanded}
                         hasCat={!!hasCat}
                         onToggle={() => hasCat && setExpandedJob(isExpanded ? null : job.id)}
+                        onEdit={() => startEditJob(job)}
                         onDelete={() => deleteJobMutation.mutate(job.id)}
                       />
                     );
@@ -736,13 +801,113 @@ export default function ProjectDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* EDIT JOB DIALOG */}
+      <Dialog open={showEditJob} onOpenChange={(open) => { if (!open) { setShowEditJob(false); setEditingJobId(null); } }}>
+        <DialogContent className="bg-[#1a1d27] border-white/[0.08] text-white max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader><DialogTitle className="text-base">Edit Job</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-[11px] text-white/40 block mb-0.5">Job Name</label>
+              <Input value={editJobForm.jobName} onChange={(e) => setEditJobFormField("jobName", e.target.value)} className="bg-white/[0.04] border-white/[0.08] text-white text-sm" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] text-white/40 block mb-0.5">Source Language</label>
+                <Select value={editJobForm.sourceLanguage} onValueChange={(v) => setEditJobFormField("sourceLanguage", v)}>
+                  <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white text-sm"><SelectValue placeholder="Select..." /></SelectTrigger>
+                  <SelectContent>{LANGUAGES.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-[11px] text-white/40 block mb-0.5">Target Language</label>
+                <Select value={editJobForm.targetLanguage} onValueChange={(v) => setEditJobFormField("targetLanguage", v)}>
+                  <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white text-sm"><SelectValue placeholder="Select..." /></SelectTrigger>
+                  <SelectContent>{LANGUAGES.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] text-white/40 block mb-0.5">Service Type</label>
+                <Select value={editJobForm.serviceType} onValueChange={(v) => setEditJobFormField("serviceType", v)}>
+                  <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white text-sm"><SelectValue placeholder="Select..." /></SelectTrigger>
+                  <SelectContent>{SERVICE_TYPES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-[11px] text-white/40 block mb-0.5">Unit Type</label>
+                <Select value={editJobForm.unitType} onValueChange={(v) => setEditJobFormField("unitType", v)}>
+                  <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white text-sm"><SelectValue /></SelectTrigger>
+                  <SelectContent>{UNIT_TYPES.map((u) => <SelectItem key={u} value={u} className="capitalize">{u}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="text-[11px] text-white/40 block mb-0.5">Unit Count</label>
+                <Input type="number" step="1" value={editJobForm.unitCount} onChange={(e) => setEditJobFormField("unitCount", e.target.value)} className="bg-white/[0.04] border-white/[0.08] text-white text-sm" placeholder="0" />
+              </div>
+              <div>
+                <label className="text-[11px] text-white/40 block mb-0.5">Unit Rate</label>
+                <Input type="number" step="0.0001" value={editJobForm.unitRate} onChange={(e) => setEditJobFormField("unitRate", e.target.value)} className="bg-white/[0.04] border-white/[0.08] text-white text-sm" placeholder="0.0000" />
+              </div>
+              <div>
+                <label className="text-[11px] text-white/40 block mb-0.5">Total Revenue</label>
+                <Input type="number" step="0.01" value={editJobForm.totalRevenue || (editJobRevenueCalc > 0 ? editJobRevenueCalc.toFixed(2) : "")} onChange={(e) => setEditJobFormField("totalRevenue", e.target.value)} className="bg-white/[0.04] border-white/[0.08] text-white text-sm" placeholder={editJobRevenueCalc > 0 ? editJobRevenueCalc.toFixed(2) : "Auto-calculated"} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] text-white/40 block mb-0.5">Vendor</label>
+                <Select value={editJobForm.vendorId} onValueChange={(v) => setEditJobFormField("vendorId", v)}>
+                  <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white text-sm"><SelectValue placeholder="Select vendor..." /></SelectTrigger>
+                  <SelectContent>{vendors.map((v) => <SelectItem key={v.id} value={String(v.id)}>{v.name}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-[11px] text-white/40 block mb-0.5">Deadline</label>
+                <Input type="datetime-local" value={editJobForm.deadline} onChange={(e) => setEditJobFormField("deadline", e.target.value)} className="bg-white/[0.04] border-white/[0.08] text-white text-sm" />
+              </div>
+            </div>
+            <div>
+              <label className="text-[11px] text-white/40 block mb-0.5">Notes</label>
+              <Textarea value={editJobForm.notes} onChange={(e) => setEditJobFormField("notes", e.target.value)} rows={2} className="bg-white/[0.04] border-white/[0.08] text-white text-sm resize-none" placeholder="Optional notes..." />
+            </div>
+            <Collapsible open={showEditCatAnalysis} onOpenChange={setShowEditCatAnalysis}>
+              <CollapsibleTrigger asChild>
+                <button className="flex items-center gap-2 text-xs text-white/40 hover:text-white/60 transition w-full">
+                  <ChevronRight className={`w-3 h-3 transition-transform ${showEditCatAnalysis ? "rotate-90" : ""}`} />
+                  CAT Analysis (optional)
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {CAT_KEYS.map(({ key, label }) => (
+                    <div key={key}>
+                      <label className="text-[10px] text-white/30 block mb-0.5">{label}</label>
+                      <Input type="number" step="1" min="0" value={editJobForm.catAnalysis[key] || ""} onChange={(e) => setEditCatField(key, parseInt(e.target.value) || 0)} className="bg-white/[0.04] border-white/[0.08] text-white text-xs h-8" placeholder="0" />
+                    </div>
+                  ))}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          </div>
+          <DialogFooter className="mt-4">
+            <Button variant="ghost" onClick={() => { setShowEditJob(false); setEditingJobId(null); }} className="text-white/50 text-xs">Cancel</Button>
+            <Button onClick={handleEditJob} disabled={editJobMutation.isPending} className="bg-blue-600 hover:bg-blue-700 text-white text-xs">
+              {editJobMutation.isPending ? "Saving..." : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
 // Extracted to a component to avoid React key issues with fragments in table rows
-function JobTableRows({ job, currency, isExpanded, hasCat, onToggle, onDelete }: {
-  job: Job; currency: string; isExpanded: boolean; hasCat: boolean; onToggle: () => void; onDelete: () => void;
+function JobTableRows({ job, currency, isExpanded, hasCat, onToggle, onEdit, onDelete }: {
+  job: Job; currency: string; isExpanded: boolean; hasCat: boolean; onToggle: () => void; onEdit: () => void; onDelete: () => void;
 }) {
   return (
     <>
@@ -764,6 +929,9 @@ function JobTableRows({ job, currency, isExpanded, hasCat, onToggle, onDelete }:
         <TableCell className="px-3 py-2">
           <div className="flex items-center gap-1">
             {hasCat && <ChevronRight className={`w-3.5 h-3.5 text-white/20 transition-transform ${isExpanded ? "rotate-90" : ""}`} />}
+            <button onClick={(e) => { e.stopPropagation(); onEdit(); }} className="p-1 rounded hover:bg-blue-500/10" title="Edit job">
+              <Edit2 className="w-3 h-3 text-white/20 hover:text-blue-400" />
+            </button>
             <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="p-1 rounded hover:bg-red-500/10" title="Delete job">
               <Trash2 className="w-3 h-3 text-white/20 hover:text-red-400" />
             </button>

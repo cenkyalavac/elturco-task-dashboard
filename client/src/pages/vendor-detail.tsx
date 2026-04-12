@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -210,10 +211,17 @@ interface QualityReport {
   reportDate?: string;
   reportType?: string;
   score?: number;
+  qsScore?: string | number | null;
+  lqaScore?: string | number | null;
   projectId?: string | null;
   projectTitle?: string | null;
+  projectName?: string | null;
   account?: string | null;
+  clientAccount?: string | null;
   languagePair?: string | null;
+  sourceLanguage?: string | null;
+  targetLanguage?: string | null;
+  reviewerName?: string | null;
   status?: string | null;
   feedback?: string | null;
 }
@@ -2038,6 +2046,47 @@ function QualityTab({
     },
   });
 
+  const chartData = useMemo(() => {
+    if (!reports || reports.length === 0) return [];
+    return [...reports]
+      .filter((r) => r.reportDate)
+      .sort((a, b) => new Date(a.reportDate!).getTime() - new Date(b.reportDate!).getTime())
+      .map((r) => {
+        const qs = r.qsScore != null ? Number(r.qsScore) : null;
+        const lqa = r.lqaScore != null ? Number(r.lqaScore) : null;
+        const score = r.score != null ? Number(r.score) : (qs != null ? qs * 20 : lqa);
+        return {
+          date: formatDate(r.reportDate),
+          QS: qs,
+          LQA: lqa,
+          Score: score,
+          type: r.reportType,
+        };
+      });
+  }, [reports]);
+
+  function getReportScore(r: QualityReport): string {
+    if (r.reportType === "QS" && r.qsScore != null) return String(r.qsScore);
+    if (r.reportType === "LQA" && r.lqaScore != null) return String(r.lqaScore);
+    if (r.score != null) return String(r.score);
+    if (r.qsScore != null) return String(r.qsScore);
+    if (r.lqaScore != null) return String(r.lqaScore);
+    return "\u2014";
+  }
+
+  function getScoreColor(r: QualityReport): string {
+    const val = Number(getReportScore(r));
+    if (isNaN(val)) return "text-zinc-400";
+    if (r.reportType === "QS") {
+      if (val >= 4) return "text-emerald-400";
+      if (val >= 3) return "text-amber-400";
+      return "text-red-400";
+    }
+    if (val >= 90) return "text-emerald-400";
+    if (val >= 75) return "text-amber-400";
+    return "text-red-400";
+  }
+
   return (
     <div className="space-y-4">
       {/* Score Overview */}
@@ -2077,6 +2126,33 @@ function QualityTab({
         </CardContent>
       </Card>
 
+      {/* Quality Trend Chart */}
+      {chartData.length >= 2 && (
+        <Card className="bg-white/[0.03] border-white/[0.06]">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-white/70 flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-blue-400" />
+              Score Trend
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-48">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                  <XAxis dataKey="date" tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 10 }} stroke="rgba(255,255,255,0.1)" />
+                  <YAxis tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 10 }} stroke="rgba(255,255,255,0.1)" />
+                  <Tooltip contentStyle={{ backgroundColor: "#1a1a2e", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, color: "#fff", fontSize: 12 }} />
+                  <Legend wrapperStyle={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }} />
+                  <Line type="monotone" dataKey="QS" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3 }} connectNulls />
+                  <Line type="monotone" dataKey="LQA" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} connectNulls />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Quality Reports Table */}
       <Card className="bg-white/[0.03] border-white/[0.06]">
         <CardHeader className="pb-2">
@@ -2103,85 +2179,58 @@ function QualityTab({
             <Table>
               <TableHeader>
                 <TableRow className="border-white/[0.06] hover:bg-transparent">
-                  <TableHead className="text-white/50 text-xs font-medium">
-                    Date
-                  </TableHead>
-                  <TableHead className="text-white/50 text-xs font-medium">
-                    Type
-                  </TableHead>
-                  <TableHead className="text-white/50 text-xs font-medium text-right">
-                    Score
-                  </TableHead>
-                  <TableHead className="text-white/50 text-xs font-medium">
-                    Project
-                  </TableHead>
-                  <TableHead className="text-white/50 text-xs font-medium">
-                    Account
-                  </TableHead>
-                  <TableHead className="text-white/50 text-xs font-medium">
-                    Lang Pair
-                  </TableHead>
-                  <TableHead className="text-white/50 text-xs font-medium">
-                    Status
-                  </TableHead>
+                  <TableHead className="text-white/50 text-xs font-medium">Date</TableHead>
+                  <TableHead className="text-white/50 text-xs font-medium">Type</TableHead>
+                  <TableHead className="text-white/50 text-xs font-medium text-right">Score</TableHead>
+                  <TableHead className="text-white/50 text-xs font-medium">Project</TableHead>
+                  <TableHead className="text-white/50 text-xs font-medium">Account</TableHead>
+                  <TableHead className="text-white/50 text-xs font-medium">Reviewer</TableHead>
+                  <TableHead className="text-white/50 text-xs font-medium">Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {reports.map((report) => {
-                  let scoreColor = "text-zinc-400";
-                  if (report.score != null) {
-                    if (report.score >= 90) scoreColor = "text-emerald-400";
-                    else if (report.score >= 75)
-                      scoreColor = "text-amber-400";
-                    else scoreColor = "text-red-400";
-                  }
-                  return (
-                    <TableRow
-                      key={report.id}
-                      className="border-white/[0.04] hover:bg-white/[0.02]"
-                    >
-                      <TableCell className="text-white/70 text-sm">
-                        {formatDate(report.reportDate)}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="secondary"
-                          className="text-[10px] bg-white/[0.06] text-white/70 border-transparent capitalize"
-                        >
-                          {report.reportType || "\u2014"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell
-                        className={`text-sm text-right font-bold ${scoreColor}`}
+                {reports.map((report) => (
+                  <TableRow
+                    key={report.id}
+                    className="border-white/[0.04] hover:bg-white/[0.02]"
+                  >
+                    <TableCell className="text-white/70 text-sm">
+                      {formatDate(report.reportDate)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant="secondary"
+                        className="text-[10px] bg-white/[0.06] text-white/70 border-transparent capitalize"
                       >
-                        {report.score != null ? report.score : "\u2014"}
-                      </TableCell>
-                      <TableCell className="text-white/70 text-sm">
-                        {report.projectTitle ||
-                          report.projectId ||
-                          "\u2014"}
-                      </TableCell>
-                      <TableCell className="text-white/50 text-sm">
-                        {report.account || "\u2014"}
-                      </TableCell>
-                      <TableCell className="text-white/50 text-sm font-mono">
-                        {report.languagePair || "\u2014"}
-                      </TableCell>
-                      <TableCell>
-                        {report.status ? (
-                          <Badge
-                            variant="outline"
-                            className="text-[10px] capitalize border-white/[0.12] text-white/50"
-                          >
-                            {report.status}
-                          </Badge>
-                        ) : (
-                          "\u2014"
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
+                        {report.reportType || "\u2014"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className={`text-sm text-right font-bold ${getScoreColor(report)}`}>
+                      {getReportScore(report)}
+                    </TableCell>
+                    <TableCell className="text-white/70 text-sm">
+                      {report.projectName || report.projectTitle || report.projectId || "\u2014"}
+                    </TableCell>
+                    <TableCell className="text-white/50 text-sm">
+                      {report.clientAccount || report.account || "\u2014"}
+                    </TableCell>
+                    <TableCell className="text-white/50 text-sm">
+                      {report.reviewerName || "\u2014"}
+                    </TableCell>
+                    <TableCell>
+                      {report.status ? (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] capitalize border-white/[0.12] text-white/50"
+                        >
+                          {report.status}
+                        </Badge>
+                      ) : (
+                        "\u2014"
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
               </TableBody>
             </Table>
           )}
@@ -2430,6 +2479,21 @@ function NotesTab({ vendorId }: { vendorId: string }) {
     },
   });
 
+  const deleteNoteMutation = useMutation({
+    mutationFn: async (noteId: number) => {
+      await apiRequest("DELETE", `/api/vendors/${vendorId}/notes/${noteId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: [`/api/vendors/${vendorId}/notes`],
+      });
+      toast({ title: "Note deleted" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to delete note", description: err.message, variant: "destructive" });
+    },
+  });
+
   function handleAddNote() {
     if (!newContent.trim()) return;
     addNoteMutation.mutate({
@@ -2556,9 +2620,20 @@ function NotesTab({ vendorId }: { vendorId: string }) {
                     </Badge>
                   )}
                 </div>
-                <div className="flex items-center gap-1.5 text-[11px] text-white/30 shrink-0">
-                  <Calendar className="w-3 h-3" />
-                  {formatDateTime(note.createdAt)}
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[11px] text-white/30 flex items-center gap-1.5">
+                    <Calendar className="w-3 h-3" />
+                    {formatDateTime(note.createdAt)}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => deleteNoteMutation.mutate(note.id)}
+                    disabled={deleteNoteMutation.isPending}
+                    className="h-6 w-6 p-0 text-white/20 hover:text-red-400"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </Button>
                 </div>
               </div>
               <p className="text-sm text-white/80 leading-relaxed whitespace-pre-wrap">

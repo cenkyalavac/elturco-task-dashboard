@@ -3039,6 +3039,24 @@ const freelancers = (Array.isArray(data) ? data : [])
     res.json(allEntities);
   });
 
+  app.post("/api/entities", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const entity = await storage.createEntity(req.body);
+      res.json(entity);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to create entity", e) });
+    }
+  });
+
+  app.patch("/api/entities/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const entity = await storage.updateEntity(+param(req, "id"), req.body);
+      res.json(entity);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to update entity", e) });
+    }
+  });
+
   // ---- VENDORS CRUD ----
   app.get("/api/vendors", requireAuth, async (req: Request, res: Response) => {
     try {
@@ -3096,7 +3114,7 @@ const freelancers = (Array.isArray(data) ? data : [])
         const nameParts = (body.fullName || "").trim().split(/\s+/);
         const initials = nameParts.map((p: string) => p.charAt(0).toUpperCase()).join("").slice(0, 3);
         const allVendors = await storage.getVendors();
-        const existingCodes = (allVendors.data || allVendors).map((v: any) => v.resourceCode).filter(Boolean);
+        const existingCodes = (allVendors as any[]).map((v: any) => v.resourceCode).filter(Boolean);
         let seq = 1;
         let code = `${initials}${String(seq).padStart(3, "0")}`;
         while (existingCodes.includes(code)) {
@@ -3202,6 +3220,15 @@ const freelancers = (Array.isArray(data) ? data : [])
     } catch (e: any) {
       console.error("Create vendor note error:", e);
       res.status(500).json({ error: "Failed to create vendor note" });
+    }
+  });
+
+  app.delete("/api/vendors/:vendorId/notes/:noteId", requireAuth, async (req: Request, res: Response) => {
+    try {
+      await storage.deleteVendorNote(+param(req, "noteId"));
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: "Failed to delete vendor note" });
     }
   });
 
@@ -3904,6 +3931,17 @@ const freelancers = (Array.isArray(data) ? data : [])
       res.json(setting);
     } catch (e: any) {
       res.status(500).json({ error: safeError("Internal server error", e) });
+    }
+  });
+
+  app.post("/api/settings", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { key, value, category, description } = req.body;
+      if (!key) return res.status(400).json({ error: "key is required" });
+      const setting = await storage.upsertSetting(key, value ?? {}, category, description);
+      res.json(setting);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to create setting", e) });
     }
   });
 
