@@ -47,6 +47,16 @@ import {
   Filter,
   X,
 } from "lucide-react";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from "recharts";
 
 // ── Constants ──
 
@@ -641,7 +651,54 @@ export default function QualityPage() {
       .sort((a, b) => b.avgScore - a.avgScore)
       .slice(0, 10);
 
-    return { total, qsCount: qsReports.length, lqaCount: lqaReports.length, avgQs, avgLqa, thisMonth, topVendors };
+    // Monthly trend data for chart
+    const monthMap: Record<string, { month: string; qsTotal: number; qsCount: number; lqaTotal: number; lqaCount: number }> = {};
+    for (const r of allReports) {
+      const d = new Date(r.reportDate || r.createdAt);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      if (!monthMap[key]) monthMap[key] = { month: key, qsTotal: 0, qsCount: 0, lqaTotal: 0, lqaCount: 0 };
+      if (r.reportType === "QS" && r.qsScore != null) {
+        monthMap[key].qsTotal += r.qsScore;
+        monthMap[key].qsCount += 1;
+      }
+      if (r.reportType === "LQA" && r.lqaScore != null) {
+        monthMap[key].lqaTotal += r.lqaScore;
+        monthMap[key].lqaCount += 1;
+      }
+    }
+    const monthlyTrend = Object.values(monthMap)
+      .sort((a, b) => a.month.localeCompare(b.month))
+      .map((m) => ({
+        month: m.month,
+        avgQs: m.qsCount > 0 ? +(m.qsTotal / m.qsCount).toFixed(2) : null,
+        avgLqa: m.lqaCount > 0 ? +(m.lqaTotal / m.lqaCount).toFixed(1) : null,
+      }));
+
+    // Per-account breakdown
+    const accountMap: Record<string, { account: string; qsTotal: number; qsCount: number; lqaTotal: number; lqaCount: number; totalReports: number }> = {};
+    for (const r of allReports) {
+      const acct = r.clientAccount || "Unassigned";
+      if (!accountMap[acct]) accountMap[acct] = { account: acct, qsTotal: 0, qsCount: 0, lqaTotal: 0, lqaCount: 0, totalReports: 0 };
+      accountMap[acct].totalReports += 1;
+      if (r.reportType === "QS" && r.qsScore != null) {
+        accountMap[acct].qsTotal += r.qsScore;
+        accountMap[acct].qsCount += 1;
+      }
+      if (r.reportType === "LQA" && r.lqaScore != null) {
+        accountMap[acct].lqaTotal += r.lqaScore;
+        accountMap[acct].lqaCount += 1;
+      }
+    }
+    const accountBreakdown = Object.values(accountMap)
+      .map((a) => ({
+        account: a.account,
+        avgQs: a.qsCount > 0 ? +(a.qsTotal / a.qsCount).toFixed(2) : null,
+        avgLqa: a.lqaCount > 0 ? +(a.lqaTotal / a.lqaCount).toFixed(1) : null,
+        reportCount: a.totalReports,
+      }))
+      .sort((a, b) => b.reportCount - a.reportCount);
+
+    return { total, qsCount: qsReports.length, lqaCount: lqaReports.length, avgQs, avgLqa, thisMonth, topVendors, monthlyTrend, accountBreakdown };
   }, [reports]);
 
   // ── Render ──
@@ -1517,6 +1574,87 @@ export default function QualityPage() {
             </Card>
           </div>
 
+          {/* QS & LQA Score Trend Chart */}
+          <Card className="border-white/[0.06] bg-card">
+            <CardHeader>
+              <CardTitle className="text-sm font-medium">QS &amp; LQA Score Trends</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {analytics.monthlyTrend.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">No trend data available yet.</p>
+              ) : (
+                <ResponsiveContainer width="100%" height={320}>
+                  <LineChart data={analytics.monthlyTrend} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                    <XAxis
+                      dataKey="month"
+                      tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+                      axisLine={{ stroke: "rgba(255,255,255,0.08)" }}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      yAxisId="qs"
+                      orientation="left"
+                      domain={[0, 5]}
+                      tick={{ fill: "#a78bfa", fontSize: 11 }}
+                      axisLine={{ stroke: "rgba(255,255,255,0.08)" }}
+                      tickLine={false}
+                      label={{ value: "QS", angle: -90, position: "insideLeft", fill: "#a78bfa", fontSize: 11 }}
+                    />
+                    <YAxis
+                      yAxisId="lqa"
+                      orientation="right"
+                      domain={[0, 100]}
+                      tick={{ fill: "#22d3ee", fontSize: 11 }}
+                      axisLine={{ stroke: "rgba(255,255,255,0.08)" }}
+                      tickLine={false}
+                      label={{ value: "LQA", angle: 90, position: "insideRight", fill: "#22d3ee", fontSize: 11 }}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "hsl(var(--card))",
+                        border: "1px solid rgba(255,255,255,0.1)",
+                        borderRadius: "8px",
+                        color: "hsl(var(--foreground))",
+                        fontSize: 12,
+                      }}
+                      formatter={(value: unknown, name: string) => {
+                        const v = value as number | null;
+                        if (v == null) return ["--", name];
+                        return [name === "avgQs" ? v.toFixed(2) : v.toFixed(1), name === "avgQs" ? "Avg QS" : "Avg LQA"];
+                      }}
+                      labelFormatter={(label: string) => `Month: ${label}`}
+                    />
+                    <Legend
+                      formatter={(value: string) => (value === "avgQs" ? "Avg QS Score" : "Avg LQA Score")}
+                      wrapperStyle={{ fontSize: 12, color: "hsl(var(--muted-foreground))" }}
+                    />
+                    <Line
+                      yAxisId="qs"
+                      type="monotone"
+                      dataKey="avgQs"
+                      stroke="#a78bfa"
+                      strokeWidth={2}
+                      dot={{ r: 4, fill: "#a78bfa" }}
+                      activeDot={{ r: 6 }}
+                      connectNulls
+                    />
+                    <Line
+                      yAxisId="lqa"
+                      type="monotone"
+                      dataKey="avgLqa"
+                      stroke="#22d3ee"
+                      strokeWidth={2}
+                      dot={{ r: 4, fill: "#22d3ee" }}
+                      activeDot={{ r: 6 }}
+                      connectNulls
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Reports by type */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card className="border-white/[0.06] bg-card">
@@ -1596,6 +1734,65 @@ export default function QualityPage() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Per-Account Quality Breakdown */}
+          <Card className="border-white/[0.06] bg-card">
+            <CardHeader>
+              <CardTitle className="text-sm font-medium">Quality by Account</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {analytics.accountBreakdown.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">No account data available yet.</p>
+              ) : (
+                <div className="rounded-lg border border-white/[0.06] overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="border-white/[0.06] hover:bg-transparent">
+                        <TableHead className="text-[10px] text-muted-foreground font-medium">Account</TableHead>
+                        <TableHead className="text-[10px] text-muted-foreground font-medium">Avg QS</TableHead>
+                        <TableHead className="text-[10px] text-muted-foreground font-medium">Avg LQA</TableHead>
+                        <TableHead className="text-[10px] text-muted-foreground font-medium">Reports</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {analytics.accountBreakdown.map((a, idx) => (
+                        <TableRow key={idx} className="border-white/[0.04]">
+                          <TableCell className="text-sm font-medium text-foreground">{a.account}</TableCell>
+                          <TableCell className="text-sm tabular-nums">
+                            {a.avgQs != null ? (
+                              <span className={
+                                a.avgQs >= 4.5 ? "text-emerald-400" :
+                                a.avgQs >= 3.5 ? "text-blue-400" :
+                                "text-amber-400"
+                              }>
+                                {a.avgQs.toFixed(2)}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">--</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-sm tabular-nums">
+                            {a.avgLqa != null ? (
+                              <span className={
+                                a.avgLqa >= 90 ? "text-emerald-400" :
+                                a.avgLqa >= 70 ? "text-blue-400" :
+                                "text-amber-400"
+                              }>
+                                {a.avgLqa.toFixed(1)}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">--</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-sm tabular-nums text-muted-foreground">{a.reportCount}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 
