@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef, Fragment } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import DOMPurify from "dompurify";
 import { apiRequest, queryClient, getPublicApiBase, getAuthToken } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
@@ -1733,6 +1734,7 @@ export default function DashboardPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/assignments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       toast({ title: "Assignment cancelled" });
     },
     onError: (err: any) => {
@@ -3809,7 +3811,7 @@ export default function DashboardPage() {
                   {(() => {
                     const body = customBody || currentTemplate?.body || generateDefaultEmailBody(selectedTask, role, sampleVars);
                     const rendered = replacePreviewVars(body);
-                    return <div dangerouslySetInnerHTML={{ __html: rendered }} />;
+                    return <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(rendered) }} />;
                   })()}
                 </div>
               </div>

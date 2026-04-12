@@ -961,6 +961,14 @@ export async function registerRoutes(server: Server, app: Express) {
     message: { error: "Too many requests. Please slow down." },
   });
 
+  const magicLinkLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 5, // 5 magic link requests per 15 min per IP
+    message: { error: "Too many magic link requests. Please try again later." },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
   // ---- AUTH ROUTES ----
 
   // Email + password login
@@ -2869,7 +2877,7 @@ const freelancers = (Array.isArray(data) ? data : [])
   // ============================================
 
   // Magic link request — freelancer enters their email
-  app.post("/api/freelancer/magic-link", async (req: Request, res: Response) => {
+  app.post("/api/freelancer/magic-link", magicLinkLimiter, async (req: Request, res: Response) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: "Email is required" });
 
@@ -3859,87 +3867,98 @@ const freelancers = (Array.isArray(data) ? data : [])
   app.post("/api/portal-tasks/:id/accept", requireAuth, async (req: Request, res: Response) => {
     try {
       const taskId = +param(req, "id");
-      const [task] = await db.select().from(portalTasksTable).where(eq(portalTasksTable.id, taskId));
-      if (!task) return res.status(404).json({ error: "Portal task not found" });
-      if (task.status !== "pending") return res.status(400).json({ error: `Task already processed (status: ${task.status})` });
       const pmUserId = (req as any).pmUserId;
-      const taskData = task.taskData as any;
-      // Find or match customer
-      let customerId = req.body.customerId;
-      if (!customerId) {
-        // Try to find customer by portal source name
-        const portalName = task.portalSource;
-        const [cust] = await db.select().from(customers).where(sql`LOWER(${customers.name}) = LOWER(${portalName})`);
-        if (cust) customerId = cust.id;
-        else {
-          // Create a customer for this portal
-          const newCust = await storage.createCustomer({ name: portalName, code: portalName.toUpperCase().slice(0, 10), status: "ACTIVE" } as any);
-          customerId = newCust.id;
-        }
+
+      // Atomic status guard: only one request can claim a pending task
+      const [claimed] = await db.update(portalTasksTable)
+        .set({ status: "processing", acceptedBy: pmUserId, processedAt: new Date() })
+        .where(and(eq(portalTasksTable.id, taskId), eq(portalTasksTable.status, "pending")))
+        .returning();
+      if (!claimed) {
+        // Either not found or already processed
+        const [task] = await db.select().from(portalTasksTable).where(eq(portalTasksTable.id, taskId));
+        if (!task) return res.status(404).json({ error: "Portal task not found" });
+        return res.status(400).json({ error: `Task already processed (status: ${task.status})` });
       }
-      // Create project
-      const year = new Date().getFullYear();
-      const prefix = task.portalSource.toUpperCase().slice(0, 3);
-      const [countResult] = await db.select({ cnt: sql<number>`count(*)::int` }).from(projects).where(sql`extract(year from ${projects.createdAt}) = ${year}`);
-      const seq = (countResult?.cnt || 0) + 1;
-      const projectCode = `${prefix}-${year}-${String(seq).padStart(4, "0")}`;
-      const project = await storage.createProject({
-        projectName: taskData.projectName || taskData.name || `${task.portalSource} - ${task.externalId}`,
-        customerId,
-        source: task.portalSource,
-        externalId: task.externalId,
-        externalUrl: task.externalUrl || undefined,
-        status: "confirmed",
-        projectCode,
-        metadata: task.taskData,
-        deadline: taskData.deadline || undefined,
-        notes: taskData.instructions || undefined,
-      } as any);
-      // Create jobs from target languages
-      const targetLanguages = taskData.targetLanguages || taskData.target_languages || [];
-      const sourceLanguage = taskData.sourceLanguage || taskData.source_language || "";
-      if (Array.isArray(targetLanguages) && targetLanguages.length > 0) {
-        for (let i = 0; i < targetLanguages.length; i++) {
+
+      const task = claimed;
+      const taskData = task.taskData as any;
+
+      try {
+        // Find or match customer
+        let customerId = req.body.customerId;
+        if (!customerId) {
+          const portalName = task.portalSource;
+          const [cust] = await db.select().from(customers).where(sql`LOWER(${customers.name}) = LOWER(${portalName})`);
+          if (cust) customerId = cust.id;
+          else {
+            const newCust = await storage.createCustomer({ name: portalName, code: portalName.toUpperCase().slice(0, 10), status: "ACTIVE" } as any);
+            customerId = newCust.id;
+          }
+        }
+        // Create project with MAX-based sequence
+        const year = new Date().getFullYear();
+        const prefix = task.portalSource.toUpperCase().slice(0, 3);
+        const projectCode = await getNextSequenceNumber(projects, prefix, year, projects.projectCode);
+        const project = await storage.createProject({
+          projectName: taskData.projectName || taskData.name || `${task.portalSource} - ${task.externalId}`,
+          customerId,
+          source: task.portalSource,
+          externalId: task.externalId,
+          externalUrl: task.externalUrl || undefined,
+          status: "confirmed",
+          projectCode,
+          metadata: task.taskData,
+          deadline: taskData.deadline || undefined,
+          notes: taskData.instructions || undefined,
+        } as any);
+        // Create jobs from target languages
+        const targetLanguages = taskData.targetLanguages || taskData.target_languages || [];
+        const sourceLanguage = taskData.sourceLanguage || taskData.source_language || "";
+        if (Array.isArray(targetLanguages) && targetLanguages.length > 0) {
+          for (let i = 0; i < targetLanguages.length; i++) {
+            await storage.createJob({
+              projectId: project.id,
+              jobCode: `J${String(i + 1).padStart(3, "0")}`,
+              jobName: `${sourceLanguage} → ${targetLanguages[i]}`,
+              sourceLanguage,
+              targetLanguage: targetLanguages[i],
+              serviceType: taskData.serviceType || taskData.service_type || "translation",
+              wordCount: taskData.wordCount || taskData.word_count || null,
+              unitType: "words",
+              unitCount: String(taskData.wordCount || taskData.word_count || 0),
+              status: "unassigned",
+              deadline: taskData.deadline || undefined,
+            } as any);
+          }
+        } else {
           await storage.createJob({
             projectId: project.id,
-            jobCode: `J${String(i + 1).padStart(3, "0")}`,
-            jobName: `${sourceLanguage} → ${targetLanguages[i]}`,
+            jobCode: "J001",
+            jobName: taskData.projectName || taskData.name || `Job for ${task.externalId}`,
             sourceLanguage,
-            targetLanguage: targetLanguages[i],
+            targetLanguage: taskData.targetLanguage || taskData.target_language || "",
             serviceType: taskData.serviceType || taskData.service_type || "translation",
             wordCount: taskData.wordCount || taskData.word_count || null,
             unitType: "words",
             unitCount: String(taskData.wordCount || taskData.word_count || 0),
             status: "unassigned",
-            deadline: taskData.deadline || undefined,
           } as any);
         }
-      } else {
-        // Single job if no target languages array
-        await storage.createJob({
+        // Finalize portal task status
+        await db.update(portalTasksTable).set({
+          status: "manually_accepted",
           projectId: project.id,
-          jobCode: "J001",
-          jobName: taskData.projectName || taskData.name || `Job for ${task.externalId}`,
-          sourceLanguage,
-          targetLanguage: taskData.targetLanguage || taskData.target_language || "",
-          serviceType: taskData.serviceType || taskData.service_type || "translation",
-          wordCount: taskData.wordCount || taskData.word_count || null,
-          unitType: "words",
-          unitCount: String(taskData.wordCount || taskData.word_count || 0),
-          status: "unassigned",
-        } as any);
+          acceptedAt: new Date(),
+        }).where(eq(portalTasksTable.id, taskId));
+        await logAudit(pmUserId, "accept_portal_task", "portal_task", taskId, { status: "pending" }, { status: "manually_accepted", projectId: project.id }, getClientIp(req));
+        await createNotificationV2(pmUserId, "task_accepted", `Portal task accepted`, `${task.portalSource} task ${task.externalId} accepted and project created`, `/projects/${project.id}`);
+        res.json({ success: true, project });
+      } catch (innerErr) {
+        // Rollback portal task status to pending on failure
+        await db.update(portalTasksTable).set({ status: "pending", acceptedBy: null, processedAt: null }).where(eq(portalTasksTable.id, taskId));
+        throw innerErr;
       }
-      // Update portal task
-      await db.update(portalTasksTable).set({
-        status: "manually_accepted",
-        projectId: project.id,
-        acceptedBy: pmUserId,
-        acceptedAt: new Date(),
-        processedAt: new Date(),
-      }).where(eq(portalTasksTable.id, taskId));
-      await logAudit(pmUserId, "accept_portal_task", "portal_task", taskId, { status: "pending" }, { status: "manually_accepted", projectId: project.id }, getClientIp(req));
-      await createNotificationV2(pmUserId, "task_accepted", `Portal task accepted`, `${task.portalSource} task ${task.externalId} accepted and project created`, `/projects/${project.id}`);
-      res.json({ success: true, project });
     } catch (e: any) {
       console.error("Accept portal task error:", e);
       res.status(500).json({ error: safeError("Failed to accept portal task", e) });
@@ -4034,29 +4053,48 @@ const freelancers = (Array.isArray(data) ? data : [])
   });
 
   // ---- AUTO-PO / AUTO-INVOICE (Phase C) ----
+
+  // Atomic sequence number generation using MAX to avoid count-based race conditions
+  async function getNextSequenceNumber(table: typeof purchaseOrders | typeof clientInvoices, prefix: string, year: number, numberCol: any): Promise<string> {
+    const pattern = `${prefix}-${year}-%`;
+    const [result] = await db.select({
+      maxNum: sql<string>`MAX(${numberCol})`,
+    }).from(table).where(sql`${numberCol} LIKE ${pattern}`);
+    let seq = 1;
+    if (result?.maxNum) {
+      // Extract the trailing sequence number after the last dash
+      const parts = result.maxNum.split("-");
+      const lastPart = parts[parts.length - 1];
+      const parsed = parseInt(lastPart, 10);
+      if (!isNaN(parsed)) seq = parsed + 1;
+    }
+    return `${prefix}-${year}-${String(seq).padStart(4, "0")}`;
+  }
+
   async function autoGeneratePO(jobId: number, projectId: number, vendorId: number) {
     const jobList = await storage.getJobs(projectId);
     const job = jobList.find((j: any) => j.id === jobId);
     if (!job) return;
+    // Skip if job already has a PO
+    if (job.poId) return;
     const project = await storage.getProject(projectId);
     if (!project) return;
-    // Look up rate
+    // Look up rate — prefer most specific match (with both source + target language)
     const rateCards = await db.select().from(vendorRateCards).where(
       and(eq(vendorRateCards.vendorId, vendorId),
         job.sourceLanguage ? eq(vendorRateCards.sourceLanguage, job.sourceLanguage) : undefined,
         job.targetLanguage ? eq(vendorRateCards.targetLanguage, job.targetLanguage) : undefined,
       )
-    );
+    ).orderBy(desc(vendorRateCards.createdAt));
     const rate = rateCards.length > 0 ? parseFloat(rateCards[0].rateValue) : 0;
     const units = parseFloat(job.unitCount || "0") || parseInt(String(job.wordCount || 0)) || 0;
-    const amount = rate * units;
+    // Round financial amount to 2 decimal places
+    const amount = Math.round(rate * units * 100) / 100;
     if (amount <= 0) return;
-    // Generate PO number
+    // Generate PO number using MAX-based sequence
     const year = new Date().getFullYear();
     const entityCode = project.entityId ? (await db.select().from(entities).where(eq(entities.id, project.entityId)))?.[0]?.code?.toUpperCase() || "VRB" : "VRB";
-    const [poCount] = await db.select({ cnt: sql<number>`count(*)::int` }).from(purchaseOrders).where(sql`extract(year from ${purchaseOrders.createdAt}) = ${year}`);
-    const poSeq = (poCount?.cnt || 0) + 1;
-    const poNumber = `${entityCode}-PO-${year}-${String(poSeq).padStart(4, "0")}`;
+    const poNumber = await getNextSequenceNumber(purchaseOrders, `${entityCode}-PO`, year, purchaseOrders.poNumber);
     const po = await storage.createPurchaseOrder({
       vendorId,
       entityId: project.entityId || undefined,
@@ -4114,7 +4152,8 @@ const freelancers = (Array.isArray(data) ? data : [])
         );
         const rate = clientRateCards.length > 0 ? parseFloat(clientRateCards[0].rateValue) : parseFloat(job.clientRate || job.unitRate || "0") || 0;
         const units = parseFloat(job.unitCount || "0") || parseInt(String(job.wordCount || 0)) || 0;
-        const amount = rate * units;
+        // Round financial amount to 2 decimal places
+        const amount = Math.round(rate * units * 100) / 100;
         subtotal += amount;
         lines.push({
           projectId,
@@ -4128,12 +4167,12 @@ const freelancers = (Array.isArray(data) ? data : [])
         // Update job with client rate
         await storage.updateJob(job.id, { clientRate: String(rate), clientTotal: String(amount) } as any);
       }
-      // Generate invoice number
+      // Round subtotal to 2 decimal places
+      subtotal = Math.round(subtotal * 100) / 100;
+      // Generate invoice number using MAX-based sequence
       const year = new Date().getFullYear();
       const entityCode = project.entityId ? (await db.select().from(entities).where(eq(entities.id, project.entityId)))?.[0]?.code?.toUpperCase() || "VRB" : "VRB";
-      const [invCount] = await db.select({ cnt: sql<number>`count(*)::int` }).from(clientInvoices).where(sql`extract(year from ${clientInvoices.createdAt}) = ${year}`);
-      const invSeq = (invCount?.cnt || 0) + 1;
-      const invoiceNumber = `${entityCode}-INV-${year}-${String(invSeq).padStart(4, "0")}`;
+      const invoiceNumber = await getNextSequenceNumber(clientInvoices, `${entityCode}-INV`, year, clientInvoices.invoiceNumber);
       const invoice = await storage.createInvoice({
         customerId: project.customerId,
         entityId: project.entityId || undefined,
@@ -4397,6 +4436,17 @@ const freelancers = (Array.isArray(data) ? data : [])
         storage.getInvoiceCount(filters),
       ]);
       res.json({ data, total, page: filters.page || 1, limit: filters.limit || 50 });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Internal server error", e) });
+    }
+  });
+
+  // IMPORTANT: specific sub-routes must be registered BEFORE the parametric /:id route
+  app.get("/api/invoices/uninvoiced-jobs", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const customerId = req.query.customerId ? +req.query.customerId : undefined;
+      const data = await storage.getUninvoicedJobs(customerId);
+      res.json(data);
     } catch (e: any) {
       res.status(500).json({ error: safeError("Internal server error", e) });
     }
@@ -4710,15 +4760,7 @@ const freelancers = (Array.isArray(data) ? data : [])
     }
   });
 
-  app.get("/api/invoices/uninvoiced-jobs", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const customerId = req.query.customerId ? +req.query.customerId : undefined;
-      const data = await storage.getUninvoicedJobs(customerId);
-      res.json(data);
-    } catch (e: any) {
-      res.status(500).json({ error: safeError("Internal server error", e) });
-    }
-  });
+  // NOTE: GET /api/invoices/uninvoiced-jobs is registered before /api/invoices/:id above to prevent route shadowing.
 
   // ============================================
   // PHASE 6: NEW API ENDPOINTS
@@ -5424,21 +5466,11 @@ const freelancers = (Array.isArray(data) ? data : [])
     }
   });
 
-  // GET /api/portal-tasks — list portal tasks
-  app.get("/api/portal-tasks", requireAuth, autoAcceptRoleGuard, async (req: Request, res: Response) => {
-    try {
-      const source = req.query.source as string;
-      const status = req.query.status as string;
-      let query = db.select().from(portalTasksTable).orderBy(desc(portalTasksTable.createdAt)).limit(100).$dynamic();
-      if (source) query = query.where(eq(portalTasksTable.portalSource, source));
-      res.json(await query);
-    } catch (e: any) {
-      res.status(500).json({ error: safeError("Failed to fetch portal tasks", e) });
-    }
-  });
+  // NOTE: GET /api/portal-tasks is registered in the Portal Tasks (Phase A) section above (line ~3830).
+  // The duplicate registration that was here has been removed to prevent dead code.
 
   // ---- VENDOR MAGIC LINK AUTH ----
-  app.post("/api/auth/vendor-magic-link", async (req: Request, res: Response) => {
+  app.post("/api/auth/vendor-magic-link", magicLinkLimiter, async (req: Request, res: Response) => {
     try {
       const { email } = req.body;
       if (!email) return res.status(400).json({ error: "Email required" });
@@ -5470,8 +5502,11 @@ const freelancers = (Array.isArray(data) ? data : [])
     res.json({ token: param(req, "token"), vendor: vendor ? { id: vendor.id, fullName: vendor.fullName, email: vendor.email } : null });
   });
 
-  // ── QA Seed endpoint (POST /api/seed-qa) ──
-  app.post("/api/seed-qa", requireAuth, async (req: Request, res: Response) => {
+  // ── QA Seed endpoint (POST /api/seed-qa) — dev/staging only, admin role required ──
+  app.post("/api/seed-qa", requireAuth, requireRole("admin", "gm"), async (req: Request, res: Response) => {
+    if (process.env.NODE_ENV === "production") {
+      return res.status(403).json({ error: "Seed endpoint is disabled in production" });
+    }
     try {
       const now = new Date();
       const in1day = new Date(now.getTime() + 1 * 24 * 60 * 60 * 1000);
@@ -5571,7 +5606,7 @@ const freelancers = (Array.isArray(data) ? data : [])
         },
       });
     } catch (e: any) {
-      res.status(500).json({ error: `Seed failed: ${e.message}` });
+      res.status(500).json({ error: safeError("Seed failed", e) });
     }
   });
 }

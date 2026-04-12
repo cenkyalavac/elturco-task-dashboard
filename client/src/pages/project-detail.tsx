@@ -276,6 +276,7 @@ export default function ProjectDetailPage() {
     mutationFn: async () => { const r = await apiRequest("POST", `/api/projects/${projectId}/generate-invoice`); return r.json(); },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
       toast({ title: "Invoice generated" });
     },
     onError: (e: any) => toast({ title: "Invoice generation failed", description: e.message, variant: "destructive" }),

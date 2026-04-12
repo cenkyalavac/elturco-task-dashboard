@@ -894,25 +894,35 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  // Next invoice number generation
+  // Next invoice number generation — uses MAX-based sequencing to prevent race conditions
   async getNextInvoiceNumber(entityCode: string, year: number) {
-    const prefix = entityCode === "verbato" ? "VRB" : "CON";
+    const prefix = entityCode === "verbato" ? "VRB-INV" : "CON-INV";
     const pattern = `${prefix}-${year}-%`;
-    const [result] = await db.select({ count: sql<number>`count(*)::int` })
+    const [result] = await db.select({ maxNum: sql<string>`MAX(${clientInvoices.invoiceNumber})` })
       .from(clientInvoices)
       .where(sql`${clientInvoices.invoiceNumber} LIKE ${pattern}`);
-    const seq = (result?.count || 0) + 1;
+    let seq = 1;
+    if (result?.maxNum) {
+      const parts = result.maxNum.split("-");
+      const parsed = parseInt(parts[parts.length - 1], 10);
+      if (!isNaN(parsed)) seq = parsed + 1;
+    }
     return `${prefix}-${year}-${String(seq).padStart(4, "0")}`;
   }
 
-  // Next PO number generation
+  // Next PO number generation — uses MAX-based sequencing to prevent race conditions
   async getNextPoNumber(entityCode: string, year: number) {
-    const prefix = entityCode === "verbato" ? "PO-VRB" : "PO-CON";
+    const prefix = entityCode === "verbato" ? "VRB-PO" : "CON-PO";
     const pattern = `${prefix}-${year}-%`;
-    const [result] = await db.select({ count: sql<number>`count(*)::int` })
+    const [result] = await db.select({ maxNum: sql<string>`MAX(${purchaseOrders.poNumber})` })
       .from(purchaseOrders)
       .where(sql`${purchaseOrders.poNumber} LIKE ${pattern}`);
-    const seq = (result?.count || 0) + 1;
+    let seq = 1;
+    if (result?.maxNum) {
+      const parts = result.maxNum.split("-");
+      const parsed = parseInt(parts[parts.length - 1], 10);
+      if (!isNaN(parsed)) seq = parsed + 1;
+    }
     return `${prefix}-${year}-${String(seq).padStart(4, "0")}`;
   }
 
@@ -1023,6 +1033,8 @@ export class DatabaseStorage implements IStorage {
 
   // Monthly revenue/cost trend
   async getMonthlyTrend(months = 12, entityId?: number) {
+    // Sanitize months to a safe integer to prevent SQL injection via sql.raw
+    const safeMonths = Math.max(1, Math.min(120, Math.floor(Number(months) || 12)));
     const revenueConditions: any[] = [];
     const costConditions: any[] = [];
     if (entityId) {
@@ -1035,7 +1047,7 @@ export class DatabaseStorage implements IStorage {
       total: sql<string>`SUM(${clientInvoices.total}::numeric)`,
     }).from(clientInvoices)
       .where(and(
-        sql`${clientInvoices.invoiceDate}::date >= CURRENT_DATE - INTERVAL '${sql.raw(String(months))} months'`,
+        sql`${clientInvoices.invoiceDate}::date >= CURRENT_DATE - INTERVAL '${sql.raw(String(safeMonths))} months'`,
         sql`${clientInvoices.status} IN ('paid', 'sent', 'overdue')`,
         ...revenueConditions,
       ))
@@ -1047,7 +1059,7 @@ export class DatabaseStorage implements IStorage {
       total: sql<string>`SUM(${purchaseOrders.amount}::numeric)`,
     }).from(purchaseOrders)
       .where(and(
-        sql`${purchaseOrders.createdAt} >= CURRENT_DATE - INTERVAL '${sql.raw(String(months))} months'`,
+        sql`${purchaseOrders.createdAt} >= CURRENT_DATE - INTERVAL '${sql.raw(String(safeMonths))} months'`,
         ...costConditions,
       ))
       .groupBy(sql`TO_CHAR(${purchaseOrders.createdAt}::date, 'YYYY-MM')`)
@@ -1244,8 +1256,9 @@ export class DatabaseStorage implements IStorage {
     return query.groupBy(payments.type);
   }
   async getCashFlow(months = 12, entityId?: number) {
+    const safeMonths = Math.max(1, Math.min(120, Math.floor(Number(months) || 12)));
     const conditions: any[] = [
-      sql`${payments.paymentDate}::date >= CURRENT_DATE - INTERVAL '${sql.raw(String(months))} months'`,
+      sql`${payments.paymentDate}::date >= CURRENT_DATE - INTERVAL '${sql.raw(String(safeMonths))} months'`,
     ];
     if (entityId) conditions.push(eq(payments.entityId, entityId));
 

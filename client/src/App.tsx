@@ -39,7 +39,7 @@ import IntegrationsPage from "@/pages/integrations";
 
 import {
   LogOut, BarChart3, Sun, Moon, Bell, CheckCheck, Menu, X,
-  Users, Building2, FolderKanban, Award, LayoutDashboard, History, Settings, UserCircle,
+  Users, Building2, FolderKanban, Award, LayoutDashboard, History, Settings,
   DollarSign, FileText, ShoppingCart, Zap, Plug,
 } from "lucide-react";
 

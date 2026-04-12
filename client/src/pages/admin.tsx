@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import DOMPurify from "dompurify";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -925,7 +926,7 @@ function TemplateEditor({ template }: { template: EmailTemplate }) {
           {previewMode ? (
             <div
               className="min-h-[200px] p-3 bg-white rounded-md border border-border text-sm overflow-auto"
-              dangerouslySetInnerHTML={{ __html: replaceTemplateVars(body) }}
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(replaceTemplateVars(body)) }}
               data-testid={`preview-body-${template.key}`}
             />
           ) : (
@@ -1110,6 +1111,8 @@ function AutoAssignRulesSection() {
     },
     onSuccess: (data: any) => {
       toast({ title: "Auto-Dispatch Complete", description: data?.message || `${data?.dispatched ?? 0} tasks dispatched.` });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/assignments"] });
     },
     onError: (err: any) => {
       toast({ title: "Auto-Dispatch Error", description: err.message, variant: "destructive" });
@@ -1124,6 +1127,7 @@ function AutoAssignRulesSection() {
     },
     onSuccess: (data: any) => {
       toast({ title: "Sequence Check Complete", description: data?.message || `${data?.advanced ?? 0} offers advanced.` });
+      queryClient.invalidateQueries({ queryKey: ["/api/assignments"] });
     },
     onError: (err: any) => {
       toast({ title: "Sequence Check Error", description: err.message, variant: "destructive" });
@@ -1648,7 +1652,7 @@ function StaffUsersSection() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      const payload: any = { name: form.name, email: form.email, initial: form.initial, role: form.role, passwordHash: form.password };
+      const payload: any = { name: form.name, email: form.email, initial: form.initial, role: form.role, password: form.password };
       if (form.entityId) payload.entityId = +form.entityId;
       const res = await apiRequest("POST", "/api/users", payload);
       return res.json();
@@ -1666,7 +1670,7 @@ function StaffUsersSection() {
     mutationFn: async (id: number) => {
       const payload: any = { name: editForm.name, initial: editForm.initial, role: editForm.role };
       if (editForm.entityId) payload.entityId = +editForm.entityId;
-      if (editForm.password) payload.passwordHash = editForm.password;
+      if (editForm.password) payload.password = editForm.password;
       const res = await apiRequest("PATCH", `/api/users/${id}`, payload);
       return res.json();
     },

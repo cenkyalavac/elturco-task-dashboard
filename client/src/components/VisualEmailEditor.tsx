@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import DOMPurify from "dompurify";
 import { Input } from "@/components/ui/input";
 import { Bold, Italic, Link2, List, Eye, Code, Type } from "lucide-react";
 
@@ -162,7 +163,7 @@ export default function VisualEmailEditor({
         />
       ) : mode === "preview" ? (
         <div className={`${minH} p-3 bg-white rounded-lg border border-white/[0.08] text-black text-xs overflow-y-auto`}>
-          <div dangerouslySetInnerHTML={{ __html: highlightVars(htmlSource) }} />
+          <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(highlightVars(htmlSource)) }} />
         </div>
       ) : (
         <textarea
