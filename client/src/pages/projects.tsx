@@ -243,9 +243,9 @@ export default function ProjectsPage() {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="border-b border-border bg-card px-4 py-2.5">
+      <div className="border-b border-white/[0.06] bg-white/[0.02] px-4 py-2.5">
         <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-sm font-semibold text-foreground mr-2" data-testid="text-projects-title">
+          <h1 className="text-sm font-semibold text-white mr-2" data-testid="text-projects-title">
             Projects
           </h1>
 
@@ -305,14 +305,14 @@ export default function ProjectsPage() {
             </SelectContent>
           </Select>
 
-          <span className="text-xs text-muted-foreground ml-auto tabular-nums">
+          <span className="text-xs text-white/40 ml-auto tabular-nums">
             {total} project{total !== 1 ? "s" : ""}
           </span>
 
           {/* Quick Create */}
           <Button
             size="sm"
-            className="h-8 text-xs gap-1.5"
+            className="h-8 text-xs gap-1.5 bg-white text-black hover:bg-white/90 font-medium rounded-lg"
             onClick={() => setDialogOpen(true)}
             data-testid="button-quick-create"
           >
@@ -327,38 +327,46 @@ export default function ProjectsPage() {
         {isLoadingProjects ? (
           <div className="p-4 space-y-2">
             {[...Array(8)].map((_, i) => (
-              <Skeleton key={i} className="h-10 w-full rounded" />
+              <Skeleton key={i} className="h-10 w-full rounded bg-white/[0.04]" />
             ))}
           </div>
         ) : projects.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground p-12">
-            <FolderOpen className="w-10 h-10 opacity-40" />
-            <p className="text-sm">No projects found</p>
-            <p className="text-xs opacity-70">Adjust filters or create a new project.</p>
+          <div className="flex flex-col items-center justify-center h-full gap-3 p-16">
+            <FolderOpen className="w-10 h-10 text-white/20" />
+            <p className="text-sm text-white/50">No projects found</p>
+            <p className="text-xs text-white/30">Adjust filters or create a new project.</p>
+            <Button
+              size="sm"
+              className="mt-2 bg-white text-black hover:bg-white/90 font-medium rounded-lg text-xs gap-1.5"
+              onClick={() => setDialogOpen(true)}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Quick Create
+            </Button>
           </div>
         ) : (
           <Table data-testid="table-projects">
-            <TableHeader className="sticky top-0 bg-muted/90 backdrop-blur-sm z-10">
-              <TableRow>
-                <TableHead className="text-xs font-medium text-muted-foreground px-3 py-2 w-[220px]">
+            <TableHeader className="sticky top-0 bg-white/[0.03] backdrop-blur-sm z-10">
+              <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
+                <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3 w-[220px]">
                   Project Name
                 </TableHead>
-                <TableHead className="text-xs font-medium text-muted-foreground px-3 py-2 w-[110px]">
+                <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3 w-[110px]">
                   Code
                 </TableHead>
-                <TableHead className="text-xs font-medium text-muted-foreground px-3 py-2">
+                <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3">
                   Customer
                 </TableHead>
-                <TableHead className="text-xs font-medium text-muted-foreground px-3 py-2 w-[110px]">
+                <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3 w-[110px]">
                   Status
                 </TableHead>
-                <TableHead className="text-xs font-medium text-muted-foreground px-3 py-2 w-[120px]">
+                <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3 w-[120px]">
                   PM
                 </TableHead>
-                <TableHead className="text-xs font-medium text-muted-foreground px-3 py-2 w-[130px]">
+                <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3 w-[130px]">
                   Deadline
                 </TableHead>
-                <TableHead className="text-xs font-medium text-muted-foreground px-3 py-2 w-[100px]">
+                <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3 w-[100px]">
                   Source
                 </TableHead>
               </TableRow>
@@ -372,13 +380,13 @@ export default function ProjectsPage() {
                 return (
                   <TableRow
                     key={project.id}
-                    className="border-b border-border hover:bg-muted/30 transition-colors"
+                    className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors"
                     data-testid={`row-project-${project.id}`}
                   >
                     <TableCell className="px-3 py-2">
                       <Link
                         href={`/projects/${project.id}`}
-                        className="font-medium text-foreground hover:text-primary hover:underline text-sm transition-colors"
+                        className="font-medium text-white hover:text-blue-400 hover:underline text-sm transition-colors underline-offset-4"
                         data-testid={`link-project-${project.id}`}
                       >
                         {project.projectName}
@@ -389,16 +397,15 @@ export default function ProjectsPage() {
                         {project.code || "—"}
                       </span>
                     </TableCell>
-                    <TableCell className="px-3 py-2 text-sm text-foreground">
+                    <TableCell className="px-3 py-2 text-sm text-white/70">
                       {project.customerName || "—"}
                     </TableCell>
                     <TableCell className="px-3 py-2">
-                      <Badge
-                        variant="outline"
-                        className={`text-[10px] px-1.5 py-0 border ${stCfg.className}`}
+                      <span
+                        className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${stCfg.className}`}
                       >
                         {stCfg.label}
-                      </Badge>
+                      </span>
                     </TableCell>
                     <TableCell className="px-3 py-2 text-xs text-muted-foreground">
                       {project.pm || "—"}
@@ -419,8 +426,8 @@ export default function ProjectsPage() {
 
       {/* Pagination */}
       {!isLoadingProjects && totalPages > 1 && (
-        <div className="border-t border-border bg-card px-4 py-2 flex items-center justify-between">
-          <span className="text-xs text-muted-foreground tabular-nums">
+        <div className="border-t border-white/[0.06] bg-white/[0.02] px-4 py-2 flex items-center justify-between">
+          <span className="text-xs text-white/40 tabular-nums">
             Page {page} of {totalPages} &mdash; {total} total
           </span>
           <div className="flex items-center gap-1">
@@ -468,9 +475,9 @@ export default function ProjectsPage() {
 
       {/* Quick Create Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-lg bg-card border-border" data-testid="dialog-quick-create">
+        <DialogContent className="sm:max-w-lg bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg" data-testid="dialog-quick-create">
           <DialogHeader>
-            <DialogTitle className="text-base font-semibold text-foreground">
+            <DialogTitle className="text-base font-semibold text-white">
               Quick Create Project
             </DialogTitle>
           </DialogHeader>
@@ -661,7 +668,7 @@ export default function ProjectsPage() {
             </Button>
             <Button
               size="sm"
-              className="h-8 text-xs gap-1.5"
+              className="h-8 text-xs gap-1.5 bg-white text-black hover:bg-white/90 font-medium rounded-lg"
               onClick={handleSubmit}
               disabled={createProjectMutation.isPending || !form.projectName.trim()}
               data-testid="button-qc-submit"
