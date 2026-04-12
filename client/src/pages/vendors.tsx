@@ -234,6 +234,13 @@ interface FilterState {
   tested: boolean;
   certified: boolean;
   ndaSigned: boolean;
+  catTool: string;
+  rateMin: string;
+  rateMax: string;
+  location: string;
+  experienceMin: string;
+  experienceMax: string;
+  tier: string;
 }
 
 type ViewMode = "list" | "pipeline";
@@ -332,6 +339,35 @@ function createInitialFormData(): VendorFormData {
 }
 
 function createInitialFilters(): FilterState {
+  // Restore from URL hash params if present
+  try {
+    const hash = window.location.hash;
+    const qIdx = hash.indexOf("?");
+    if (qIdx >= 0) {
+      const params = new URLSearchParams(hash.substring(qIdx + 1));
+      return {
+        sourceLanguage: params.get("sl") || "",
+        targetLanguage: params.get("tl") || "",
+        serviceType: params.get("svc") || "",
+        specialization: params.get("spec") || "",
+        account: params.get("acct") || "",
+        qualityScoreMin: params.get("qmin") || "",
+        qualityScoreMax: params.get("qmax") || "",
+        tagsFilter: params.get("tags") || "",
+        availability: params.get("avail") || "",
+        tested: params.get("tested") === "1",
+        certified: params.get("certified") === "1",
+        ndaSigned: params.get("nda") === "1",
+        catTool: params.get("cat") || "",
+        rateMin: params.get("rmin") || "",
+        rateMax: params.get("rmax") || "",
+        location: params.get("loc") || "",
+        experienceMin: params.get("emin") || "",
+        experienceMax: params.get("emax") || "",
+        tier: params.get("tier") || "",
+      };
+    }
+  } catch {}
   return {
     sourceLanguage: "",
     targetLanguage: "",
@@ -345,7 +381,41 @@ function createInitialFilters(): FilterState {
     tested: false,
     certified: false,
     ndaSigned: false,
+    catTool: "",
+    rateMin: "",
+    rateMax: "",
+    location: "",
+    experienceMin: "",
+    experienceMax: "",
+    tier: "",
   };
+}
+
+// Persist filters to URL
+function persistFiltersToUrl(filters: FilterState) {
+  const params = new URLSearchParams();
+  if (filters.sourceLanguage) params.set("sl", filters.sourceLanguage);
+  if (filters.targetLanguage) params.set("tl", filters.targetLanguage);
+  if (filters.serviceType) params.set("svc", filters.serviceType);
+  if (filters.specialization) params.set("spec", filters.specialization);
+  if (filters.account) params.set("acct", filters.account);
+  if (filters.qualityScoreMin) params.set("qmin", filters.qualityScoreMin);
+  if (filters.qualityScoreMax) params.set("qmax", filters.qualityScoreMax);
+  if (filters.tagsFilter) params.set("tags", filters.tagsFilter);
+  if (filters.availability) params.set("avail", filters.availability);
+  if (filters.tested) params.set("tested", "1");
+  if (filters.certified) params.set("certified", "1");
+  if (filters.ndaSigned) params.set("nda", "1");
+  if (filters.catTool) params.set("cat", filters.catTool);
+  if (filters.rateMin) params.set("rmin", filters.rateMin);
+  if (filters.rateMax) params.set("rmax", filters.rateMax);
+  if (filters.location) params.set("loc", filters.location);
+  if (filters.experienceMin) params.set("emin", filters.experienceMin);
+  if (filters.experienceMax) params.set("emax", filters.experienceMax);
+  if (filters.tier) params.set("tier", filters.tier);
+  const qs = params.toString();
+  const base = window.location.hash.split("?")[0];
+  window.history.replaceState(null, "", qs ? `${base}?${qs}` : base);
 }
 
 // ── Status Badge ──
@@ -1670,12 +1740,16 @@ function AdvancedFilterPanel({
 
 function BulkActionsBar({
   selectedCount,
+  selectedIds,
   onChangeStatus,
   onDelete,
+  onExport,
 }: {
   selectedCount: number;
+  selectedIds: Set<number>;
   onChangeStatus: (status: string) => void;
   onDelete: () => void;
+  onExport: () => void;
 }) {
   if (selectedCount === 0) return null;
 
@@ -1695,6 +1769,15 @@ function BulkActionsBar({
             ))}
           </SelectContent>
         </Select>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs border-white/10"
+          onClick={onExport}
+        >
+          Export Selected
+        </Button>
         <Button
           type="button"
           variant="destructive"
@@ -2152,11 +2235,16 @@ export default function VendorsPage() {
   function handleFiltersChange(newFilters: FilterState) {
     setFilters(newFilters);
     setPage(1);
+    persistFiltersToUrl(newFilters);
   }
 
   function handleClearFilters() {
-    setFilters(createInitialFilters());
+    const initial = createInitialFilters();
+    setFilters(initial);
     setPage(1);
+    // Clear URL params
+    const base = window.location.hash.split("?")[0];
+    window.history.replaceState(null, "", base);
   }
 
   // Build query params
@@ -2264,6 +2352,23 @@ export default function VendorsPage() {
     bulkDeleteMutation.mutate(ids);
   }
 
+  async function handleBulkExport() {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    try {
+      const res = await apiRequest("POST", "/api/vendors/bulk/export", { vendorIds: ids });
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "vendors-export.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("Export failed", e);
+    }
+  }
+
   return (
     <div className="h-full overflow-auto" data-testid="vendors-page">
       <div className="max-w-[1400px] mx-auto p-6 space-y-5">
@@ -2354,8 +2459,10 @@ export default function VendorsPage() {
         {/* Bulk Actions */}
         <BulkActionsBar
           selectedCount={selectedIds.size}
+          selectedIds={selectedIds}
           onChangeStatus={handleBulkChangeStatus}
           onDelete={handleBulkDelete}
+          onExport={handleBulkExport}
         />
 
         {/* Content */}

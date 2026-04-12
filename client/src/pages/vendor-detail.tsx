@@ -77,6 +77,8 @@ import {
   Percent,
   Calendar as CalendarIcon,
   ChevronLeft,
+  ClipboardCheck,
+  History,
 } from "lucide-react";
 
 // ── Constants ──
@@ -3281,9 +3283,18 @@ function CatDiscountsTab({ vendorId }: { vendorId: string }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-white/50">Percentage of per-word rate charged for each match type</p>
-        <Button size="sm" onClick={() => saveMutation.mutate(localValues)} disabled={saveMutation.isPending} className="bg-blue-600 hover:bg-blue-700 text-xs">
-          <Save className="w-3 h-3 mr-1" /> Save
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={() => {
+            const defaults: Record<string, number> = {};
+            for (const f of CAT_FIELDS) defaults[f.key] = f.default;
+            setLocalValues(defaults);
+          }} className="text-xs border-white/10 text-white/50 hover:text-white">
+            Apply Default Template
+          </Button>
+          <Button size="sm" onClick={() => saveMutation.mutate(localValues)} disabled={saveMutation.isPending} className="bg-blue-600 hover:bg-blue-700 text-xs">
+            <Save className="w-3 h-3 mr-1" /> Save
+          </Button>
+        </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {CAT_FIELDS.map(f => (
@@ -3308,6 +3319,94 @@ function CatDiscountsTab({ vendorId }: { vendorId: string }) {
           </Card>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ── Quiz Results Tab ──
+function QuizResultsTab({ vendorId }: { vendorId: string }) {
+  const { data: attempts = [], isLoading } = useQuery<any[]>({
+    queryKey: [`/api/vendors/${vendorId}/quiz-attempts`],
+    queryFn: async () => { const r = await apiRequest("GET", `/api/vendors/${vendorId}/quiz-attempts`); return r.json(); },
+  });
+
+  if (isLoading) return <div className="space-y-3">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-16" />)}</div>;
+
+  return (
+    <div className="space-y-4">
+      <h3 className="text-sm font-medium text-white/70 flex items-center gap-2">
+        <ClipboardCheck className="w-4 h-4 text-blue-400" />
+        Quiz Attempts ({attempts.length})
+      </h3>
+      {attempts.length === 0 ? (
+        <div className="text-center py-8 text-white/20 text-sm">No quiz attempts yet</div>
+      ) : (
+        <div className="space-y-2">
+          {attempts.map((a: any) => (
+            <Card key={a.id} className="bg-white/[0.03] border-white/[0.06]">
+              <CardContent className="p-3 flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-white">{a.quizTitle || `Quiz #${a.quizId}`}</p>
+                  {a.quizCategory && <span className="text-[10px] text-blue-400">{a.quizCategory}</span>}
+                  <p className="text-[10px] text-white/30 mt-0.5">
+                    {a.completedAt ? new Date(a.completedAt).toLocaleDateString() : "In progress"}
+                  </p>
+                </div>
+                <div className="text-right">
+                  {a.score != null ? (
+                    <>
+                      <span className={`text-lg font-bold ${a.passed ? "text-emerald-400" : "text-red-400"}`}>
+                        {Math.round((a.score / a.maxScore) * 100)}%
+                      </span>
+                      <p className="text-[10px] text-white/30">{a.score}/{a.maxScore}</p>
+                    </>
+                  ) : (
+                    <span className="text-xs text-amber-400">Pending</span>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Stage History Tab ──
+function StageHistoryTab({ vendorId }: { vendorId: string }) {
+  const { data: history = [], isLoading } = useQuery<any[]>({
+    queryKey: [`/api/vendors/${vendorId}/stage-history`],
+    queryFn: async () => { const r = await apiRequest("POST", `/api/vendors/${vendorId}/stage-history`); return r.json(); },
+  });
+
+  if (isLoading) return <div className="space-y-3">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-12" />)}</div>;
+
+  return (
+    <div className="space-y-4">
+      <h3 className="text-sm font-medium text-white/70 flex items-center gap-2">
+        <History className="w-4 h-4 text-purple-400" />
+        Stage History ({history.length})
+      </h3>
+      {history.length === 0 ? (
+        <div className="text-center py-8 text-white/20 text-sm">No stage changes recorded</div>
+      ) : (
+        <div className="space-y-2">
+          {history.map((h: any) => (
+            <div key={h.id} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 text-xs">
+                  {h.fromStage && <span className="text-white/40">{h.fromStage}</span>}
+                  {h.fromStage && <ChevronRight className="w-3 h-3 text-white/20" />}
+                  <span className="text-white font-medium">{h.toStage}</span>
+                </div>
+                {h.notes && <p className="text-[10px] text-white/30 mt-0.5">{h.notes}</p>}
+              </div>
+              <span className="text-[10px] text-white/20">{new Date(h.createdAt).toLocaleDateString()}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -3750,6 +3849,20 @@ export default function VendorDetailPage() {
               <StickyNote className="w-3 h-3" />
               Notes
             </TabsTrigger>
+            <TabsTrigger
+              value="quiz-results"
+              className="text-xs text-white/50 data-[state=active]:text-white data-[state=active]:bg-white/[0.08] flex items-center gap-1.5 px-3 py-1.5"
+            >
+              <ClipboardCheck className="w-3 h-3" />
+              Quizzes
+            </TabsTrigger>
+            <TabsTrigger
+              value="stage-history"
+              className="text-xs text-white/50 data-[state=active]:text-white data-[state=active]:bg-white/[0.08] flex items-center gap-1.5 px-3 py-1.5"
+            >
+              <History className="w-3 h-3" />
+              Stage History
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="mt-4">
@@ -3794,6 +3907,14 @@ export default function VendorDetailPage() {
 
           <TabsContent value="availability" className="mt-4">
             <AvailabilityTab vendorId={vendorId} />
+          </TabsContent>
+
+          <TabsContent value="quiz-results" className="mt-4">
+            <QuizResultsTab vendorId={vendorId} />
+          </TabsContent>
+
+          <TabsContent value="stage-history" className="mt-4">
+            <StageHistoryTab vendorId={vendorId} />
           </TabsContent>
         </Tabs>
       </div>

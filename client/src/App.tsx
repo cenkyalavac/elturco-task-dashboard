@@ -45,6 +45,11 @@ import DocumentCompliancePage from "@/pages/document-compliance";
 import TeamAvailabilityPage from "@/pages/team-availability";
 import CommandPalette from "@/components/CommandPalette";
 
+// Faz 2: Vendor Management
+import VendorApplyPage from "@/pages/vendor-apply";
+import QuizTakePage from "@/pages/quiz-take";
+import QuizzesPage from "@/pages/quizzes";
+
 import {
   LogOut, BarChart3, Sun, Moon, Bell, CheckCheck, Menu, X,
   Users, Building2, FolderKanban, Award, LayoutDashboard, History, Settings,
@@ -288,6 +293,7 @@ function AppLayout() {
             {!sidebarCollapsed && <p className="px-3 mb-1 text-[10px] font-semibold text-white/20 uppercase tracking-wider">Management</p>}
             {canSeeVendorMgmt && <SidebarLink href="/vendors" label="Vendors" icon={<Users className="w-4 h-4 shrink-0" />} />}
             {canSeeVendorMgmt && <SidebarLink href="/vendor-pipeline" label="Pipeline" icon={<GitBranch className="w-4 h-4 shrink-0" />} />}
+            {canSeeVendorMgmt && <SidebarLink href="/quizzes" label="Quizzes" icon={<Award className="w-4 h-4 shrink-0" />} />}
             <SidebarLink href="/customers" label="Customers" icon={<Building2 className="w-4 h-4 shrink-0" />} />
             <SidebarLink href="/projects" label="Projects" icon={<FolderKanban className="w-4 h-4 shrink-0" />} />
             <SidebarLink href="/quality" label="Quality" icon={<Award className="w-4 h-4 shrink-0" />} />
@@ -390,6 +396,7 @@ function AppLayout() {
             <SidebarLink href="/analytics" label="Analytics" icon={<BarChart3 className="w-4 h-4" />} />
             {canSeeVendorMgmt && <SidebarLink href="/vendors" label="Vendors" icon={<Users className="w-4 h-4" />} />}
             {canSeeVendorMgmt && <SidebarLink href="/vendor-pipeline" label="Pipeline" icon={<GitBranch className="w-4 h-4" />} />}
+            {canSeeVendorMgmt && <SidebarLink href="/quizzes" label="Quizzes" icon={<Award className="w-4 h-4" />} />}
             <SidebarLink href="/customers" label="Customers" icon={<Building2 className="w-4 h-4" />} />
             <SidebarLink href="/projects" label="Projects" icon={<FolderKanban className="w-4 h-4" />} />
             <SidebarLink href="/quality" label="Quality" icon={<Award className="w-4 h-4" />} />
@@ -414,6 +421,7 @@ function AppLayout() {
             <Route path="/vendors">{() => <ProtectedRoute component={VendorsPage} />}</Route>
             <Route path="/vendors/:id">{() => <ProtectedRoute component={VendorDetailPage} />}</Route>
             <Route path="/vendor-pipeline">{() => <ProtectedRoute component={VendorPipelinePage} />}</Route>
+            <Route path="/quizzes">{() => <ProtectedRoute component={QuizzesPage} />}</Route>
             <Route path="/customers">{() => <ProtectedRoute component={CustomersPage} />}</Route>
             <Route path="/customers/:id">{() => <ProtectedRoute component={CustomerDetailPage} />}</Route>
             <Route path="/projects">{() => <ProtectedRoute component={ProjectsPage} />}</Route>
@@ -449,6 +457,8 @@ function AppRouter() {
       <Route path="/freelancer/verify/:token" component={FreelancerPortalPage} />
       <Route path="/portal" component={VendorPortalPage} />
       <Route path="/portal/verify/:token" component={VendorPortalPage} />
+      <Route path="/apply" component={VendorApplyPage} />
+      <Route path="/quiz/:token" component={QuizTakePage} />
       <Route>{() => (isAuthenticated || hasToken) ? <AppLayout /> : <Redirect to="/login" />}</Route>
     </Switch>
   );
