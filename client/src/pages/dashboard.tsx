@@ -660,6 +660,18 @@ export default function DashboardPage() {
     },
   });
 
+  // KPI queries for dashboard summary
+  const { data: kpiProjects } = useQuery({
+    queryKey: ["/api/projects?status=active&limit=1"],
+    queryFn: async () => { const r = await apiRequest("GET", "/api/projects?status=active&limit=1"); return r.json(); },
+    staleTime: 120000,
+  });
+  const { data: kpiFinancial } = useQuery({
+    queryKey: ["/api/financial/summary"],
+    queryFn: async () => { const r = await apiRequest("GET", "/api/financial/summary"); return r.json().catch(() => ({})); },
+    staleTime: 120000,
+  });
+
   // Queries
   const wantDelivered = statusFilter === "delivered" || statusFilter === "all";
   const { data: tasks, isLoading: tasksLoading } = useQuery<Task[]>({
@@ -1891,6 +1903,32 @@ export default function DashboardPage() {
           <span className="text-red-400/50 text-[10px]">Click to view</span>
         </div>
       )}
+
+      {/* KPI Summary Cards */}
+      <div className="border-b border-white/[0.06] bg-card/50 px-4 py-2">
+        <div className="flex items-center gap-3 overflow-x-auto">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border border-blue-500/20 rounded-md min-w-fit">
+            <span className="text-[10px] text-blue-400/70 uppercase tracking-wider">Active Projects</span>
+            <span className="text-sm font-bold text-blue-400 tabular-nums">{kpiProjects?.total ?? "\u2014"}</span>
+          </div>
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-md min-w-fit">
+            <span className="text-[10px] text-emerald-400/70 uppercase tracking-wider">Revenue</span>
+            <span className="text-sm font-bold text-emerald-400 tabular-nums">
+              {kpiFinancial?.totalRevenue ? `\u20ac${Number(kpiFinancial.totalRevenue).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : "\u2014"}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-md min-w-fit">
+            <span className="text-[10px] text-amber-400/70 uppercase tracking-wider">Outstanding AR</span>
+            <span className="text-sm font-bold text-amber-400 tabular-nums">
+              {kpiFinancial?.totalOutstanding ? `\u20ac${Number(kpiFinancial.totalOutstanding).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : "\u2014"}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 border border-red-500/20 rounded-md min-w-fit">
+            <span className="text-[10px] text-red-400/70 uppercase tracking-wider">Overdue Tasks</span>
+            <span className="text-sm font-bold text-red-400 tabular-nums">{stats.pastDeadline}</span>
+          </div>
+        </div>
+      </div>
 
       {/* Stats bar — premium glassmorphism stat pills */}
       <div className="border-b border-white/[0.06] bg-gradient-to-r from-card via-card to-card/80 px-4 py-2">

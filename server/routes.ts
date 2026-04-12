@@ -3059,6 +3059,47 @@ const freelancers = (Array.isArray(data) ? data : [])
     }
   });
 
+  app.delete("/api/customers/:id/contacts/:contactId", requireAuth, async (req: Request, res: Response) => {
+    try {
+      await storage.deleteCustomerContact(+param(req, "contactId"));
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/customers/:id/sub-accounts/:subId", requireAuth, async (req: Request, res: Response) => {
+    try {
+      await storage.deleteCustomerSubAccount(+param(req, "subId"));
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/customers/:id/pm-assignments", requireAuth, async (req: Request, res: Response) => {
+    const assignments = await storage.getPmCustomerAssignments(undefined, +param(req, "id"));
+    res.json(assignments);
+  });
+
+  app.post("/api/customers/:id/pm-assignments", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const assignment = await storage.createPmCustomerAssignment({ customerId: +param(req, "id"), ...req.body });
+      res.json(assignment);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/customers/:id/pm-assignments/:assignId", requireAuth, async (req: Request, res: Response) => {
+    try {
+      await storage.deletePmCustomerAssignment(+param(req, "assignId"));
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // ---- PROJECTS CRUD ----
   app.get("/api/projects", requireAuth, async (req: Request, res: Response) => {
     try {
@@ -3113,6 +3154,24 @@ const freelancers = (Array.isArray(data) ? data : [])
     try {
       const job = await storage.createJob({ projectId: +param(req, "id"), ...req.body });
       res.json(job);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.patch("/api/projects/:id/jobs/:jobId", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const job = await storage.updateJob(+param(req, "jobId"), req.body);
+      res.json(job);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/projects/:id/jobs/:jobId", requireAuth, async (req: Request, res: Response) => {
+    try {
+      await storage.deleteJob(+param(req, "jobId"));
+      res.json({ success: true });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }

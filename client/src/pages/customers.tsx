@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Link } from "wouter";
@@ -28,9 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Search, Plus, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
-
-// ── Types ──
+import { Search, Plus, ChevronLeft, ChevronRight, Loader2, Filter } from "lucide-react";
 
 interface Customer {
   id: number;
@@ -39,8 +37,10 @@ interface Customer {
   status: string;
   email: string | null;
   currency: string | null;
-  primaryPm: string | null;
-  primaryPmName: string | null;
+  primaryPmId: number | null;
+  paymentTermsType: string | null;
+  paymentTermsDays: number | null;
+  clientType: string | null;
 }
 
 interface CustomersResponse {
@@ -56,19 +56,23 @@ interface NewCustomerForm {
   email: string;
   currency: string;
   status: string;
+  paymentTermsType: string;
+  paymentTermsDays: string;
 }
 
 const CURRENCIES = ["USD", "EUR", "GBP", "TRY", "AED", "JPY", "CAD", "AUD"];
 
-const STATUS_VARIANTS: Record<string, "default" | "secondary" | "destructive"> = {
-  active: "default",
-  inactive: "secondary",
-  suspended: "destructive",
+const STATUS_COLORS: Record<string, string> = {
+  active: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25",
+  ACTIVE: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25",
+  inactive: "bg-zinc-500/15 text-zinc-400 border-zinc-500/25",
+  INACTIVE: "bg-zinc-500/15 text-zinc-400 border-zinc-500/25",
+  suspended: "bg-red-500/15 text-red-400 border-red-500/25",
+  prospect: "bg-blue-500/15 text-blue-400 border-blue-500/25",
+  PROSPECT: "bg-blue-500/15 text-blue-400 border-blue-500/25",
 };
 
 const PAGE_LIMIT = 20;
-
-// ── Component ──
 
 export default function CustomersPage() {
   const { toast } = useToast();
@@ -78,17 +82,14 @@ export default function CustomersPage() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [showFilters, setShowFilters] = useState(false);
 
-  // Form state
   const [form, setForm] = useState<NewCustomerForm>({
-    name: "",
-    code: "",
-    email: "",
-    currency: "USD",
-    status: "active",
+    name: "", code: "", email: "", currency: "EUR", status: "active",
+    paymentTermsType: "net", paymentTermsDays: "30",
   });
 
-  // Debounce search
   const handleSearchChange = (value: string) => {
     setSearch(value);
     setPage(1);
@@ -98,7 +99,6 @@ export default function CustomersPage() {
     }, 300);
   };
 
-  // Query
   const queryParams = new URLSearchParams();
   if (debouncedSearch) queryParams.set("search", debouncedSearch);
   queryParams.set("page", String(page));
@@ -112,13 +112,28 @@ export default function CustomersPage() {
     },
   });
 
-  const customers = data?.data ?? [];
+  const { data: usersData } = useQuery({
+    queryKey: ["/api/users"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/users");
+      return r.json().catch(() => []);
+    },
+  });
+
+  const allCustomers = data?.data ?? [];
   const total = data?.total ?? 0;
+  const users: any[] = usersData || [];
+
+  // Client-side status filter
+  const customers = useMemo(() => {
+    if (statusFilter === "all") return allCustomers;
+    return allCustomers.filter((c) => c.status?.toLowerCase() === statusFilter.toLowerCase());
+  }, [allCustomers, statusFilter]);
+
   const totalPages = Math.ceil(total / PAGE_LIMIT);
 
-  // Create mutation
   const createMutation = useMutation({
-    mutationFn: async (payload: NewCustomerForm) => {
+    mutationFn: async (payload: any) => {
       const res = await apiRequest("POST", "/api/customers", payload);
       return res.json();
     },
@@ -134,7 +149,7 @@ export default function CustomersPage() {
   });
 
   function resetForm() {
-    setForm({ name: "", code: "", email: "", currency: "USD", status: "active" });
+    setForm({ name: "", code: "", email: "", currency: "EUR", status: "active", paymentTermsType: "net", paymentTermsDays: "30" });
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -143,15 +158,34 @@ export default function CustomersPage() {
       toast({ title: "Name and code are required", variant: "destructive" });
       return;
     }
-    createMutation.mutate(form);
+    createMutation.mutate({
+      name: form.name,
+      code: form.code,
+      email: form.email || null,
+      currency: form.currency,
+      status: form.status,
+      paymentTermsType: form.paymentTermsType,
+      paymentTermsDays: form.paymentTermsDays ? parseInt(form.paymentTermsDays) : null,
+    });
   }
+
+  const getUserName = (pmId: number | null) => {
+    if (!pmId) return "\u2014";
+    const u = users.find((u: any) => u.id === pmId);
+    return u ? u.name : "\u2014";
+  };
+
+  const formatPaymentTerms = (c: Customer) => {
+    if (!c.paymentTermsDays) return c.paymentTermsType || "\u2014";
+    return `${c.paymentTermsType || "Net"} ${c.paymentTermsDays}d`;
+  };
 
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
       <div className="border-b border-border bg-card px-4 py-2.5">
         <div className="flex items-center gap-3">
-          <h1 className="text-sm font-semibold text-foreground mr-4" data-testid="text-customers-title">
+          <h1 className="text-sm font-semibold text-foreground mr-4">
             Customers
           </h1>
 
@@ -162,9 +196,20 @@ export default function CustomersPage() {
               value={search}
               onChange={(e) => handleSearchChange(e.target.value)}
               className="pl-10 h-8 text-sm"
-              data-testid="input-customer-search"
             />
           </div>
+
+          <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }}>
+            <SelectTrigger className="w-32 h-8 text-sm">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Statuses</SelectItem>
+              <SelectItem value="active">Active</SelectItem>
+              <SelectItem value="inactive">Inactive</SelectItem>
+              <SelectItem value="prospect">Prospect</SelectItem>
+            </SelectContent>
+          </Select>
 
           <span className="text-xs text-muted-foreground ml-auto tabular-nums">
             {total} customer{total !== 1 ? "s" : ""}
@@ -174,7 +219,6 @@ export default function CustomersPage() {
             size="sm"
             className="h-8 text-xs gap-1.5"
             onClick={() => setDialogOpen(true)}
-            data-testid="button-add-customer"
           >
             <Plus className="w-3.5 h-3.5" />
             Add Customer
@@ -195,15 +239,16 @@ export default function CustomersPage() {
             {debouncedSearch ? "No customers match your search" : "No customers yet"}
           </div>
         ) : (
-          <Table data-testid="table-customers">
+          <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent border-border">
-                <TableHead className="text-xs font-medium text-muted-foreground h-9 px-3">Name</TableHead>
                 <TableHead className="text-xs font-medium text-muted-foreground h-9 px-3">Code</TableHead>
+                <TableHead className="text-xs font-medium text-muted-foreground h-9 px-3">Name</TableHead>
                 <TableHead className="text-xs font-medium text-muted-foreground h-9 px-3">Status</TableHead>
-                <TableHead className="text-xs font-medium text-muted-foreground h-9 px-3">Email</TableHead>
-                <TableHead className="text-xs font-medium text-muted-foreground h-9 px-3">Currency</TableHead>
                 <TableHead className="text-xs font-medium text-muted-foreground h-9 px-3">Primary PM</TableHead>
+                <TableHead className="text-xs font-medium text-muted-foreground h-9 px-3">Currency</TableHead>
+                <TableHead className="text-xs font-medium text-muted-foreground h-9 px-3">Payment Terms</TableHead>
+                <TableHead className="text-xs font-medium text-muted-foreground h-9 px-3">Email</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -211,38 +256,39 @@ export default function CustomersPage() {
                 <TableRow
                   key={customer.id}
                   className="border-border hover:bg-muted/30 transition-colors"
-                  data-testid={`row-customer-${customer.id}`}
                 >
-                  <TableCell className="px-3 py-2 font-medium text-foreground">
-                    <Link
-                      href={`/customers/${customer.id}`}
-                      className="text-primary hover:underline"
-                      data-testid={`link-customer-${customer.id}`}
-                    >
-                      {customer.name}
-                    </Link>
-                  </TableCell>
                   <TableCell className="px-3 py-2">
                     <Badge variant="secondary" className="text-[10px] font-normal px-1.5 py-0 font-mono">
                       {customer.code}
                     </Badge>
                   </TableCell>
+                  <TableCell className="px-3 py-2 font-medium text-foreground">
+                    <Link
+                      href={`/customers/${customer.id}`}
+                      className="text-primary hover:underline"
+                    >
+                      {customer.name}
+                    </Link>
+                  </TableCell>
                   <TableCell className="px-3 py-2">
                     <Badge
-                      variant={STATUS_VARIANTS[customer.status] ?? "secondary"}
-                      className="text-[10px] px-1.5 py-0 capitalize"
+                      variant="outline"
+                      className={`text-[10px] px-1.5 py-0 capitalize border ${STATUS_COLORS[customer.status] || ""}`}
                     >
                       {customer.status}
                     </Badge>
                   </TableCell>
                   <TableCell className="px-3 py-2 text-xs text-muted-foreground">
-                    {customer.email || "—"}
+                    {getUserName(customer.primaryPmId)}
                   </TableCell>
                   <TableCell className="px-3 py-2 text-xs text-muted-foreground">
-                    {customer.currency || "—"}
+                    {customer.currency || "\u2014"}
                   </TableCell>
                   <TableCell className="px-3 py-2 text-xs text-muted-foreground">
-                    {customer.primaryPmName || customer.primaryPm || "—"}
+                    {formatPaymentTerms(customer)}
+                  </TableCell>
+                  <TableCell className="px-3 py-2 text-xs text-muted-foreground">
+                    {customer.email || "\u2014"}
                   </TableCell>
                 </TableRow>
               ))}
@@ -264,7 +310,6 @@ export default function CustomersPage() {
               className="h-7 w-7 p-0"
               disabled={page <= 1}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
-              data-testid="button-prev-page"
             >
               <ChevronLeft className="w-4 h-4" />
             </Button>
@@ -283,7 +328,6 @@ export default function CustomersPage() {
                   size="sm"
                   className="h-7 w-7 p-0 text-xs"
                   onClick={() => setPage(pageNum)}
-                  data-testid={`button-page-${pageNum}`}
                 >
                   {pageNum}
                 </Button>
@@ -295,7 +339,6 @@ export default function CustomersPage() {
               className="h-7 w-7 p-0"
               disabled={page >= totalPages}
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              data-testid="button-next-page"
             >
               <ChevronRight className="w-4 h-4" />
             </Button>
@@ -305,7 +348,7 @@ export default function CustomersPage() {
 
       {/* Add Customer Dialog */}
       <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
-        <DialogContent className="sm:max-w-md" data-testid="dialog-add-customer">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Add Customer</DialogTitle>
           </DialogHeader>
@@ -320,7 +363,6 @@ export default function CustomersPage() {
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                 className="h-8 text-sm"
-                data-testid="input-customer-name"
               />
             </div>
 
@@ -334,7 +376,6 @@ export default function CustomersPage() {
                 value={form.code}
                 onChange={(e) => setForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))}
                 className="h-8 text-sm font-mono"
-                data-testid="input-customer-code"
               />
             </div>
 
@@ -347,7 +388,6 @@ export default function CustomersPage() {
                 value={form.email}
                 onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
                 className="h-8 text-sm"
-                data-testid="input-customer-email"
               />
             </div>
 
@@ -358,7 +398,7 @@ export default function CustomersPage() {
                   value={form.currency}
                   onValueChange={(val) => setForm((f) => ({ ...f, currency: val }))}
                 >
-                  <SelectTrigger id="customer-currency" className="h-8 text-sm" data-testid="select-customer-currency">
+                  <SelectTrigger id="customer-currency" className="h-8 text-sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -375,15 +415,39 @@ export default function CustomersPage() {
                   value={form.status}
                   onValueChange={(val) => setForm((f) => ({ ...f, status: val }))}
                 >
-                  <SelectTrigger id="customer-status" className="h-8 text-sm" data-testid="select-customer-status">
+                  <SelectTrigger id="customer-status" className="h-8 text-sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="active">Active</SelectItem>
                     <SelectItem value="inactive">Inactive</SelectItem>
-                    <SelectItem value="suspended">Suspended</SelectItem>
+                    <SelectItem value="prospect">Prospect</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Payment Terms</Label>
+                <Select value={form.paymentTermsType} onValueChange={(val) => setForm((f) => ({ ...f, paymentTermsType: val }))}>
+                  <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="net">Net</SelectItem>
+                    <SelectItem value="due_on_receipt">Due on Receipt</SelectItem>
+                    <SelectItem value="end_of_month">End of Month</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Days</Label>
+                <Input
+                  type="number"
+                  value={form.paymentTermsDays}
+                  onChange={(e) => setForm((f) => ({ ...f, paymentTermsDays: e.target.value }))}
+                  className="h-8 text-sm"
+                  placeholder="30"
+                />
               </div>
             </div>
 
@@ -394,7 +458,6 @@ export default function CustomersPage() {
                 size="sm"
                 className="h-8 text-xs"
                 onClick={() => { setDialogOpen(false); resetForm(); }}
-                data-testid="button-cancel-customer"
               >
                 Cancel
               </Button>
@@ -403,7 +466,6 @@ export default function CustomersPage() {
                 size="sm"
                 className="h-8 text-xs gap-1.5"
                 disabled={createMutation.isPending}
-                data-testid="button-submit-customer"
               >
                 {createMutation.isPending ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
