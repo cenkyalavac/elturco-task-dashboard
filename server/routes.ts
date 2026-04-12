@@ -4119,6 +4119,12 @@ const freelancers = (Array.isArray(data) ? data : [])
     const year = new Date().getFullYear();
     const entityCode = project.entityId ? (await db.select().from(entities).where(eq(entities.id, project.entityId)))?.[0]?.code?.toUpperCase() || "VRB" : "VRB";
     const poNumber = await getNextSequenceNumber(purchaseOrders, `${entityCode}-PO`, year, purchaseOrders.poNumber);
+    // Resolve currency: project > entity defaultCurrency > entity currency > "EUR"
+    let poCurrency = project.currency;
+    if (!poCurrency && project.entityId) {
+      const entityForCurrency = await storage.getEntity(project.entityId);
+      if (entityForCurrency) poCurrency = entityForCurrency.defaultCurrency || entityForCurrency.currency;
+    }
     const po = await storage.createPurchaseOrder({
       vendorId,
       entityId: project.entityId || undefined,
@@ -4126,7 +4132,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       jobId,
       poNumber,
       amount: String(amount),
-      currency: project.currency || "EUR",
+      currency: poCurrency || "EUR",
       status: "draft",
     } as any);
     // Link PO to job
@@ -4197,6 +4203,12 @@ const freelancers = (Array.isArray(data) ? data : [])
       const year = new Date().getFullYear();
       const entityCode = project.entityId ? (await db.select().from(entities).where(eq(entities.id, project.entityId)))?.[0]?.code?.toUpperCase() || "VRB" : "VRB";
       const invoiceNumber = await getNextSequenceNumber(clientInvoices, `${entityCode}-INV`, year, clientInvoices.invoiceNumber);
+      // Resolve currency: project > entity defaultCurrency > entity currency > "EUR"
+      let invCurrency = project.currency;
+      if (!invCurrency && project.entityId) {
+        const entityForCurrency = await storage.getEntity(project.entityId);
+        if (entityForCurrency) invCurrency = entityForCurrency.defaultCurrency || entityForCurrency.currency;
+      }
       const invoice = await storage.createInvoice({
         customerId: project.customerId,
         entityId: project.entityId || undefined,
@@ -4204,7 +4216,7 @@ const freelancers = (Array.isArray(data) ? data : [])
         invoiceDate: new Date().toISOString().split("T")[0],
         subtotal: String(subtotal),
         total: String(subtotal),
-        currency: project.currency || "EUR",
+        currency: invCurrency || "EUR",
         status: "draft",
       } as any);
       // Create line items
@@ -4425,6 +4437,12 @@ const freelancers = (Array.isArray(data) ? data : [])
           data.poNumber = await storage.getNextPoNumber(entity.code, year);
         }
       }
+      // Fall back to entity defaultCurrency if no currency specified
+      if (!data.currency && data.entityId) {
+        const entity = await storage.getEntity(data.entityId);
+        if (entity) data.currency = entity.defaultCurrency || entity.currency || "EUR";
+      }
+      if (!data.currency) data.currency = "EUR";
       const order = await storage.createPurchaseOrder(data);
       await logAudit((req as any).pmUserId, "create", "purchase_order", order.id, null, order, getClientIp(req));
       res.status(201).json(order);
@@ -4502,6 +4520,12 @@ const freelancers = (Array.isArray(data) ? data : [])
           invoiceData.invoiceNumber = await storage.getNextInvoiceNumber(entity.code, year);
         }
       }
+      // Fall back to entity defaultCurrency if no currency specified
+      if (!invoiceData.currency && invoiceData.entityId) {
+        const entity = await storage.getEntity(invoiceData.entityId);
+        if (entity) invoiceData.currency = entity.defaultCurrency || entity.currency || "EUR";
+      }
+      if (!invoiceData.currency) invoiceData.currency = "EUR";
       // Calculate totals from lines
       if (lines && lines.length > 0) {
         const subtotal = lines.reduce((sum: number, l: any) => sum + (parseFloat(l.amount) || 0), 0);

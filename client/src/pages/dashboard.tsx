@@ -18,17 +18,19 @@ import {
   FileSpreadsheet, ArrowUpDown, StickyNote, GripVertical, Mail, Filter,
   Star, Volume2, VolumeX, CalendarClock, Undo2, UserX, ExternalLink,
   Plus, UserPlus,
-  Briefcase, ListTodo, FileText, AlertTriangle, TrendingUp, Users,
-  Activity, FolderKanban, Receipt, ShoppingCart,
+  Receipt, ShoppingCart,
 } from "lucide-react";
 import VisualEmailEditor from "@/components/VisualEmailEditor";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useIsMobile } from "@/hooks/use-mobile";
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
-  ResponsiveContainer, Legend, PieChart, Pie, Cell,
-} from "recharts";
+import KPICards from "@/components/dashboard/KPICards";
+import ActivityFeed from "@/components/dashboard/ActivityFeed";
+import QuickActions from "@/components/dashboard/QuickActions";
+import UpcomingDeadlines from "@/components/dashboard/UpcomingDeadlines";
+import RevenueChart from "@/components/dashboard/RevenueChart";
+import ProjectPipeline from "@/components/dashboard/ProjectPipeline";
+import PortalTasksWidget from "@/components/dashboard/PortalTasksWidget";
 
 // ── Helpers: time ago ──
 function timeAgo(date: Date): string {
@@ -774,11 +776,6 @@ export default function DashboardPage() {
     if (!projectPipelineData || !Array.isArray(projectPipelineData)) return [];
     return projectPipelineData;
   }, [projectPipelineData]);
-
-  const PIPELINE_COLORS: Record<string, string> = {
-    active: "#14b8a6", completed: "#10b981", invoiced: "#3b82f6",
-    on_hold: "#f59e0b", cancelled: "#f43f5e", draft: "#6b7280",
-  };
 
   // Dashboard state
   const [showDashboardPanel, setShowDashboardPanel] = useState(true);
@@ -2017,192 +2014,32 @@ export default function DashboardPage() {
       )}
 
       {/* Incoming Portal Tasks */}
-      <div className="border-b border-white/[0.06] bg-card/50 px-4 py-3">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-xs font-semibold text-white/70 uppercase tracking-wider flex items-center gap-2">
-            <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
-            Incoming Portal Tasks {pendingPortalTasks.length > 0 && `(${pendingPortalTasks.length})`}
-          </h3>
-        </div>
-        {pendingPortalTasks.length === 0 ? (
-          <div className="flex items-center justify-center py-4 text-white/30">
-            <p className="text-xs">No incoming portal tasks</p>
-          </div>
-        ) : (
-          <div className="space-y-1.5">
-            {pendingPortalTasks.slice(0, 5).map((task: any) => {
-              const td = task.taskData || {};
-              const deadline = td.deadline ? new Date(td.deadline).toLocaleDateString("en-US", { day: "numeric", month: "short" }) : null;
-              return (
-                <div key={task.id} className="flex items-center justify-between bg-amber-500/[0.04] border border-amber-500/10 rounded-lg px-3 py-2">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <Badge className="text-[9px] bg-amber-500/10 text-amber-400 border-amber-500/20 shrink-0">{task.portalSource}</Badge>
-                    <span className="text-xs text-white/80 truncate">{td.projectName || td.name || task.externalId}</span>
-                    <span className="text-[10px] text-white/30 shrink-0">{td.sourceLanguage} &gt; {Array.isArray(td.targetLanguages) ? td.targetLanguages.join(", ") : td.targetLanguage || "?"}</span>
-                    {deadline && <span className="text-[10px] text-white/20 shrink-0">{deadline}</span>}
-                    {td.wordCount && <span className="text-[10px] text-white/20">{Number(td.wordCount).toLocaleString()} words</span>}
-                  </div>
-                  <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                    <Button size="sm" className="h-6 text-[10px] bg-emerald-600 hover:bg-emerald-700 text-white px-2" onClick={() => portalTaskAcceptMutation.mutate(task.id)} disabled={portalTaskAcceptMutation.isPending}>Accept</Button>
-                    <Button size="sm" variant="outline" className="h-6 text-[10px] text-red-400 border-red-500/20 hover:bg-red-500/10 px-2" onClick={() => portalTaskRejectMutation.mutate(task.id)} disabled={portalTaskRejectMutation.isPending}>Reject</Button>
-                    {task.externalUrl && <a href={task.externalUrl} target="_blank" rel="noopener noreferrer"><ExternalLink className="w-3 h-3 text-white/20 hover:text-blue-400" /></a>}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+      <PortalTasksWidget
+        pendingPortalTasks={pendingPortalTasks}
+        onAccept={(id) => portalTaskAcceptMutation.mutate(id)}
+        onReject={(id) => portalTaskRejectMutation.mutate(id)}
+        acceptPending={portalTaskAcceptMutation.isPending}
+        rejectPending={portalTaskRejectMutation.isPending}
+      />
 
       {/* Enhanced KPI Cards Row */}
-      <div className="border-b border-white/[0.06] bg-card/50 px-4 py-3">
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          {kpiCardsLoading ? (
-            <>
-              {[...Array(6)].map((_, i) => (
-                <div key={i} className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 space-y-2">
-                  <Skeleton className="h-3 w-24" />
-                  <Skeleton className="h-7 w-16" />
-                </div>
-              ))}
-            </>
-          ) : (
-            <>
-              <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 border-l-4 border-l-teal-500 relative overflow-hidden">
-                <Briefcase className="absolute top-3 right-3 w-8 h-8 text-teal-500 opacity-20" />
-                <p className="text-xs text-white/50 uppercase tracking-wider">Active Projects</p>
-                <p className="text-2xl font-bold text-white mt-1 tabular-nums">{dashboardKpis?.activeProjects ?? kpiProjects?.total ?? 0}</p>
-              </div>
-              <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 border-l-4 border-l-blue-500 relative overflow-hidden">
-                <ListTodo className="absolute top-3 right-3 w-8 h-8 text-blue-500 opacity-20" />
-                <p className="text-xs text-white/50 uppercase tracking-wider">Open Tasks</p>
-                <p className="text-2xl font-bold text-white mt-1 tabular-nums">{dashboardKpis?.openTasks ?? stats.ongoing}</p>
-              </div>
-              <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 border-l-4 border-l-amber-500 relative overflow-hidden">
-                <FileText className="absolute top-3 right-3 w-8 h-8 text-amber-500 opacity-20" />
-                <p className="text-xs text-white/50 uppercase tracking-wider">Pending Invoices</p>
-                <p className="text-2xl font-bold text-white mt-1 tabular-nums">{dashboardKpis?.pendingInvoices ?? 0}</p>
-                {dashboardKpis?.pendingInvoicesAmount && (
-                  <p className="text-[10px] text-amber-400/60 mt-0.5">{`\u00a3${Number(dashboardKpis.pendingInvoicesAmount).toLocaleString("en-US", { minimumFractionDigits: 0 })}`}</p>
-                )}
-              </div>
-              <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 border-l-4 border-l-red-500 relative overflow-hidden">
-                <AlertTriangle className="absolute top-3 right-3 w-8 h-8 text-red-500 opacity-20" />
-                <p className="text-xs text-white/50 uppercase tracking-wider">Overdue Items</p>
-                <p className="text-2xl font-bold text-white mt-1 tabular-nums">{dashboardKpis?.overdueItems ?? stats.pastDeadline}</p>
-              </div>
-              <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 border-l-4 border-l-emerald-500 relative overflow-hidden">
-                <TrendingUp className="absolute top-3 right-3 w-8 h-8 text-emerald-500 opacity-20" />
-                <p className="text-xs text-white/50 uppercase tracking-wider">Monthly Revenue</p>
-                <p className="text-2xl font-bold text-white mt-1 tabular-nums">
-                  {`\u00a3${Number(dashboardKpis?.monthlyRevenue ?? kpiFinancial?.totalRevenue ?? 0).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
-                </p>
-              </div>
-              <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 border-l-4 border-l-purple-500 relative overflow-hidden">
-                <Users className="absolute top-3 right-3 w-8 h-8 text-purple-500 opacity-20" />
-                <p className="text-xs text-white/50 uppercase tracking-wider">Vendor Availability</p>
-                <p className="text-2xl font-bold text-white mt-1 tabular-nums">{dashboardKpis?.vendorAvailability ?? 0}</p>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
+      <KPICards
+        loading={kpiCardsLoading}
+        dashboardKpis={dashboardKpis}
+        kpiProjects={kpiProjects}
+        kpiFinancial={kpiFinancial}
+        statsOngoing={stats.ongoing}
+        statsPastDeadline={stats.pastDeadline}
+      />
 
       {/* Activity Feed + Quick Actions + Deadlines */}
       {showDashboardPanel && (
         <div className="border-b border-white/[0.06] bg-card/30 px-4 py-3">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* Activity Feed */}
-            <div className="lg:col-span-2 bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 max-h-[280px] overflow-y-auto">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-xs font-semibold text-white/70 uppercase tracking-wider flex items-center gap-1.5">
-                  <Activity className="w-3.5 h-3.5 text-blue-400" /> Recent Activity
-                </h3>
-              </div>
-              {!activityFeed || activityFeed.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-8 text-white/30">
-                  <Activity className="w-6 h-6 mb-2 opacity-40" />
-                  <p className="text-xs">No recent activity</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {(activityFeed as any[]).slice(0, 15).map((item: any, idx: number) => (
-                    <div key={item.id || idx} className="flex items-start gap-2 py-1.5 border-b border-white/[0.04] last:border-0">
-                      <div className="w-6 h-6 rounded-full bg-blue-500/15 flex items-center justify-center shrink-0 mt-0.5">
-                        <Activity className="w-3 h-3 text-blue-400" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs text-white/80 truncate">{item.description || item.action || item.message || "Activity"}</p>
-                        <p className="text-[10px] text-white/30 mt-0.5">
-                          {item.createdAt ? timeAgo(new Date(item.createdAt)) : ""}
-                          {item.userName && ` by ${item.userName}`}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Quick Actions + Deadlines Column */}
+            <ActivityFeed activityFeed={activityFeed} />
             <div className="space-y-4">
-              {/* Quick Actions */}
-              <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
-                <h3 className="text-xs font-semibold text-white/70 uppercase tracking-wider mb-3">Quick Actions</h3>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => { window.location.hash = "#/projects?create=true"; }}
-                    className="bg-white/[0.05] hover:bg-white/[0.1] rounded-xl p-3 text-center transition-all duration-200"
-                  >
-                    <FolderKanban className="w-5 h-5 text-blue-400 mx-auto mb-1" />
-                    <span className="text-[10px] text-white/70 font-medium">New Project</span>
-                  </button>
-                  <button
-                    onClick={() => { window.location.hash = "#/invoices"; }}
-                    className="bg-white/[0.05] hover:bg-white/[0.1] rounded-xl p-3 text-center transition-all duration-200"
-                  >
-                    <Receipt className="w-5 h-5 text-emerald-400 mx-auto mb-1" />
-                    <span className="text-[10px] text-white/70 font-medium">New Invoice</span>
-                  </button>
-                  <button
-                    onClick={() => { window.location.hash = "#/purchase-orders"; }}
-                    className="bg-white/[0.05] hover:bg-white/[0.1] rounded-xl p-3 text-center transition-all duration-200"
-                  >
-                    <ShoppingCart className="w-5 h-5 text-amber-400 mx-auto mb-1" />
-                    <span className="text-[10px] text-white/70 font-medium">New PO</span>
-                  </button>
-                  <button
-                    onClick={() => { window.location.hash = "#/quality?tab=qs-entry"; }}
-                    className="bg-white/[0.05] hover:bg-white/[0.1] rounded-xl p-3 text-center transition-all duration-200"
-                  >
-                    <Star className="w-5 h-5 text-purple-400 mx-auto mb-1" />
-                    <span className="text-[10px] text-white/70 font-medium">Quick QS</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Upcoming Deadlines */}
-              <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 max-h-[140px] overflow-y-auto">
-                <h3 className="text-xs font-semibold text-white/70 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-amber-400" /> Upcoming Deadlines
-                </h3>
-                {!deadlinesData || deadlinesData.length === 0 ? (
-                  <p className="text-[10px] text-white/30 py-2">No upcoming deadlines</p>
-                ) : (
-                  <div className="space-y-1.5">
-                    {(deadlinesData as any[]).slice(0, 5).map((d: any, idx: number) => {
-                      const daysLeft = d.daysRemaining ?? Math.max(0, Math.ceil((new Date(d.deadline || d.dueDate).getTime() - Date.now()) / 86400000));
-                      const color = daysLeft < 3 ? "text-red-400" : daysLeft < 7 ? "text-amber-400" : "text-emerald-400";
-                      return (
-                        <div key={idx} className="flex items-center justify-between text-xs py-1 border-b border-white/[0.03] last:border-0">
-                          <span className="text-white/70 truncate max-w-[140px]">{d.projectName || d.name || "Project"}</span>
-                          <span className={`text-[10px] font-medium tabular-nums ${color}`}>{daysLeft}d left</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+              <QuickActions />
+              <UpcomingDeadlines deadlinesData={deadlinesData} />
             </div>
           </div>
         </div>
@@ -2212,63 +2049,8 @@ export default function DashboardPage() {
       {showDashboardPanel && (
         <div className="border-b border-white/[0.06] bg-card/30 px-4 py-3">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Revenue vs Cost Chart */}
-            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
-              <h3 className="text-xs font-semibold text-white/70 uppercase tracking-wider mb-3">Revenue vs Cost</h3>
-              {revenueCostData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={revenueCostData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                    <XAxis dataKey="month" tick={{ fontSize: 9, fill: "rgba(255,255,255,0.4)" }} />
-                    <YAxis tick={{ fontSize: 9, fill: "rgba(255,255,255,0.4)" }} tickFormatter={(v: number) => v >= 1000 ? `${(v/1000).toFixed(0)}k` : String(v)} />
-                    <RechartsTooltip contentStyle={{ backgroundColor: "#1a1d27", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "8px", fontSize: "11px" }} />
-                    <Legend wrapperStyle={{ fontSize: "10px" }} />
-                    <Bar dataKey="Revenue" fill="#14b8a6" radius={[3, 3, 0, 0]} />
-                    <Bar dataKey="Cost" fill="#f43f5e" radius={[3, 3, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="h-[200px] flex flex-col items-center justify-center text-white/30">
-                  <TrendingUp className="w-8 h-8 mb-2 opacity-20" />
-                  <p className="text-xs font-medium">No revenue data yet</p>
-                  <p className="text-[10px] text-white/20 mt-1">Create invoices and projects to see financial data here</p>
-                </div>
-              )}
-            </div>
-
-            {/* Project Pipeline Donut */}
-            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
-              <h3 className="text-xs font-semibold text-white/70 uppercase tracking-wider mb-3">Project Pipeline</h3>
-              {pipelineData.length > 0 ? (
-                <div className="flex items-center gap-4">
-                  <ResponsiveContainer width="50%" height={200}>
-                    <PieChart>
-                      <Pie data={pipelineData} dataKey="count" nameKey="status" cx="50%" cy="50%" innerRadius={40} outerRadius={70} paddingAngle={2}>
-                        {pipelineData.map((entry: any, idx: number) => (
-                          <Cell key={idx} fill={PIPELINE_COLORS[entry.status] || "#6b7280"} />
-                        ))}
-                      </Pie>
-                      <RechartsTooltip contentStyle={{ backgroundColor: "#1a1d27", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "8px", fontSize: "11px" }} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div className="space-y-1.5 flex-1">
-                    {pipelineData.map((entry: any, idx: number) => (
-                      <div key={idx} className="flex items-center gap-2 text-xs">
-                        <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: PIPELINE_COLORS[entry.status] || "#6b7280" }} />
-                        <span className="text-white/60 capitalize">{entry.status?.replace(/_/g, " ")}</span>
-                        <span className="ml-auto text-white/80 font-medium tabular-nums">{entry.count}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="h-[200px] flex flex-col items-center justify-center text-white/30">
-                  <FolderKanban className="w-8 h-8 mb-2 opacity-20" />
-                  <p className="text-xs font-medium">No pipeline data yet</p>
-                  <p className="text-[10px] text-white/20 mt-1">Create projects to see your pipeline breakdown here</p>
-                </div>
-              )}
-            </div>
+            <RevenueChart revenueCostData={revenueCostData} />
+            <ProjectPipeline pipelineData={pipelineData} />
           </div>
 
           {/* Toggle dashboard panels */}
