@@ -354,7 +354,7 @@ function StatusBadge({ status }: { status: string }) {
   const colorClass = STATUS_COLORS[status] ?? "bg-zinc-500/15 text-zinc-400 border-zinc-500/25";
   return (
     <span
-      className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium ${colorClass}`}
+      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${colorClass}`}
     >
       {status}
     </span>
@@ -660,7 +660,7 @@ function AddVendorDialog({ onCreated }: { onCreated: () => void }) {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button size="sm" className="gap-1.5">
+        <Button size="sm" className="bg-white text-black hover:bg-white/90 font-medium rounded-lg gap-1.5">
           <Plus className="w-4 h-4" />
           Add Vendor
         </Button>
@@ -1498,7 +1498,7 @@ function AdvancedFilterPanel({
   }
 
   return (
-    <div className="rounded-lg border border-white/[0.06] bg-card">
+    <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
@@ -1764,30 +1764,30 @@ function ListView({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-lg border border-white/[0.06] overflow-hidden bg-card">
+      <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow className="border-white/[0.06] hover:bg-transparent">
-              <TableHead className="w-10">
+              <TableHead className="w-10 py-3">
                 <Checkbox
                   checked={allSelected}
                   onCheckedChange={onToggleSelectAll}
                 />
               </TableHead>
-              <TableHead className="text-xs font-semibold text-muted-foreground">Resource Code</TableHead>
-              <TableHead className="text-xs font-semibold text-muted-foreground">Name</TableHead>
-              <TableHead className="text-xs font-semibold text-muted-foreground">Email</TableHead>
-              <TableHead className="text-xs font-semibold text-muted-foreground">Status</TableHead>
-              <TableHead className="text-xs font-semibold text-muted-foreground">Languages</TableHead>
-              <TableHead className="text-xs font-semibold text-muted-foreground">Service Types</TableHead>
-              <TableHead className="text-xs font-semibold text-muted-foreground">Quality Score</TableHead>
-              <TableHead className="text-xs font-semibold text-muted-foreground">Accounts</TableHead>
+              <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Resource Code</TableHead>
+              <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Name</TableHead>
+              <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Email</TableHead>
+              <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Status</TableHead>
+              <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Languages</TableHead>
+              <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Service Types</TableHead>
+              <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Quality Score</TableHead>
+              <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Accounts</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
               Array.from({ length: 8 }).map((_, i) => (
-                <TableRow key={i} className="border-white/[0.06]">
+                <TableRow key={i} className="border-b border-white/[0.04]">
                   {Array.from({ length: 9 }).map((__, j) => (
                     <TableCell key={j}>
                       <Skeleton className="h-4 w-full rounded" />
@@ -1796,16 +1796,20 @@ function ListView({
                 </TableRow>
               ))
             ) : vendors.length === 0 ? (
-              <TableRow className="border-white/[0.06]">
-                <TableCell colSpan={9} className="text-center text-muted-foreground py-12 text-sm">
-                  No vendors found.
+              <TableRow className="border-white/[0.04]">
+                <TableCell colSpan={9} className="text-center py-16">
+                  <div className="flex flex-col items-center gap-3">
+                    <Users className="w-10 h-10 text-white/20" />
+                    <p className="text-sm text-white/50">No vendors found</p>
+                    <p className="text-xs text-white/30">Adjust your filters or add a new vendor to get started.</p>
+                  </div>
                 </TableCell>
               </TableRow>
             ) : (
               vendors.map((vendor) => (
                 <TableRow
                   key={vendor.id}
-                  className={`border-white/[0.06] hover:bg-white/[0.02] transition-colors ${
+                  className={`border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors ${
                     selectedIds.has(vendor.id) ? "bg-blue-500/5" : ""
                   }`}
                   data-testid={`vendor-row-${vendor.id}`}
@@ -1822,7 +1826,7 @@ function ListView({
                   <TableCell className="font-medium text-sm">
                     <Link
                       href={`/vendors/${vendor.id}`}
-                      className="text-foreground hover:text-blue-400 transition-colors underline-offset-4 hover:underline"
+                      className="text-white hover:text-blue-400 transition-colors underline-offset-4 hover:underline"
                     >
                       {vendor.fullName}
                     </Link>
@@ -1944,13 +1948,13 @@ function PipelineView({
         return (
           <Card
             key={status}
-            className="bg-card border border-white/[0.06] overflow-hidden"
+            className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg overflow-hidden"
             data-testid={`pipeline-column-${status}`}
           >
             <CardHeader
               className={`py-3 px-4 border-b ${headerClass}`}
             >
-              <CardTitle className="text-xs font-semibold text-foreground flex items-center justify-between gap-2">
+              <CardTitle className="text-xs font-semibold text-white flex items-center justify-between gap-2">
                 <span className="truncate">{status}</span>
                 <span className="shrink-0 inline-flex items-center justify-center rounded-full bg-white/[0.08] text-foreground text-xs font-bold w-6 h-6">
                   {count}
@@ -2008,7 +2012,7 @@ function PipelineVendorList({ status, count }: { status: string; count: number }
           className="block rounded-md px-2.5 py-2 text-xs bg-white/[0.03] border border-white/[0.05] hover:bg-white/[0.07] hover:border-white/[0.10] transition-colors"
           data-testid={`pipeline-vendor-${vendor.id}`}
         >
-          <div className="font-medium text-foreground truncate">{vendor.fullName}</div>
+          <div className="font-medium text-white truncate">{vendor.fullName}</div>
           <div className="text-[10px] text-muted-foreground truncate mt-0.5">{vendor.email}</div>
           <div className="flex items-center gap-2 mt-1 flex-wrap">
             {vendor.languagePairs && vendor.languagePairs.length > 0 ? (
@@ -2107,7 +2111,7 @@ function CsvImportButton({ onImported }: { onImported: () => void }) {
   }
 
   return (
-    <Button variant="outline" size="sm" className="gap-1.5" onClick={handleFileSelect} disabled={importing}>
+    <Button variant="outline" size="sm" className="gap-1.5 rounded-lg" onClick={handleFileSelect} disabled={importing}>
       {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
       Import CSV
     </Button>
@@ -2264,14 +2268,14 @@ export default function VendorsPage() {
     <div className="h-full overflow-auto" data-testid="vendors-page">
       <div className="max-w-[1400px] mx-auto p-6 space-y-5">
         {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] bg-white/[0.02] rounded-xl px-4 py-3">
           <div className="flex items-center gap-2">
-            <Users className="w-5 h-5 text-muted-foreground" />
-            <h1 className="text-lg font-semibold text-foreground">Vendors</h1>
+            <Users className="w-5 h-5 text-white/40" />
+            <h1 className="text-lg font-semibold text-white">Vendors</h1>
             {!isVendorsLoading && (
-              <Badge variant="secondary" className="ml-1 text-xs">
+              <span className="ml-1 text-xs text-white/40 tabular-nums">
                 {total}
-              </Badge>
+              </span>
             )}
           </div>
           <div className="flex items-center gap-2">
