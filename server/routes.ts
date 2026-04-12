@@ -3395,8 +3395,92 @@ const freelancers = (Array.isArray(data) ? data : [])
   });
 
   app.get("/api/vendors/:id/documents", requireAuth, async (req: Request, res: Response) => {
-    const docs = await storage.getVendorDocuments();
-    res.json(docs);
+    try {
+      const docs = await storage.getVendorFileUploads(+param(req, "id"));
+      res.json(docs);
+    } catch (e: any) {
+      console.error("Get vendor documents error:", e);
+      res.status(500).json({ error: "Failed to get vendor documents" });
+    }
+  });
+
+  const docUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+  app.post("/api/vendors/:id/documents", requireAuth, docUpload.single("file"), async (req: Request, res: Response) => {
+    try {
+      const vendorId = +param(req, "id");
+      const file = (req as any).file;
+      if (!file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+      const docType = req.body.docType || "Other";
+      // In production, upload to S3/GCS. Here we store a data URL.
+      const fileUrl = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
+      const doc = await storage.createVendorFileUpload({
+        vendorId,
+        fileName: file.originalname,
+        fileUrl,
+        docType,
+        fileSize: file.size,
+        mimeType: file.mimetype,
+      });
+      res.json(doc);
+    } catch (e: any) {
+      console.error("Upload vendor document error:", e);
+      res.status(500).json({ error: "Failed to upload document" });
+    }
+  });
+
+  app.delete("/api/vendors/:id/documents/:docId", requireAuth, async (req: Request, res: Response) => {
+    try {
+      await storage.deleteVendorFileUpload(+param(req, "docId"));
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error("Delete vendor document error:", e);
+      res.status(500).json({ error: "Failed to delete document" });
+    }
+  });
+
+  app.get("/api/vendors/:id/performance", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const vendorId = +param(req, "id");
+      const reports = await storage.getQualityReports(vendorId);
+
+      const qsTrend: { date: string; score: number }[] = [];
+      const lqaTrend: { date: string; score: number }[] = [];
+      let totalJobs = 0;
+      let onTimeCount = 0;
+      let totalDeliveries = 0;
+
+      for (const r of reports) {
+        const date = r.reportDate ? new Date(r.reportDate).toISOString().split("T")[0] : null;
+        if (r.qsScore != null && date) {
+          qsTrend.push({ date, score: Number(r.qsScore) });
+        }
+        if (r.lqaScore != null && date) {
+          lqaTrend.push({ date, score: Number(r.lqaScore) });
+        }
+        if (r.status === "completed" || r.status === "finalized") {
+          totalDeliveries++;
+          if (r.status !== "late") onTimeCount++;
+        }
+        totalJobs++;
+      }
+
+      const onTimeRate = totalDeliveries > 0 ? Math.round((onTimeCount / totalDeliveries) * 100) : null;
+
+      res.json({
+        qsTrend: qsTrend.sort((a, b) => a.date.localeCompare(b.date)),
+        lqaTrend: lqaTrend.sort((a, b) => a.date.localeCompare(b.date)),
+        onTimeRate,
+        totalWordCount: 0,
+        totalJobs,
+        totalEarnings: 0,
+      });
+    } catch (e: any) {
+      console.error("Get vendor performance error:", e);
+      res.status(500).json({ error: "Failed to get vendor performance" });
+    }
   });
 
   // ---- CUSTOMERS CRUD ----
@@ -4076,6 +4160,45 @@ const freelancers = (Array.isArray(data) ? data : [])
   app.get("/api/financial/revenue-by-entity", requireAuth, requireFinanceRole, async (_req: Request, res: Response) => {
     try {
       const data = await storage.getRevenueByEntity();
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Internal server error", e) });
+    }
+  });
+
+  app.get("/api/financial/ap-aging", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
+    try {
+      const entityId = req.query.entityId ? +req.query.entityId : undefined;
+      const aging = await storage.getAPAgingReport(entityId);
+      res.json(aging);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Internal server error", e) });
+    }
+  });
+
+  app.get("/api/payments/cash-flow", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
+    try {
+      const entityId = req.query.entityId ? +req.query.entityId : undefined;
+      const data = await storage.getCashFlow(entityId);
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Internal server error", e) });
+    }
+  });
+
+  app.get("/api/financial/pnl", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
+    try {
+      const entityId = req.query.entityId ? +req.query.entityId : undefined;
+      const data = await storage.getPnlSummary(entityId);
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Internal server error", e) });
+    }
+  });
+
+  app.get("/api/financial/entity-comparison", requireAuth, requireFinanceRole, async (_req: Request, res: Response) => {
+    try {
+      const data = await storage.getEntityComparison();
       res.json(data);
     } catch (e: any) {
       res.status(500).json({ error: safeError("Internal server error", e) });

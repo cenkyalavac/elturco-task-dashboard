@@ -11,11 +11,11 @@ import {
 } from "@/components/ui/table";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend, Cell,
+  ResponsiveContainer, Legend, Cell, ComposedChart, Line,
 } from "recharts";
 import {
   TrendingUp, TrendingDown,
-  Receipt, PiggyBank, AlertTriangle, Calendar, Percent,
+  Receipt, PiggyBank, AlertTriangle, Calendar, Percent, Download, Building2, BarChart3,
 } from "lucide-react";
 import { Link } from "wouter";
 
@@ -70,6 +70,16 @@ function getDatePreset(preset: string): { start: string; end: string } {
     default:
       return { start: `${year}-01-01`, end: now.toISOString().split("T")[0] };
   }
+}
+
+function downloadCsv(data: any[], filename: string) {
+  if (!data.length) return;
+  const headers = Object.keys(data[0]);
+  const csv = [headers.join(","), ...data.map(row => headers.map(h => JSON.stringify(row[h] ?? "")).join(","))].join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
 }
 
 const AGING_COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#dc2626"];
@@ -148,6 +158,38 @@ export default function FinancialDashboardPage() {
     },
   });
 
+  const { data: apAging } = useQuery({
+    queryKey: [`/api/financial/ap-aging?${entityOnly}`],
+    queryFn: async () => {
+      const r = await apiRequest("GET", `/api/financial/ap-aging?${entityOnly}`);
+      return r.json();
+    },
+  });
+
+  const { data: cashFlowData } = useQuery({
+    queryKey: [`/api/payments/cash-flow?${entityOnly}`],
+    queryFn: async () => {
+      const r = await apiRequest("GET", `/api/payments/cash-flow?${entityOnly}`);
+      return r.json();
+    },
+  });
+
+  const { data: pnlData } = useQuery({
+    queryKey: [`/api/financial/pnl?${entityOnly}`],
+    queryFn: async () => {
+      const r = await apiRequest("GET", `/api/financial/pnl?${entityOnly}`);
+      return r.json();
+    },
+  });
+
+  const { data: entityComparisonData } = useQuery({
+    queryKey: ["/api/financial/entity-comparison"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/financial/entity-comparison");
+      return r.json();
+    },
+  });
+
   const entityList = Array.isArray(entitiesData) ? entitiesData : [];
   const overdueInvoices = overdueData?.data || [];
 
@@ -215,6 +257,51 @@ export default function FinancialDashboardPage() {
       pos: parseInt(String(v.poCount || 0), 10),
     }));
   }, [costByVendor]);
+
+  // AP aging chart data
+  const apAgingData = useMemo(() => {
+    if (!apAging) return [];
+    if (Array.isArray(apAging)) {
+      return apAging.map((b: any, idx: number) => ({
+        bucket: b.bucket || b.name,
+        amount: parseFloat(b.amount) || 0,
+        fill: AGING_COLORS[idx] || AGING_COLORS[4],
+      }));
+    }
+    return [
+      { bucket: "0-30 Days", amount: parseFloat(String(apAging.current)) || 0, fill: AGING_COLORS[0] },
+      { bucket: "31-60 Days", amount: parseFloat(String(apAging.days30)) || 0, fill: AGING_COLORS[1] },
+      { bucket: "61-90 Days", amount: parseFloat(String(apAging.days60)) || 0, fill: AGING_COLORS[2] },
+      { bucket: "90+ Days", amount: parseFloat(String(apAging.days90)) || 0, fill: AGING_COLORS[3] },
+    ];
+  }, [apAging]);
+
+  // Cash flow chart data
+  const cashFlowChartData = useMemo(() => {
+    if (!cashFlowData || !Array.isArray(cashFlowData)) return [];
+    return cashFlowData.map((m: any) => ({
+      month: m.month,
+      Incoming: parseFloat(String(m.incoming)) || 0,
+      Outgoing: parseFloat(String(m.outgoing)) || 0,
+      Net: parseFloat(String(m.net)) || 0,
+    }));
+  }, [cashFlowData]);
+
+  // P&L table data
+  const pnlRows = useMemo(() => {
+    if (!pnlData?.rows) return [];
+    return pnlData.rows;
+  }, [pnlData]);
+
+  const pnlTotals = useMemo(() => {
+    return pnlData?.totals || { revenue: 0, cost: 0, margin: 0, marginPct: 0 };
+  }, [pnlData]);
+
+  // Entity comparison data
+  const entityComparison = useMemo(() => {
+    if (!entityComparisonData || !Array.isArray(entityComparisonData)) return [];
+    return entityComparisonData;
+  }, [entityComparisonData]);
 
   return (
     <div className="h-full overflow-auto">
@@ -333,8 +420,13 @@ export default function FinancialDashboardPage() {
         {/* Tables Row: Customers + Vendors */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <Card>
-            <CardHeader className="py-2.5 px-4">
+            <CardHeader className="py-2.5 px-4 flex flex-row items-center justify-between">
               <CardTitle className="text-xs font-semibold">Top 10 Customers by Revenue</CardTitle>
+              {customerTableData.length > 0 && (
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => downloadCsv(customerTableData, "customers-by-revenue.csv")}>
+                  <Download className="w-3 h-3 text-muted-foreground" />
+                </Button>
+              )}
             </CardHeader>
             <CardContent className="px-0 pb-0">
               {customerTableData.length > 0 ? (
@@ -363,8 +455,13 @@ export default function FinancialDashboardPage() {
           </Card>
 
           <Card>
-            <CardHeader className="py-2.5 px-4">
+            <CardHeader className="py-2.5 px-4 flex flex-row items-center justify-between">
               <CardTitle className="text-xs font-semibold">Top 10 Vendors by Cost</CardTitle>
+              {vendorTableData.length > 0 && (
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => downloadCsv(vendorTableData, "vendors-by-cost.csv")}>
+                  <Download className="w-3 h-3 text-muted-foreground" />
+                </Button>
+              )}
             </CardHeader>
             <CardContent className="px-0 pb-0">
               {vendorTableData.length > 0 ? (
@@ -401,7 +498,18 @@ export default function FinancialDashboardPage() {
                 <AlertTriangle className="w-4 h-4 text-red-400" />
                 <CardTitle className="text-xs font-semibold text-red-400">Overdue Invoices ({overdueInvoices.length})</CardTitle>
               </div>
-              <Link href="/invoices" className="text-[10px] text-primary hover:underline">View All Invoices</Link>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => downloadCsv(overdueInvoices.map((inv: any) => ({
+                  customer: inv.customerName || inv.customer?.name || `Customer #${inv.customerId}`,
+                  amount: inv.total,
+                  currency: inv.currency,
+                  dueDate: inv.dueDate,
+                  daysOverdue: getDaysOverdue(inv.dueDate),
+                })), "overdue-invoices.csv")}>
+                  <Download className="w-3 h-3 text-muted-foreground" />
+                </Button>
+                <Link href="/invoices" className="text-[10px] text-primary hover:underline">View All Invoices</Link>
+              </div>
             </CardHeader>
             <CardContent className="px-0 pb-0">
               <Table>
@@ -426,6 +534,188 @@ export default function FinancialDashboardPage() {
               </Table>
             </CardContent>
           </Card>
+        )}
+
+        {/* AP Aging + Cash Flow Row */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Card>
+            <CardHeader className="py-2.5 px-4 flex flex-row items-center justify-between">
+              <CardTitle className="text-xs font-semibold">AP Aging</CardTitle>
+              {apAgingData.some(d => d.amount > 0) && (
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => downloadCsv(apAgingData, "ap-aging.csv")}>
+                  <Download className="w-3 h-3 text-muted-foreground" />
+                </Button>
+              )}
+            </CardHeader>
+            <CardContent className="px-2 pb-2">
+              {apAgingData.some(d => d.amount > 0) ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={apAgingData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                    <XAxis dataKey="bucket" tick={{ fontSize: 9, fill: "rgba(255,255,255,0.4)" }} />
+                    <YAxis tick={{ fontSize: 10, fill: "rgba(255,255,255,0.4)" }} tickFormatter={(v: number) => formatCompactCurrency(v)} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(value: number) => [formatCurrency(value), "Outstanding"]} />
+                    <Bar dataKey="amount" name="Outstanding" radius={[4, 4, 0, 0]}>
+                      {apAgingData.map((entry, idx) => (
+                        <Cell key={idx} fill={entry.fill} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-[300px] flex items-center justify-center text-sm text-muted-foreground">
+                  <div className="text-center">
+                    <Receipt className="w-8 h-8 mx-auto mb-2 text-muted-foreground/40" />
+                    <p>No outstanding payables</p>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="py-2.5 px-4 flex flex-row items-center justify-between">
+              <CardTitle className="text-xs font-semibold">Cash Flow (Monthly)</CardTitle>
+              {cashFlowChartData.length > 0 && (
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => downloadCsv(cashFlowChartData, "cash-flow.csv")}>
+                  <Download className="w-3 h-3 text-muted-foreground" />
+                </Button>
+              )}
+            </CardHeader>
+            <CardContent className="px-2 pb-2">
+              {cashFlowChartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <ComposedChart data={cashFlowChartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                    <XAxis dataKey="month" tick={{ fontSize: 10, fill: "rgba(255,255,255,0.4)" }} />
+                    <YAxis tick={{ fontSize: 10, fill: "rgba(255,255,255,0.4)" }} tickFormatter={(v: number) => formatCompactCurrency(v)} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(value: number, name: string) => [formatCurrency(value), name]} />
+                    <Legend wrapperStyle={{ fontSize: "11px" }} />
+                    <Bar dataKey="Incoming" fill="#10b981" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="Outgoing" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                    <Line type="monotone" dataKey="Net" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-[300px] flex items-center justify-center text-sm text-muted-foreground">
+                  <div className="text-center">
+                    <BarChart3 className="w-8 h-8 mx-auto mb-2 text-muted-foreground/40" />
+                    <p>No cash flow data available</p>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* P&L Summary Table */}
+        <Card>
+          <CardHeader className="py-2.5 px-4 flex flex-row items-center justify-between">
+            <CardTitle className="text-xs font-semibold">Profit & Loss Summary</CardTitle>
+            {pnlRows.length > 0 && (
+              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => downloadCsv([
+                ...pnlRows.map((r: any) => ({ Month: r.month, Revenue: r.revenue, Cost: r.cost, "Gross Margin": r.margin, "Margin %": `${r.marginPct}%` })),
+                { Month: "TOTAL", Revenue: pnlTotals.revenue, Cost: pnlTotals.cost, "Gross Margin": pnlTotals.margin, "Margin %": `${pnlTotals.marginPct}%` },
+              ], "pnl-summary.csv")}>
+                <Download className="w-3 h-3 text-muted-foreground" />
+              </Button>
+            )}
+          </CardHeader>
+          <CardContent className="px-0 pb-0">
+            {pnlRows.length > 0 ? (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-[10px] px-3 py-1.5 uppercase tracking-wider font-medium text-white/40">Month</TableHead>
+                    <TableHead className="text-[10px] px-3 py-1.5 text-right uppercase tracking-wider font-medium text-white/40">Revenue</TableHead>
+                    <TableHead className="text-[10px] px-3 py-1.5 text-right uppercase tracking-wider font-medium text-white/40">Costs</TableHead>
+                    <TableHead className="text-[10px] px-3 py-1.5 text-right uppercase tracking-wider font-medium text-white/40">Gross Margin</TableHead>
+                    <TableHead className="text-[10px] px-3 py-1.5 text-right uppercase tracking-wider font-medium text-white/40">Margin %</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pnlRows.map((row: any) => (
+                    <TableRow key={row.month} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
+                      <TableCell className="px-3 py-1.5 text-xs font-medium">{row.month}</TableCell>
+                      <TableCell className="px-3 py-1.5 text-xs text-right tabular-nums text-emerald-400">{formatCurrency(row.revenue)}</TableCell>
+                      <TableCell className="px-3 py-1.5 text-xs text-right tabular-nums text-red-400">{formatCurrency(row.cost)}</TableCell>
+                      <TableCell className="px-3 py-1.5 text-xs text-right tabular-nums">{formatCurrency(row.margin)}</TableCell>
+                      <TableCell className="px-3 py-1.5 text-xs text-right tabular-nums">{row.marginPct}%</TableCell>
+                    </TableRow>
+                  ))}
+                  {/* Totals row */}
+                  <TableRow className="border-t-2 border-white/[0.08] bg-white/[0.02]">
+                    <TableCell className="px-3 py-2 text-xs font-bold">TOTAL</TableCell>
+                    <TableCell className="px-3 py-2 text-xs text-right tabular-nums font-bold text-emerald-400">{formatCurrency(pnlTotals.revenue)}</TableCell>
+                    <TableCell className="px-3 py-2 text-xs text-right tabular-nums font-bold text-red-400">{formatCurrency(pnlTotals.cost)}</TableCell>
+                    <TableCell className="px-3 py-2 text-xs text-right tabular-nums font-bold">{formatCurrency(pnlTotals.margin)}</TableCell>
+                    <TableCell className="px-3 py-2 text-xs text-right tabular-nums font-bold">{pnlTotals.marginPct}%</TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            ) : (
+              <div className="py-8 text-center text-xs text-muted-foreground">No P&L data available</div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Entity Comparison */}
+        {entityComparison.length > 0 && (
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-xs font-semibold text-foreground flex items-center gap-2">
+                <Building2 className="w-4 h-4 text-muted-foreground" />
+                Entity Comparison
+              </h2>
+              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => downloadCsv(entityComparison.map((e: any) => ({
+                Entity: e.entityName,
+                Code: e.entityCode,
+                Revenue: e.revenue,
+                Cost: e.cost,
+                Margin: e.margin,
+                "Margin %": `${e.marginPct}%`,
+                "Outstanding AR": e.outstandingAR,
+                "Outstanding AP": e.outstandingAP,
+              })), "entity-comparison.csv")}>
+                <Download className="w-3 h-3 text-muted-foreground" />
+              </Button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {entityComparison.map((entity: any) => (
+                <Card key={entity.entityId}>
+                  <CardHeader className="py-2.5 px-4">
+                    <CardTitle className="text-xs font-semibold">{entity.entityName}
+                      {entity.entityCode && <span className="ml-1.5 text-[10px] text-muted-foreground font-normal">({entity.entityCode})</span>}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="px-4 pb-3 space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Revenue</span>
+                      <span className="text-xs font-medium tabular-nums text-emerald-400">{formatCurrency(entity.revenue)}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Costs</span>
+                      <span className="text-xs font-medium tabular-nums text-red-400">{formatCurrency(entity.cost)}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Margin</span>
+                      <span className="text-xs font-medium tabular-nums">{formatCurrency(entity.margin)} <span className="text-muted-foreground">({entity.marginPct}%)</span></span>
+                    </div>
+                    <div className="border-t border-white/[0.06] pt-2 mt-2">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Outstanding AR</span>
+                        <span className="text-xs font-medium tabular-nums text-amber-400">{formatCurrency(entity.outstandingAR)}</span>
+                      </div>
+                      <div className="flex justify-between items-center mt-1">
+                        <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Outstanding AP</span>
+                        <span className="text-xs font-medium tabular-nums text-blue-400">{formatCurrency(entity.outstandingAP)}</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
         )}
       </div>
     </div>
