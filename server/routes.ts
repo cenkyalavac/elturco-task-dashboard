@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import { storage, db } from "./storage";
-import { taskNotes, pmFavorites } from "@shared/schema";
+import { taskNotes, pmFavorites, customerRateCards } from "@shared/schema";
 import { wsBroadcast } from "./ws";
 import { gsWriteToColumn, gsIsAvailable, gsReadSheet, type SheetWriteConfig } from "./gsheets";
 import { createToken, verifyToken } from "./jwt";
@@ -3094,6 +3094,42 @@ const freelancers = (Array.isArray(data) ? data : [])
   app.delete("/api/customers/:id/pm-assignments/:assignId", requireAuth, async (req: Request, res: Response) => {
     try {
       await storage.deletePmCustomerAssignment(+param(req, "assignId"));
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ---- CUSTOMER RATE CARDS ----
+  app.get("/api/customers/:id/rate-card", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const rows = await db.select().from(customerRateCards).where(eq(customerRateCards.customerId, +param(req, "id")));
+      res.json(rows);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/customers/:id/rate-card", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const [row] = await db.insert(customerRateCards).values({
+        customerId: +param(req, "id"),
+        sourceLanguage: req.body.sourceLanguage || null,
+        targetLanguage: req.body.targetLanguage || null,
+        serviceType: req.body.serviceType || null,
+        rateType: req.body.rateType || null,
+        rateValue: req.body.rateValue,
+        currency: req.body.currency || "EUR",
+      }).returning();
+      res.json(row);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/customers/:id/rate-card/:rateId", requireAuth, async (req: Request, res: Response) => {
+    try {
+      await db.delete(customerRateCards).where(eq(customerRateCards.id, +param(req, "rateId")));
       res.json({ success: true });
     } catch (e: any) {
       res.status(500).json({ error: e.message });

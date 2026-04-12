@@ -666,6 +666,19 @@ export const notificationsV2 = pgTable("notifications", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
+// Customer Rate Cards
+export const customerRateCards = pgTable("customer_rate_cards", {
+  id: serial("id").primaryKey(),
+  customerId: integer("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  sourceLanguage: varchar("source_language", { length: 10 }),
+  targetLanguage: varchar("target_language", { length: 10 }),
+  serviceType: varchar("service_type", { length: 100 }),
+  rateType: varchar("rate_type", { length: 50 }),
+  rateValue: decimal("rate_value", { precision: 10, scale: 4 }).notNull(),
+  currency: varchar("currency", { length: 3 }).default("EUR"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
 // ============================================
 // INSERT SCHEMAS (Zod)
 // ============================================
@@ -706,6 +719,7 @@ export const insertAutoAcceptRuleSchema = createInsertSchema(autoAcceptRules).om
 export const insertAuditLogSchema = createInsertSchema(auditLog).omit({ id: true });
 export const insertSettingSchema = createInsertSchema(settings).omit({ id: true });
 export const insertVendorSessionSchema = createInsertSchema(vendorSessions).omit({ id: true });
+export const insertCustomerRateCardSchema = createInsertSchema(customerRateCards).omit({ id: true });
 
 // ============================================
 // TYPES
@@ -760,3 +774,4 @@ export type AuditLogEntry = typeof auditLog.$inferSelect;
 export type Setting = typeof settings.$inferSelect;
 export type VendorSession = typeof vendorSessions.$inferSelect;
 export type NotificationV2 = typeof notificationsV2.$inferSelect;
+export type CustomerRateCard = typeof customerRateCards.$inferSelect;

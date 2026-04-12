@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Plus, ChevronLeft, ChevronRight, Loader2, ShoppingCart, Eye, Check, Send,
+  Plus, ChevronLeft, ChevronRight, Loader2, ShoppingCart, Eye, Check, Send, Search,
 } from "lucide-react";
 
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
@@ -56,6 +56,8 @@ export default function PurchaseOrdersPage() {
   const [detailId, setDetailId] = useState<number | null>(null);
   const [paymentDialogId, setPaymentDialogId] = useState<number | null>(null);
 
+  const [vendorSearch, setVendorSearch] = useState("");
+
   const [form, setForm] = useState({
     vendorId: "",
     entityId: "",
@@ -66,6 +68,7 @@ export default function PurchaseOrdersPage() {
     paymentMethod: "wise",
     notes: "",
   });
+
 
   const [paymentForm, setPaymentForm] = useState({
     paymentDate: new Date().toISOString().split("T")[0],
@@ -159,6 +162,12 @@ export default function PurchaseOrdersPage() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_LIMIT));
   const vendorList = Array.isArray(vendorsData) ? vendorsData : vendorsData?.data || [];
   const entityList = Array.isArray(entitiesData) ? entitiesData : [];
+
+  const filteredVendors = useMemo(() => {
+    if (!vendorSearch.trim()) return vendorList;
+    const q = vendorSearch.toLowerCase();
+    return vendorList.filter((v: any) => v.fullName?.toLowerCase().includes(q));
+  }, [vendorList, vendorSearch]);
 
   const getVendorName = (vendorId: number | null) => {
     if (!vendorId) return "\u2014";
@@ -345,17 +354,21 @@ export default function PurchaseOrdersPage() {
       )}
 
       {/* Create PO Dialog */}
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="sm:max-w-md bg-card">
+      <Dialog open={createOpen} onOpenChange={(o) => { setCreateOpen(o); if (!o) setVendorSearch(""); }}>
+        <DialogContent className="sm:max-w-lg bg-card">
           <DialogHeader><DialogTitle className="text-base font-semibold">Create Purchase Order</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
               <Label className="text-xs">Vendor <span className="text-destructive">*</span></Label>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+                <Input placeholder="Search vendors..." value={vendorSearch} onChange={e => setVendorSearch(e.target.value)} className="h-8 text-sm pl-8 mb-1.5" />
+              </div>
               <Select value={form.vendorId || "none"} onValueChange={v => setForm(p => ({ ...p, vendorId: v === "none" ? "" : v }))}>
                 <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select vendor..." /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Select vendor</SelectItem>
-                  {vendorList.map((v: any) => <SelectItem key={v.id} value={String(v.id)}>{v.fullName}</SelectItem>)}
+                  {filteredVendors.map((v: any) => <SelectItem key={v.id} value={String(v.id)}>{v.fullName}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -368,6 +381,16 @@ export default function PurchaseOrdersPage() {
                   {entityList.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.name} ({e.currency})</SelectItem>)}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Job ID</Label>
+                <Input value={form.jobId} onChange={e => setForm(p => ({ ...p, jobId: e.target.value }))} className="h-8 text-sm" type="number" placeholder="Link to job..." />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Project ID</Label>
+                <Input value={form.projectId} onChange={e => setForm(p => ({ ...p, projectId: e.target.value }))} className="h-8 text-sm" type="number" placeholder="Link to project..." />
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">

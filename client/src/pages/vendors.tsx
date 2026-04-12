@@ -1991,23 +1991,32 @@ function PipelineVendorList({ status, count }: { status: string; count: number }
         >
           <div className="font-medium text-foreground truncate">{vendor.fullName}</div>
           <div className="text-[10px] text-muted-foreground truncate mt-0.5">{vendor.email}</div>
-          <div className="flex items-center gap-2 mt-1">
-            {vendor.language && (
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            {vendor.languagePairs && vendor.languagePairs.length > 0 ? (
+              vendor.languagePairs.slice(0, 2).map((lp: LanguagePair, i: number) => (
+                <span key={i} className="text-[10px] text-muted-foreground bg-white/[0.05] px-1.5 py-0.5 rounded font-mono">
+                  {lp.sourceLanguage}→{lp.targetLanguage}
+                </span>
+              ))
+            ) : vendor.nativeLanguage ? (
               <span className="text-[10px] text-muted-foreground bg-white/[0.05] px-1.5 py-0.5 rounded">
-                {vendor.language}
+                {vendor.nativeLanguage}
+              </span>
+            ) : null}
+            {(vendor as any).combinedQualityScore != null && (
+              <span className={`text-[10px] font-medium ${
+                Number((vendor as any).combinedQualityScore) >= 90 ? "text-emerald-400" :
+                Number((vendor as any).combinedQualityScore) >= 75 ? "text-blue-400" : "text-amber-400"
+              }`}>
+                QS: {Number((vendor as any).combinedQualityScore).toFixed(1)}
               </span>
             )}
-            {vendor.qualityScore !== null && vendor.qualityScore !== undefined && (
+            {vendor.qualityScore !== null && vendor.qualityScore !== undefined && !(vendor as any).combinedQualityScore && (
               <span className={`text-[10px] font-medium ${
                 vendor.qualityScore >= 4.5 ? "text-emerald-400" :
                 vendor.qualityScore >= 3.5 ? "text-blue-400" : "text-amber-400"
               }`}>
                 {vendor.qualityScore.toFixed(1)}
-              </span>
-            )}
-            {vendor.followUpDate && (
-              <span className="text-[10px] text-amber-400">
-                FU: {vendor.followUpDate}
               </span>
             )}
           </div>
