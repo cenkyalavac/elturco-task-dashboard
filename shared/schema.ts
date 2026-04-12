@@ -194,6 +194,7 @@ export const entities = pgTable("entities", {
   code: varchar("code", { length: 50 }).notNull().unique(),
   jurisdiction: varchar("jurisdiction", { length: 100 }),
   currency: varchar("currency", { length: 3 }).default("GBP"),
+  defaultCurrency: varchar("default_currency", { length: 3 }).default("EUR"),
   qboEnabled: boolean("qbo_enabled").default(false),
   bankDetails: jsonb("bank_details"),
   wiseEnabled: boolean("wise_enabled").default(false),

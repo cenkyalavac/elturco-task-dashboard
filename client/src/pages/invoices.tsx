@@ -707,11 +707,11 @@ export default function InvoicesPage() {
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs">Entity</Label>
-                <Select value={form.entityId || "none"} onValueChange={v => setForm(p => ({ ...p, entityId: v === "none" ? "" : v, currency: entityList.find((e: any) => String(e.id) === v)?.currency || p.currency }))}>
+                <Select value={form.entityId || "none"} onValueChange={v => { const ent = entityList.find((e: any) => String(e.id) === v); setForm(p => ({ ...p, entityId: v === "none" ? "" : v, currency: ent?.defaultCurrency || ent?.currency || p.currency })); }}>
                   <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select entity..." /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Select entity</SelectItem>
-                    {entityList.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.name} {e.currency ? `(${e.currency})` : ""}</SelectItem>)}
+                    {entityList.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.name} {(e.defaultCurrency || e.currency) ? `(${e.defaultCurrency || e.currency})` : ""}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>

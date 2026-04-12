@@ -7,6 +7,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { getCurrentUser } from "@/lib/queryClient";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 import LoginPage from "@/pages/login";
 import DashboardPage from "@/pages/dashboard";
@@ -406,7 +407,7 @@ function AppLayout() {
 
         <main className="flex-1 overflow-auto">
           <Switch>
-            <Route path="/">{() => <ProtectedRoute component={DashboardPage} />}</Route>
+            <Route path="/">{() => <ErrorBoundary level="page"><ProtectedRoute component={DashboardPage} /></ErrorBoundary>}</Route>
             <Route path="/history">{() => <ProtectedRoute component={AssignmentsPage} />}</Route>
             <Route path="/analytics">{() => <ProtectedRoute component={AnalyticsPage} />}</Route>
             <Route path="/admin">{() => <ProtectedRoute component={AdminPage} />}</Route>
@@ -417,7 +418,7 @@ function AppLayout() {
             <Route path="/customers/:id">{() => <ProtectedRoute component={CustomerDetailPage} />}</Route>
             <Route path="/projects">{() => <ProtectedRoute component={ProjectsPage} />}</Route>
             <Route path="/projects/:id">{() => <ProtectedRoute component={ProjectDetailPage} />}</Route>
-            <Route path="/quality">{() => <ProtectedRoute component={QualityPage} />}</Route>
+            <Route path="/quality">{() => <ErrorBoundary level="page"><ProtectedRoute component={QualityPage} /></ErrorBoundary>}</Route>
             <Route path="/quality-analytics">{() => <ProtectedRoute component={QualityAnalyticsPage} />}</Route>
             <Route path="/document-compliance">{() => <ProtectedRoute component={DocumentCompliancePage} />}</Route>
             <Route path="/team-availability">{() => <ProtectedRoute component={TeamAvailabilityPage} />}</Route>
@@ -491,7 +492,10 @@ function App() {
     function connect() {
       try {
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        const wsUrl = `${protocol}//${window.location.host}/ws`;
+        const token = getAuthToken();
+        const wsUrl = token
+          ? `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`
+          : `${protocol}//${window.location.host}/ws`;
         ws = new WebSocket(wsUrl);
         ws.onmessage = (event) => {
           try {
