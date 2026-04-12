@@ -374,14 +374,16 @@ function ScoreDisplay({
   label,
   size = "md",
 }: {
-  score?: number | null;
+  score?: number | string | null;
   label: string;
   size?: "sm" | "md" | "lg";
 }) {
   if (score == null) return null;
+  const numScore = Number(score);
+  if (isNaN(numScore)) return null;
   let color = "text-zinc-400";
-  if (score >= 90) color = "text-emerald-400";
-  else if (score >= 75) color = "text-amber-400";
+  if (numScore >= 90) color = "text-emerald-400";
+  else if (numScore >= 75) color = "text-amber-400";
   else color = "text-red-400";
 
   const textSize =
@@ -391,7 +393,7 @@ function ScoreDisplay({
   return (
     <div className="flex flex-col items-center gap-0.5">
       <span className={`${textSize} font-bold ${color}`}>
-        {typeof score === "number" ? score.toFixed(1) : score}
+        {numScore.toFixed(1)}
       </span>
       <span className={`${labelSize} text-white/40 uppercase tracking-wide`}>
         {label}
@@ -1696,9 +1698,7 @@ function RatesTab({
                           {card.rateType?.replace("_", " ")}
                         </TableCell>
                         <TableCell className="text-white text-sm text-right font-medium">
-                          {typeof card.rateValue === "number"
-                            ? card.rateValue.toFixed(4)
-                            : card.rateValue}
+                          {Number(card.rateValue).toFixed(4)}
                         </TableCell>
                         <TableCell className="text-white/50 text-sm">
                           {card.currency}
@@ -3626,9 +3626,9 @@ export default function VendorDetailPage() {
               <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/[0.04] border border-white/[0.08]">
                 <Star className="w-3.5 h-3.5 text-amber-400" />
                 <span
-                  className={`text-sm font-bold ${vendor.combinedQualityScore >= 90 ? "text-emerald-400" : vendor.combinedQualityScore >= 75 ? "text-amber-400" : "text-red-400"}`}
+                  className={`text-sm font-bold ${Number(vendor.combinedQualityScore) >= 90 ? "text-emerald-400" : Number(vendor.combinedQualityScore) >= 75 ? "text-amber-400" : "text-red-400"}`}
                 >
-                  {vendor.combinedQualityScore.toFixed(1)}
+                  {Number(vendor.combinedQualityScore).toFixed(1)}
                 </span>
               </div>
             )}
@@ -3637,7 +3637,7 @@ export default function VendorDetailPage() {
               <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/[0.04] border border-white/[0.08]">
                 <TrendingUp className="w-3.5 h-3.5 text-cyan-400" />
                 <span className="text-sm font-bold text-cyan-400">
-                  {vendor.valueIndex.toFixed(1)}
+                  {Number(vendor.valueIndex).toFixed(1)}
                 </span>
               </div>
             )}

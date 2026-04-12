@@ -58,6 +58,10 @@ interface Job {
   unitRate: string | null;
   totalRevenue: string | null;
   totalCost: string | null;
+  vendorRate: string | null;
+  clientRate: string | null;
+  vendorTotal: string | null;
+  clientTotal: string | null;
   status: string;
   deadline: string | null;
   vendorId: number | null;
@@ -341,8 +345,8 @@ export default function ProjectDetailPage() {
   const customers: Customer[] = customersQuery.data || [];
 
   const financials = useMemo(() => {
-    const totalRevenue = jobs.reduce((s, j) => s + Number(j.totalRevenue || 0), 0);
-    const totalCost = jobs.reduce((s, j) => s + Number(j.totalCost || 0), 0);
+    const totalRevenue = jobs.reduce((s, j) => s + Number(j.clientTotal || j.totalRevenue || 0), 0);
+    const totalCost = jobs.reduce((s, j) => s + Number(j.vendorTotal || j.totalCost || 0), 0);
     const margin = totalRevenue - totalCost;
     const marginPct = totalRevenue > 0 ? (margin / totalRevenue) * 100 : 0;
     return { totalRevenue, totalCost, margin, marginPct };
@@ -796,8 +800,8 @@ export default function ProjectDetailPage() {
                 </TableHeader>
                 <TableBody>
                   {jobs.map((job) => {
-                    const rev = Number(job.totalRevenue || 0);
-                    const cost = Number(job.totalCost || 0);
+                    const rev = Number(job.clientTotal || job.totalRevenue || 0);
+                    const cost = Number(job.vendorTotal || job.totalCost || 0);
                     const m = rev - cost;
                     const mp = rev > 0 ? (m / rev) * 100 : 0;
                     return (
@@ -1073,9 +1077,9 @@ function JobTableRows({ job, currency, isExpanded, hasCat, onToggle, onEdit, onD
         <TableCell className="text-[11px] text-white/50 px-3 py-2 capitalize">{job.serviceType || "\u2014"}</TableCell>
         <TableCell className="text-[11px] text-white/50 px-3 py-2 capitalize">{job.unitType || "\u2014"}</TableCell>
         <TableCell className="text-[11px] text-white/50 px-3 py-2">{job.unitCount || "\u2014"}</TableCell>
-        <TableCell className="text-[11px] text-white/50 px-3 py-2 text-right">{job.unitRate ? Number(job.unitRate).toFixed(4) : "\u2014"}</TableCell>
-        <TableCell className="text-[11px] text-emerald-400 px-3 py-2 text-right font-medium">{job.totalRevenue ? formatCurrency(Number(job.totalRevenue), currency) : "\u2014"}</TableCell>
-        <TableCell className="text-[11px] text-orange-400 px-3 py-2 text-right font-medium">{job.totalCost ? formatCurrency(Number(job.totalCost), currency) : "\u2014"}</TableCell>
+        <TableCell className="text-[11px] text-white/50 px-3 py-2 text-right">{(job.clientRate || job.unitRate) ? Number(job.clientRate || job.unitRate).toFixed(4) : "\u2014"}</TableCell>
+        <TableCell className="text-[11px] text-emerald-400 px-3 py-2 text-right font-medium">{(job.clientTotal || job.totalRevenue) ? formatCurrency(Number(job.clientTotal || job.totalRevenue), currency) : "\u2014"}</TableCell>
+        <TableCell className="text-[11px] text-orange-400 px-3 py-2 text-right font-medium">{(job.vendorTotal || job.totalCost) ? formatCurrency(Number(job.vendorTotal || job.totalCost), currency) : "\u2014"}</TableCell>
         <TableCell className="text-[11px] text-white/50 px-3 py-2 relative">
           {job.vendorId ? (
             <span>{(job as any).vendorName || `Vendor #${job.vendorId}`}</span>

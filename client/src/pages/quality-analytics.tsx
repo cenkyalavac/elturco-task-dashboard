@@ -131,7 +131,7 @@ export default function QualityAnalyticsPage() {
                 <thead>
                   <tr className="text-white/40 border-b border-white/[0.06]">
                     <th className="text-left pb-2 pl-2">#</th>
-                    <th className="text-left pb-2">Vendor ID</th>
+                    <th className="text-left pb-2">Vendor</th>
                     <th className="text-right pb-2">Avg LQA</th>
                     <th className="text-right pb-2">Avg QS</th>
                     <th className="text-right pb-2">Combined</th>
@@ -143,7 +143,7 @@ export default function QualityAnalyticsPage() {
                     <tr key={p.vendorId} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
                       <td className="py-2 pl-2 text-white/50">{i + 1}</td>
                       <td className="py-2">
-                        <a href={`#/vendors/${p.vendorId}`} className="text-blue-400 hover:text-blue-300">#{p.vendorId}</a>
+                        <a href={`#/vendors/${p.vendorId}`} className="text-blue-400 hover:text-blue-300">{p.vendorName || `Vendor #${p.vendorId}`}</a>
                       </td>
                       <td className="py-2 text-right text-white/70">{p.avgLqa?.toFixed(1) || "-"}</td>
                       <td className="py-2 text-right text-white/70">{p.avgQs?.toFixed(1) || "-"}</td>

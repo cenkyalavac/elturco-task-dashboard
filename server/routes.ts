@@ -3703,7 +3703,18 @@ const freelancers = (Array.isArray(data) ? data : [])
         storage.getProjects(filters),
         storage.getProjectCount(filters),
       ]);
-      res.json({ data: projectList, total, page: filters.page, limit: filters.limit });
+      // Enrich projects with customer names
+      const customerIds = [...new Set(projectList.filter(p => p.customerId).map(p => p.customerId))];
+      const customerMap = new Map<number, string>();
+      for (const cid of customerIds) {
+        const c = await storage.getCustomer(cid);
+        if (c) customerMap.set(cid, c.name);
+      }
+      const enrichedProjects = projectList.map(p => ({
+        ...p,
+        customerName: p.customerId ? (customerMap.get(p.customerId) || null) : null,
+      }));
+      res.json({ data: enrichedProjects, total, page: filters.page, limit: filters.limit });
     } catch (e: any) {
       res.status(500).json({ error: safeError("Internal server error", e) });
     }
@@ -3712,7 +3723,8 @@ const freelancers = (Array.isArray(data) ? data : [])
   app.get("/api/projects/:id", requireAuth, async (req: Request, res: Response) => {
     const project = await storage.getProject(+param(req, "id"));
     if (!project) return res.status(404).json({ error: "Project not found" });
-    res.json(project);
+    const customer = project.customerId ? await storage.getCustomer(project.customerId) : null;
+    res.json({ ...project, customerName: customer?.name || null });
   });
 
   app.post("/api/projects", requireAuth, async (req: Request, res: Response) => {
@@ -3752,7 +3764,18 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   app.get("/api/projects/:id/jobs", requireAuth, async (req: Request, res: Response) => {
     const jobList = await storage.getJobs(+param(req, "id"));
-    res.json(jobList);
+    // Enrich jobs with vendor names
+    const vendorIds = [...new Set(jobList.filter(j => j.vendorId).map(j => j.vendorId!))];
+    const vendorMap = new Map<number, string>();
+    for (const vid of vendorIds) {
+      const v = await storage.getVendor(vid);
+      if (v) vendorMap.set(vid, v.fullName);
+    }
+    const enriched = jobList.map(j => ({
+      ...j,
+      vendorName: j.vendorId ? (vendorMap.get(j.vendorId) || null) : null,
+    }));
+    res.json(enriched);
   });
 
   app.post("/api/projects/:id/jobs", requireAuth, async (req: Request, res: Response) => {
@@ -5828,12 +5851,24 @@ const freelancers = (Array.isArray(data) ? data : [])
       })).sort((a, b) => a.month.localeCompare(b.month));
 
       // Top performers
-      const topPerformers = Array.from(vendorScores.entries()).map(([vendorId, vs]) => {
+      const topPerformersRaw = Array.from(vendorScores.entries()).map(([vendorId, vs]) => {
         const avgL = vs.lqaCount > 0 ? vs.lqaSum / vs.lqaCount : 0;
         const avgQ = vs.qsCount > 0 ? (vs.qsSum / vs.qsCount) * 20 : 0;
         const combined = vs.lqaCount > 0 && vs.qsCount > 0 ? (avgL * 4 + avgQ) / 5 : (avgL || avgQ);
         return { vendorId, avgLqa: avgL, avgQs: vs.qsCount > 0 ? vs.qsSum / vs.qsCount : 0, combined, reviewCount: vs.lqaCount + vs.qsCount };
       }).sort((a, b) => b.combined - a.combined).slice(0, 20);
+      // Enrich with vendor names
+      const vendorNameMap = new Map<number, string>();
+      for (const tp of topPerformersRaw) {
+        if (!vendorNameMap.has(tp.vendorId)) {
+          const v = await storage.getVendor(tp.vendorId);
+          if (v) vendorNameMap.set(tp.vendorId, v.fullName);
+        }
+      }
+      const topPerformers = topPerformersRaw.map(tp => ({
+        ...tp,
+        vendorName: vendorNameMap.get(tp.vendorId) || `Vendor #${tp.vendorId}`,
+      }));
 
       // Per-account breakdown
       const accountMap = new Map<string, { count: number; lqaSum: number; lqaCount: number }>();
