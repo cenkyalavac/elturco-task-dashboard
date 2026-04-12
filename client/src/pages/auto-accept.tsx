@@ -424,7 +424,7 @@ function RuleDialog({ rule, fieldConfig, onClose }: { rule: AutoAcceptRule | nul
               </Button>
             </div>
             {conditions.length === 0 && (
-              <p className="text-xs text-muted-foreground/60 py-3 text-center border border-dashed border-border rounded-md">
+              <p className="text-xs text-white/30 py-3 text-center border border-dashed border-white/[0.06] rounded-md">
                 No conditions added. Rule will never match without at least one condition.
               </p>
             )}
@@ -433,7 +433,7 @@ function RuleDialog({ rule, fieldConfig, onClose }: { rule: AutoAcceptRule | nul
                 const fieldOps = getOperatorsForField(cond.field);
                 const fc = fieldConfig.find(f => f.field === cond.field);
                 return (
-                  <div key={idx} className="flex items-center gap-2 p-2 rounded-md bg-muted/30 border border-border">
+                  <div key={idx} className="flex items-center gap-2 p-2 rounded-md bg-white/[0.03] border border-white/[0.06]">
                     <Select value={cond.field} onValueChange={v => {
                       const ops = getOperatorsForField(v);
                       updateCondition(idx, { field: v, operator: ops[0] || "contains", value: "" });
