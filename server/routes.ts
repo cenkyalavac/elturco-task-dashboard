@@ -3091,6 +3091,20 @@ const freelancers = (Array.isArray(data) ? data : [])
     try {
       const body = validate(createVendorSchema, req.body, res);
       if (!body) return;
+      // Auto-generate resource code if not provided
+      if (!body.resourceCode) {
+        const nameParts = (body.fullName || "").trim().split(/\s+/);
+        const initials = nameParts.map((p: string) => p.charAt(0).toUpperCase()).join("").slice(0, 3);
+        const allVendors = await storage.getVendors();
+        const existingCodes = (allVendors.data || allVendors).map((v: any) => v.resourceCode).filter(Boolean);
+        let seq = 1;
+        let code = `${initials}${String(seq).padStart(3, "0")}`;
+        while (existingCodes.includes(code)) {
+          seq++;
+          code = `${initials}${String(seq).padStart(3, "0")}`;
+        }
+        body.resourceCode = code;
+      }
       const vendor = await storage.createVendor(body);
       await logAudit((req as any).pmUserId, "create", "vendor", vendor.id, null, vendor, getClientIp(req));
       res.json(vendor);
