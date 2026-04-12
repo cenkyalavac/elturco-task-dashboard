@@ -68,9 +68,11 @@ export default function CustomerDetailPage() {
   const [showAddContact, setShowAddContact] = useState(false);
   const [showAddSubAccount, setShowAddSubAccount] = useState(false);
   const [showAddPmAssignment, setShowAddPmAssignment] = useState(false);
+  const [showAddRate, setShowAddRate] = useState(false);
   const [contactForm, setContactForm] = useState({ name: "", email: "", phone: "", role: "", isPrimary: false });
   const [subAccountForm, setSubAccountForm] = useState({ name: "", code: "", notes: "" });
   const [pmAssignForm, setPmAssignForm] = useState({ userId: "", role: "primary" });
+  const [rateCardForm, setRateCardForm] = useState({ sourceLanguage: "", targetLanguage: "", serviceType: "", rateType: "per_word", rateValue: "", currency: "EUR" });
 
   // Queries
   const { data: customer, isLoading } = useQuery({
@@ -135,6 +137,15 @@ export default function CustomerDetailPage() {
       const r = await apiRequest("GET", "/api/users");
       return r.json().catch(() => []);
     },
+  });
+
+  const rateCardQuery = useQuery({
+    queryKey: ["/api/customers", customerId, "rate-card"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", `/api/customers/${customerId}/rate-card`);
+      return r.json().catch(() => []);
+    },
+    enabled: !!customerId,
   });
 
   // Mutations
@@ -230,6 +241,32 @@ export default function CustomerDetailPage() {
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const addRateCardMutation = useMutation({
+    mutationFn: async (body: any) => {
+      const r = await apiRequest("POST", `/api/customers/${customerId}/rate-card`, body);
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "rate-card"] });
+      setShowAddRate(false);
+      setRateCardForm({ sourceLanguage: "", targetLanguage: "", serviceType: "", rateType: "per_word", rateValue: "", currency: "EUR" });
+      toast({ title: "Rate card entry added" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteRateCardMutation = useMutation({
+    mutationFn: async (rateId: number) => {
+      const r = await apiRequest("DELETE", `/api/customers/${customerId}/rate-card/${rateId}`);
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "rate-card"] });
+      toast({ title: "Rate card entry removed" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
   if (isLoading) {
     return (
       <div className="p-6 space-y-4 max-w-5xl">
@@ -262,6 +299,7 @@ export default function CustomerDetailPage() {
   const pmAssignments: any[] = pmAssignmentsQuery.data || [];
   const projects: any[] = Array.isArray(projectsQuery.data) ? projectsQuery.data : [];
   const invoices: any[] = Array.isArray(invoicesQuery.data) ? invoicesQuery.data : [];
+  const rateCards: any[] = Array.isArray(rateCardQuery.data) ? rateCardQuery.data : [];
   const primaryPmUser = users.find((u: any) => u.id === customer.primaryPmId);
 
   // Financial summary from invoices
@@ -330,6 +368,7 @@ export default function CustomerDetailPage() {
           <TabsTrigger value="contacts" className="text-xs">Contacts ({contacts.length})</TabsTrigger>
           <TabsTrigger value="sub-accounts" className="text-xs">Sub-Accounts ({subAccounts.length})</TabsTrigger>
           <TabsTrigger value="pm-assignments" className="text-xs">PM Assignments ({pmAssignments.length})</TabsTrigger>
+          <TabsTrigger value="rate-card" className="text-xs">Rate Card ({rateCards.length})</TabsTrigger>
           <TabsTrigger value="projects" className="text-xs">Projects ({projects.length})</TabsTrigger>
           <TabsTrigger value="invoices" className="text-xs">Invoices ({invoices.length})</TabsTrigger>
           <TabsTrigger value="financial" className="text-xs">Financial</TabsTrigger>
@@ -652,6 +691,63 @@ export default function CustomerDetailPage() {
           )}
         </TabsContent>
 
+        {/* TAB: Rate Card */}
+        <TabsContent value="rate-card" className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-white/70">Rate Card</h3>
+            <Button size="sm" onClick={() => setShowAddRate(true)} className="bg-blue-600 hover:bg-blue-700 text-white text-xs">
+              <Plus className="w-3 h-3 mr-1" />Add Rate
+            </Button>
+          </div>
+          {rateCardQuery.isLoading ? (
+            <Skeleton className="h-32 bg-white/[0.04] rounded" />
+          ) : rateCards.length === 0 ? (
+            <div className="text-center py-12">
+              <CreditCard className="w-8 h-8 text-white/10 mx-auto mb-2" />
+              <p className="text-xs text-white/20">No rate card entries yet</p>
+            </div>
+          ) : (
+            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-white/[0.06] hover:bg-transparent">
+                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Source Lang</TableHead>
+                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Target Lang</TableHead>
+                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Service Type</TableHead>
+                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Rate Type</TableHead>
+                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3 text-right">Rate Value</TableHead>
+                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Currency</TableHead>
+                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3 w-12"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rateCards.map((rc: any) => (
+                    <TableRow key={rc.id} className="border-white/[0.06] hover:bg-white/[0.02]">
+                      <TableCell className="text-xs text-white font-medium px-3 py-2">{rc.sourceLanguage || "\u2014"}</TableCell>
+                      <TableCell className="text-xs text-white font-medium px-3 py-2">{rc.targetLanguage || "\u2014"}</TableCell>
+                      <TableCell className="text-[11px] text-white/50 px-3 py-2">{rc.serviceType || "\u2014"}</TableCell>
+                      <TableCell className="px-3 py-2">
+                        <Badge className="text-[10px] border bg-zinc-500/15 text-zinc-400 border-zinc-500/25">
+                          {(rc.rateType || "per_word").replace(/_/g, " ")}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-[11px] text-emerald-400 px-3 py-2 text-right font-medium">
+                        {rc.rateValue != null ? parseFloat(rc.rateValue).toFixed(4) : "\u2014"}
+                      </TableCell>
+                      <TableCell className="text-[11px] text-white/40 px-3 py-2">{rc.currency || "EUR"}</TableCell>
+                      <TableCell className="px-3 py-2">
+                        <button onClick={() => deleteRateCardMutation.mutate(rc.id)} className="p-1 rounded hover:bg-red-500/10">
+                          <Trash2 className="w-3.5 h-3.5 text-white/20 hover:text-red-400" />
+                        </button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </TabsContent>
+
         {/* TAB: Projects */}
         <TabsContent value="projects" className="space-y-3">
           <h3 className="text-sm font-medium text-white/70">Projects</h3>
@@ -908,6 +1004,85 @@ export default function CustomerDetailPage() {
               className="bg-blue-600 hover:bg-blue-700 text-white text-xs"
             >
               {addPmAssignmentMutation.isPending ? "Assigning..." : "Assign"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Rate Card Dialog */}
+      <Dialog open={showAddRate} onOpenChange={setShowAddRate}>
+        <DialogContent className="bg-[#1a1d27] border-white/[0.08] text-white">
+          <DialogHeader><DialogTitle>Add Rate Card Entry</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="text-[11px] text-white/40 block mb-0.5">Source Language *</label>
+              <Select value={rateCardForm.sourceLanguage} onValueChange={(v) => setRateCardForm((p) => ({ ...p, sourceLanguage: v }))}>
+                <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white text-sm"><SelectValue placeholder="Select source language..." /></SelectTrigger>
+                <SelectContent>
+                  {LANGUAGES.map((lang) => <SelectItem key={lang} value={lang}>{lang}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-[11px] text-white/40 block mb-0.5">Target Language *</label>
+              <Select value={rateCardForm.targetLanguage} onValueChange={(v) => setRateCardForm((p) => ({ ...p, targetLanguage: v }))}>
+                <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white text-sm"><SelectValue placeholder="Select target language..." /></SelectTrigger>
+                <SelectContent>
+                  {LANGUAGES.map((lang) => <SelectItem key={lang} value={lang}>{lang}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-[11px] text-white/40 block mb-0.5">Service Type *</label>
+              <Select value={rateCardForm.serviceType} onValueChange={(v) => setRateCardForm((p) => ({ ...p, serviceType: v }))}>
+                <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white text-sm"><SelectValue placeholder="Select service type..." /></SelectTrigger>
+                <SelectContent>
+                  {SERVICE_TYPES.map((st) => <SelectItem key={st} value={st}>{st}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-[11px] text-white/40 block mb-0.5">Rate Type</label>
+              <Select value={rateCardForm.rateType} onValueChange={(v) => setRateCardForm((p) => ({ ...p, rateType: v }))}>
+                <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="per_word">Per Word</SelectItem>
+                  <SelectItem value="per_hour">Per Hour</SelectItem>
+                  <SelectItem value="per_page">Per Page</SelectItem>
+                  <SelectItem value="flat_rate">Flat Rate</SelectItem>
+                  <SelectItem value="per_minute">Per Minute</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <FieldEdit label="Rate Value *" value={rateCardForm.rateValue} onChange={(v) => setRateCardForm((p) => ({ ...p, rateValue: v }))} />
+            <div>
+              <label className="text-[11px] text-white/40 block mb-0.5">Currency</label>
+              <Select value={rateCardForm.currency} onValueChange={(v) => setRateCardForm((p) => ({ ...p, currency: v }))}>
+                <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="EUR">EUR</SelectItem>
+                  <SelectItem value="USD">USD</SelectItem>
+                  <SelectItem value="GBP">GBP</SelectItem>
+                  <SelectItem value="TRY">TRY</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowAddRate(false)} className="text-white/50 text-xs">Cancel</Button>
+            <Button
+              onClick={() => addRateCardMutation.mutate({
+                sourceLanguage: rateCardForm.sourceLanguage,
+                targetLanguage: rateCardForm.targetLanguage,
+                serviceType: rateCardForm.serviceType,
+                rateType: rateCardForm.rateType,
+                rateValue: rateCardForm.rateValue,
+                currency: rateCardForm.currency,
+              })}
+              disabled={!rateCardForm.sourceLanguage || !rateCardForm.targetLanguage || !rateCardForm.serviceType || !rateCardForm.rateValue || addRateCardMutation.isPending}
+              className="bg-blue-600 hover:bg-blue-700 text-white text-xs"
+            >
+              {addRateCardMutation.isPending ? "Adding..." : "Add"}
             </Button>
           </DialogFooter>
         </DialogContent>
