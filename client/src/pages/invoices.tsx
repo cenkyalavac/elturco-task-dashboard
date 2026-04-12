@@ -220,7 +220,7 @@ export default function InvoicesPage() {
 
   const addLineToInvoiceMutation = useMutation({
     mutationFn: async ({ invoiceId, ...lineData }: { invoiceId: number; description: string; quantity: number; unitPrice: number }) => {
-      const res = await apiRequest("POST", `/api/invoices/${invoiceId}/lines`, lineData);
+      const res = await apiRequest("POST", `/api/invoices/${invoiceId}/line-items`, lineData);
       return res.json();
     },
     onSuccess: () => {

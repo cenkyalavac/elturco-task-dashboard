@@ -310,14 +310,12 @@ export const vendors = pgTable("vendors", {
   lqaLanguages: jsonb("lqa_languages"),
   lqaSpecializations: text("lqa_specializations").array(),
 
-  // Tier
-  tier: varchar("tier", { length: 50 }).default("Standard"),
+  // Vendor Tier (Phase 6) - premium, standard, economy, probation, blacklisted
+  tier: varchar("tier", { length: 50 }).default("standard"),
 
   notes: text("notes"),
   specialInstructions: text("special_instructions"),
 
-  // Vendor Tier (Phase 6)
-  tier: varchar("tier", { length: 20 }).default("standard"), // premium, standard, economy, probation, blacklisted
   availableFrom: date("available_from"),
   availableUntil: date("available_until"),
 

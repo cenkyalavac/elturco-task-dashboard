@@ -169,7 +169,7 @@ export default function PurchaseOrdersPage() {
 
   const addLineMutation = useMutation({
     mutationFn: async ({ poId, ...data }: { poId: number; description: string; quantity: number; unitPrice: number; unit: string }) => {
-      const r = await apiRequest("POST", `/api/purchase-orders/${poId}/lines`, data);
+      const r = await apiRequest("POST", `/api/purchase-orders/${poId}/line-items`, data);
       return r.json();
     },
     onSuccess: () => {
@@ -186,7 +186,7 @@ export default function PurchaseOrdersPage() {
 
   const deleteLineMutation = useMutation({
     mutationFn: async ({ poId, lineId }: { poId: number; lineId: number }) => {
-      const r = await apiRequest("DELETE", `/api/purchase-orders/${poId}/lines/${lineId}`);
+      const r = await apiRequest("DELETE", `/api/purchase-orders/${poId}/line-items/${lineId}`);
       return r.json();
     },
     onSuccess: () => {

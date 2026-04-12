@@ -3389,6 +3389,25 @@ const freelancers = (Array.isArray(data) ? data : [])
     res.json(pairs);
   });
 
+  app.post("/api/vendors/:id/language-pairs", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const vendorId = +param(req, "id");
+      const pair = await storage.addVendorLanguagePair({ vendorId, ...req.body });
+      res.status(201).json(pair);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to add language pair", e) });
+    }
+  });
+
+  app.delete("/api/vendors/:id/language-pairs/:pairId", requireAuth, async (req: Request, res: Response) => {
+    try {
+      await storage.deleteVendorLanguagePair(+param(req, "pairId"));
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to delete language pair", e) });
+    }
+  });
+
   app.get("/api/vendors/:id/rate-cards", requireAuth, async (req: Request, res: Response) => {
     const cards = await storage.getVendorRateCards(+param(req, "id"));
     res.json(cards);
@@ -4179,8 +4198,9 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   app.get("/api/payments/cash-flow", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
     try {
+      const months = req.query.months ? +req.query.months : 12;
       const entityId = req.query.entityId ? +req.query.entityId : undefined;
-      const data = await storage.getCashFlow(entityId);
+      const data = await storage.getCashFlow(months, entityId);
       res.json(data);
     } catch (e: any) {
       res.status(500).json({ error: safeError("Internal server error", e) });
@@ -4189,17 +4209,22 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   app.get("/api/financial/pnl", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
     try {
-      const entityId = req.query.entityId ? +req.query.entityId : undefined;
-      const data = await storage.getPnlSummary(entityId);
+      const filters: any = {};
+      if (req.query.entityId) filters.entityId = +req.query.entityId;
+      if (req.query.startDate) filters.startDate = req.query.startDate;
+      if (req.query.endDate) filters.endDate = req.query.endDate;
+      const data = await storage.getPnlReport(filters);
       res.json(data);
     } catch (e: any) {
       res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
-  app.get("/api/financial/entity-comparison", requireAuth, requireFinanceRole, async (_req: Request, res: Response) => {
+  app.get("/api/financial/entity-comparison", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
     try {
-      const data = await storage.getEntityComparison();
+      const startDate = req.query.startDate as string | undefined;
+      const endDate = req.query.endDate as string | undefined;
+      const data = await storage.getEntityComparison(startDate, endDate);
       res.json(data);
     } catch (e: any) {
       res.status(500).json({ error: safeError("Internal server error", e) });
@@ -4240,17 +4265,6 @@ const freelancers = (Array.isArray(data) ? data : [])
       if (req.query.endDate) filters.endDate = req.query.endDate;
       const summary = await storage.getPaymentsSummary(filters);
       res.json(summary);
-    } catch (e: any) {
-      res.status(500).json({ error: safeError("Internal server error", e) });
-    }
-  });
-
-  app.get("/api/payments/cash-flow", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const months = req.query.months ? +req.query.months : 12;
-      const entityId = req.query.entityId ? +req.query.entityId : undefined;
-      const data = await storage.getCashFlow(months, entityId);
-      res.json(data);
     } catch (e: any) {
       res.status(500).json({ error: safeError("Internal server error", e) });
     }
@@ -4313,66 +4327,6 @@ const freelancers = (Array.isArray(data) ? data : [])
     }
   });
 
-  // ---- VENDOR DOCUMENTS (per-vendor file uploads) ----
-  const docUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
-
-  app.get("/api/vendors/:id/files", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const files = await storage.getVendorFiles(+param(req, "id"));
-      res.json(files);
-    } catch (e: any) {
-      res.status(500).json({ error: safeError("Internal server error", e) });
-    }
-  });
-
-  app.post("/api/vendors/:id/files", requireAuth, docUpload.single("file"), async (req: Request, res: Response) => {
-    try {
-      const vendorId = +param(req, "id");
-      const file = (req as any).file as Express.Multer.File | undefined;
-      let fileName = req.body.fileName || "untitled";
-      let fileUrl = req.body.fileUrl || null;
-      let fileSize = req.body.fileSize ? +req.body.fileSize : null;
-      if (file) {
-        fileName = file.originalname;
-        fileUrl = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
-        fileSize = file.size;
-      }
-      const doc = await storage.createVendorFile({
-        vendorId,
-        documentType: req.body.documentType || "other",
-        fileName,
-        fileUrl,
-        fileSize,
-        uploadedBy: (req as any).pmUserId,
-      });
-      await logAudit((req as any).pmUserId, "upload", "vendor_file", doc.id, null, { id: doc.id, vendorId, fileName }, getClientIp(req));
-      res.status(201).json(doc);
-    } catch (e: any) {
-      res.status(500).json({ error: safeError("Failed to upload document", e) });
-    }
-  });
-
-  app.delete("/api/vendors/:id/files/:docId", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const docId = +param(req, "docId");
-      const doc = await storage.getVendorFile(docId);
-      await storage.deleteVendorFile(docId);
-      await logAudit((req as any).pmUserId, "delete", "vendor_file", docId, doc, null, getClientIp(req));
-      res.json({ success: true });
-    } catch (e: any) {
-      res.status(500).json({ error: safeError("Failed to delete document", e) });
-    }
-  });
-
-  // ---- VENDOR PERFORMANCE ----
-  app.get("/api/vendors/:id/performance", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const perf = await storage.getVendorPerformance(+param(req, "id"));
-      res.json(perf);
-    } catch (e: any) {
-      res.status(500).json({ error: safeError("Internal server error", e) });
-    }
-  });
 
   // ---- INVOICE LINE ITEMS CRUD ----
   app.get("/api/invoices/:id/line-items", requireAuth, async (req: Request, res: Response) => {
@@ -4555,41 +4509,6 @@ const freelancers = (Array.isArray(data) ? data : [])
     try {
       const pipeline = await storage.getProjectPipeline();
       res.json(pipeline);
-    } catch (e: any) {
-      res.status(500).json({ error: safeError("Internal server error", e) });
-    }
-  });
-
-  // ---- FINANCIAL REPORTS (enhanced) ----
-  app.get("/api/financial/ap-aging", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
-    try {
-      const entityId = req.query.entityId ? +req.query.entityId : undefined;
-      const aging = await storage.getAPAgingReport(entityId);
-      res.json(aging);
-    } catch (e: any) {
-      res.status(500).json({ error: safeError("Internal server error", e) });
-    }
-  });
-
-  app.get("/api/financial/pnl", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
-    try {
-      const filters: any = {};
-      if (req.query.entityId) filters.entityId = +req.query.entityId;
-      if (req.query.startDate) filters.startDate = req.query.startDate;
-      if (req.query.endDate) filters.endDate = req.query.endDate;
-      const pnl = await storage.getPnlReport(filters);
-      res.json(pnl);
-    } catch (e: any) {
-      res.status(500).json({ error: safeError("Internal server error", e) });
-    }
-  });
-
-  app.get("/api/financial/entity-comparison", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
-    try {
-      const startDate = req.query.startDate as string | undefined;
-      const endDate = req.query.endDate as string | undefined;
-      const data = await storage.getEntityComparison(startDate, endDate);
-      res.json(data);
     } catch (e: any) {
       res.status(500).json({ error: safeError("Internal server error", e) });
     }
