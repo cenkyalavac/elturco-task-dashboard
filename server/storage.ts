@@ -281,6 +281,50 @@ export class DatabaseStorage implements IStorage {
         notes TEXT
       );`,
       `CREATE INDEX IF NOT EXISTS idx_vendor_onboarding_vendor ON vendor_onboarding_tasks(vendor_id);`,
+
+      // 007: Faz 4 — Project Engine & Smart Assignment
+      `CREATE TABLE IF NOT EXISTS project_templates (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(200) NOT NULL,
+        description TEXT,
+        customer_id INTEGER REFERENCES customers(id),
+        source_language VARCHAR(10),
+        target_languages TEXT[],
+        service_types TEXT[],
+        default_instructions TEXT,
+        default_deadline_days INTEGER,
+        metadata JSONB,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_by INTEGER REFERENCES users(id),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );`,
+      `CREATE TABLE IF NOT EXISTS auto_dispatch_rules (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(200) NOT NULL,
+        description TEXT,
+        customer_id INTEGER REFERENCES customers(id),
+        source_language VARCHAR(10),
+        target_language VARCHAR(10),
+        service_type VARCHAR(100),
+        preferred_vendor_id INTEGER REFERENCES vendors(id),
+        min_quality_score DECIMAL(5,2),
+        max_rate DECIMAL(10,4),
+        is_active BOOLEAN DEFAULT TRUE,
+        priority INTEGER DEFAULT 0,
+        created_by INTEGER REFERENCES users(id),
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );`,
+      `CREATE TABLE IF NOT EXISTS job_dependencies (
+        id SERIAL PRIMARY KEY,
+        job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        depends_on_job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        dependency_type VARCHAR(50) DEFAULT 'finish_to_start',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(job_id, depends_on_job_id)
+      );`,
+      `CREATE INDEX IF NOT EXISTS idx_job_dependencies_job ON job_dependencies(job_id);`,
+      `CREATE INDEX IF NOT EXISTS idx_job_dependencies_dep ON job_dependencies(depends_on_job_id);`,
     ];
 
     for (const migration of migrations) {

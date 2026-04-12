@@ -56,12 +56,18 @@ import VMReviewApplicationsPage from "@/pages/vm-review-applications";
 import VMCapacityMapPage from "@/pages/vm-capacity-map";
 import VMAnalyticsPage from "@/pages/vm-analytics";
 
+// Faz 4: Project Engine & Smart Assignment
+import PMTeamLeadPage from "@/pages/pm-team-lead";
+import ProjectArchivePage from "@/pages/project-archive";
+import SettingsProjectTemplatesPage from "@/pages/settings-project-templates";
+import SettingsAutoDispatchPage from "@/pages/settings-auto-dispatch";
+
 import {
   LogOut, BarChart3, Sun, Moon, Bell, CheckCheck, Menu, X,
   Users, Building2, FolderKanban, Award, LayoutDashboard, History, Settings,
   DollarSign, FileText, ShoppingCart, Zap, Plug,
   Search, TrendingUp, Shield, Calendar, GitBranch,
-  ClipboardCheck, Grid3x3, Mail,
+  ClipboardCheck, Grid3x3, Mail, Archive, LayoutTemplate, Briefcase,
 } from "lucide-react";
 
 // Theme context
@@ -82,6 +88,7 @@ function VMRedirectDashboard() {
   const { user } = useAuth();
   const userRole = (user as any)?.role || getCurrentUser()?.role || "pm";
   if (userRole === "vm") return <Redirect to="/vm-dashboard" />;
+  if (userRole === "pm_team_lead") return <Redirect to="/pm-team-lead" />;
   return <ProtectedRoute component={DashboardPage} />;
 }
 
@@ -283,6 +290,7 @@ function AppLayout() {
   const canSeeFinances = ["gm", "operations_manager", "pm_team_lead", "admin"].includes(userRole);
   const canSeeAdmin = ["gm", "admin"].includes(userRole);
   const canSeeIntegrations = ["gm", "admin", "operations_manager"].includes(userRole);
+  const canSeePMTeamLead = ["gm", "admin", "operations_manager", "pm_team_lead"].includes(userRole);
 
   return (
     <div className="flex h-screen bg-background">
@@ -310,6 +318,7 @@ function AppLayout() {
             {canSeeVendorMgmt && <SidebarLink href="/quizzes" label="Quizzes" icon={<Award className="w-4 h-4 shrink-0" />} />}
             <SidebarLink href="/customers" label="Customers" icon={<Building2 className="w-4 h-4 shrink-0" />} />
             <SidebarLink href="/projects" label="Projects" icon={<FolderKanban className="w-4 h-4 shrink-0" />} />
+            <SidebarLink href="/projects/archive" label="Archive" icon={<Archive className="w-4 h-4 shrink-0" />} />
             <SidebarLink href="/quality" label="Quality" icon={<Award className="w-4 h-4 shrink-0" />} />
             <SidebarLink href="/quality-analytics" label="Quality Analytics" icon={<TrendingUp className="w-4 h-4 shrink-0" />} />
             {canSeeVendorMgmt && <SidebarLink href="/document-compliance" label="Compliance" icon={<Shield className="w-4 h-4 shrink-0" />} />}
@@ -335,6 +344,13 @@ function AppLayout() {
             </div>
           )}
 
+          {canSeePMTeamLead && (
+            <div className="mb-3">
+              {!sidebarCollapsed && <p className="px-3 mb-1 text-[10px] font-semibold text-white/20 uppercase tracking-wider">Team Lead</p>}
+              <SidebarLink href="/pm-team-lead" label="Team Dashboard" icon={<Briefcase className="w-4 h-4 shrink-0" />} />
+            </div>
+          )}
+
           {canSeeIntegrations && (
             <div className="mb-3">
               {!sidebarCollapsed && <p className="px-3 mb-1 text-[10px] font-semibold text-white/20 uppercase tracking-wider">Integrations</p>}
@@ -347,6 +363,8 @@ function AppLayout() {
             <div className="mb-3">
               {!sidebarCollapsed && <p className="px-3 mb-1 text-[10px] font-semibold text-white/20 uppercase tracking-wider">Admin</p>}
               <SidebarLink href="/admin" label="Settings" icon={<Settings className="w-4 h-4 shrink-0" />} />
+              <SidebarLink href="/settings/project-templates" label="Templates" icon={<LayoutTemplate className="w-4 h-4 shrink-0" />} />
+              <SidebarLink href="/settings/auto-dispatch" label="Auto-Dispatch" icon={<Zap className="w-4 h-4 shrink-0" />} />
             </div>
           )}
         </nav>
@@ -434,9 +452,13 @@ function AppLayout() {
             {canSeeVendorMgmt && <SidebarLink href="/vm/review-applications" label="Review Apps" icon={<ClipboardCheck className="w-4 h-4" />} />}
             {canSeeVendorMgmt && <SidebarLink href="/vm/capacity-map" label="Capacity Map" icon={<Grid3x3 className="w-4 h-4" />} />}
             {canSeeVendorMgmt && <SidebarLink href="/vm/analytics" label="VM Analytics" icon={<BarChart3 className="w-4 h-4" />} />}
+            {canSeePMTeamLead && <SidebarLink href="/pm-team-lead" label="Team Lead" icon={<Briefcase className="w-4 h-4" />} />}
+            <SidebarLink href="/projects/archive" label="Archive" icon={<Archive className="w-4 h-4" />} />
             {canSeeIntegrations && <SidebarLink href="/auto-accept" label="Auto-Accept" icon={<Zap className="w-4 h-4" />} />}
             {canSeeIntegrations && <SidebarLink href="/integrations" label="Portals" icon={<Plug className="w-4 h-4" />} />}
             {canSeeAdmin && <SidebarLink href="/admin" label="Admin" icon={<Settings className="w-4 h-4" />} />}
+            {canSeeAdmin && <SidebarLink href="/settings/project-templates" label="Templates" icon={<LayoutTemplate className="w-4 h-4" />} />}
+            {canSeeAdmin && <SidebarLink href="/settings/auto-dispatch" label="Auto-Dispatch" icon={<Zap className="w-4 h-4" />} />}
           </div>
         )}
 
@@ -453,6 +475,7 @@ function AppLayout() {
             <Route path="/customers">{() => <ProtectedRoute component={CustomersPage} />}</Route>
             <Route path="/customers/:id">{() => <ProtectedRoute component={CustomerDetailPage} />}</Route>
             <Route path="/projects">{() => <ProtectedRoute component={ProjectsPage} />}</Route>
+            <Route path="/projects/archive">{() => <ProtectedRoute component={ProjectArchivePage} />}</Route>
             <Route path="/projects/:id">{() => <ProtectedRoute component={ProjectDetailPage} />}</Route>
             <Route path="/quality">{() => <ErrorBoundary level="page"><ProtectedRoute component={QualityPage} /></ErrorBoundary>}</Route>
             <Route path="/quality-analytics">{() => <ProtectedRoute component={QualityAnalyticsPage} />}</Route>
@@ -463,6 +486,10 @@ function AppLayout() {
             <Route path="/purchase-orders">{() => <ProtectedRoute component={PurchaseOrdersPage} />}</Route>
             <Route path="/auto-accept">{() => <ProtectedRoute component={AutoAcceptPage} />}</Route>
             <Route path="/integrations">{() => <ProtectedRoute component={IntegrationsPage} />}</Route>
+            {/* Faz 4: Project Engine & Smart Assignment */}
+            <Route path="/pm-team-lead">{() => <ProtectedRoute component={PMTeamLeadPage} />}</Route>
+            <Route path="/settings/project-templates">{() => <ProtectedRoute component={SettingsProjectTemplatesPage} />}</Route>
+            <Route path="/settings/auto-dispatch">{() => <ProtectedRoute component={SettingsAutoDispatchPage} />}</Route>
             {/* Faz 3: VM Experience */}
             <Route path="/vm-dashboard">{() => <ProtectedRoute component={VMDashboardPage} />}</Route>
             <Route path="/vm/review-applications">{() => <ProtectedRoute component={VMReviewApplicationsPage} />}</Route>

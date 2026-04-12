@@ -6,13 +6,20 @@
  */
 import { Router, Request, Response } from "express";
 import { z } from "zod";
-import { eq, and, sql, desc } from "drizzle-orm";
+import { eq, and, sql, desc, asc, inArray, gte, lte, ilike, or, count } from "drizzle-orm";
 import { storage, db } from "../storage";
 import {
   projects, jobs, customers, entities,
   portalTasks as portalTasksTable,
   pmCustomerAssignments,
   vendorRateCards,
+  projectTemplates,
+  autoDispatchRules,
+  jobDependencies,
+  vendors,
+  vendorLanguagePairs,
+  vendorRateCards as vendorRateCardsTable,
+  users,
 } from "@shared/schema";
 import {
   validateProjectTransition,
@@ -128,6 +135,131 @@ router.get("/projects", requireAuth, async (req: Request, res: Response) => {
     res.json({ data: enrichedProjects, total, page: filters.page, limit: filters.limit });
   } catch (e: any) {
     res.status(500).json({ error: safeError("Internal server error", e) });
+  }
+});
+
+// ============================================
+// FAZ 4: ENHANCED PROJECT SEARCH & ARCHIVE (must be before :id route)
+// ============================================
+
+router.get("/projects/archive", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { search, dateFrom, dateTo, customerId, sourceLanguage, targetLanguage, status, pmId, page, limit } = req.query;
+    const pageNum = page ? +page : 1;
+    const limitNum = limit ? +limit : 50;
+    const offset = (pageNum - 1) * limitNum;
+
+    const conditions: any[] = [];
+    if (search) conditions.push(or(ilike(projects.projectName, `%${search}%`), ilike(projects.projectCode, `%${search}%`), ilike(projects.notes, `%${search}%`)));
+    if (dateFrom) conditions.push(gte(projects.createdAt, new Date(dateFrom as string)));
+    if (dateTo) conditions.push(lte(projects.createdAt, new Date(dateTo as string)));
+    if (customerId) conditions.push(eq(projects.customerId, +customerId));
+    if (status) conditions.push(eq(projects.status, status as string));
+    if (pmId) conditions.push(eq(projects.pmId, +pmId));
+
+    // If language filters, join with jobs
+    let query;
+    if (sourceLanguage || targetLanguage) {
+      const jobConditions: any[] = [];
+      if (sourceLanguage) jobConditions.push(eq(jobs.sourceLanguage, sourceLanguage as string));
+      if (targetLanguage) jobConditions.push(eq(jobs.targetLanguage, targetLanguage as string));
+      const matchingJobProjectIds = await db.selectDistinct({ projectId: jobs.projectId }).from(jobs).where(and(...jobConditions));
+      const pids = matchingJobProjectIds.map(j => j.projectId);
+      if (pids.length > 0) conditions.push(inArray(projects.id, pids));
+      else { res.json({ data: [], total: 0, page: pageNum, limit: limitNum }); return; }
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+    const [result, countResult] = await Promise.all([
+      db.select().from(projects).where(whereClause).orderBy(desc(projects.createdAt)).limit(limitNum).offset(offset),
+      db.select({ cnt: count() }).from(projects).where(whereClause),
+    ]);
+
+    // Enrich with customer names
+    const customerIds = [...new Set(result.filter(p => p.customerId).map(p => p.customerId))];
+    const customerMap = new Map<number, string>();
+    if (customerIds.length > 0) {
+      const custs = await db.select({ id: customers.id, name: customers.name }).from(customers).where(inArray(customers.id, customerIds));
+      custs.forEach(c => customerMap.set(c.id, c.name));
+    }
+    const enriched = result.map(p => ({ ...p, customerName: p.customerId ? (customerMap.get(p.customerId) || null) : null }));
+    res.json({ data: enriched, total: countResult[0]?.cnt || 0, page: pageNum, limit: limitNum });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Archive search failed", e) });
+  }
+});
+
+// ============================================
+// FAZ 4: DEADLINE PREDICTION ENGINE (must be before :id route)
+// ============================================
+
+router.post("/projects/predict-deadline", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const body = validate(z.object({
+      sourceLanguage: z.string().min(1),
+      targetLanguage: z.string().min(1),
+      serviceType: z.string().optional(),
+      wordCount: z.number().optional(),
+    }), req.body, res);
+    if (!body) return;
+
+    // Find similar historical jobs
+    const conditions: any[] = [
+      eq(jobs.sourceLanguage, body.sourceLanguage),
+      eq(jobs.targetLanguage, body.targetLanguage),
+      sql`${jobs.deliveredAt} IS NOT NULL`,
+      sql`${jobs.assignedAt} IS NOT NULL`,
+    ];
+    if (body.serviceType) conditions.push(eq(jobs.serviceType, body.serviceType));
+
+    const historicalJobs = await db.select({
+      assignedAt: jobs.assignedAt,
+      deliveredAt: jobs.deliveredAt,
+      wordCount: jobs.wordCount,
+    }).from(jobs).where(and(...conditions)).limit(100);
+
+    if (historicalJobs.length === 0) {
+      // Default fallback: 3 days for general translation
+      const estimatedDays = body.wordCount ? Math.max(1, Math.ceil(body.wordCount / 3000)) : 3;
+      const estimatedDate = new Date(Date.now() + estimatedDays * 24 * 60 * 60 * 1000);
+      return res.json({ estimatedDays, estimatedDate: estimatedDate.toISOString(), confidence: "low", basedOnSamples: 0 });
+    }
+
+    // Calculate average delivery time in days
+    const durations: number[] = [];
+    for (const j of historicalJobs) {
+      if (j.assignedAt && j.deliveredAt) {
+        const assigned = new Date(j.assignedAt).getTime();
+        const delivered = new Date(j.deliveredAt).getTime();
+        const days = (delivered - assigned) / (24 * 60 * 60 * 1000);
+        if (days > 0 && days < 365) durations.push(days);
+      }
+    }
+
+    if (durations.length === 0) {
+      const estimatedDays = body.wordCount ? Math.max(1, Math.ceil(body.wordCount / 3000)) : 3;
+      const estimatedDate = new Date(Date.now() + estimatedDays * 24 * 60 * 60 * 1000);
+      return res.json({ estimatedDays, estimatedDate: estimatedDate.toISOString(), confidence: "low", basedOnSamples: 0 });
+    }
+
+    const avgDays = durations.reduce((a, b) => a + b, 0) / durations.length;
+    // Adjust for word count if provided
+    let estimatedDays = Math.ceil(avgDays);
+    if (body.wordCount) {
+      const avgWords = historicalJobs.filter(j => j.wordCount).map(j => j.wordCount!);
+      if (avgWords.length > 0) {
+        const historicalAvgWords = avgWords.reduce((a, b) => a + b, 0) / avgWords.length;
+        const wordRatio = body.wordCount / (historicalAvgWords || 1);
+        estimatedDays = Math.max(1, Math.ceil(avgDays * wordRatio));
+      }
+    }
+
+    const confidence = durations.length >= 10 ? "high" : durations.length >= 5 ? "medium" : "low";
+    const estimatedDate = new Date(Date.now() + estimatedDays * 24 * 60 * 60 * 1000);
+
+    res.json({ estimatedDays, estimatedDate: estimatedDate.toISOString(), confidence, basedOnSamples: durations.length });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Deadline prediction failed", e) });
   }
 });
 
@@ -253,14 +385,27 @@ router.get("/projects/:id/valid-actions", requireAuth, async (req: Request, res:
 router.post("/projects/:projectId/jobs/:jobId/transition", requireAuth, async (req: Request, res: Response) => {
   try {
     const jobId = +param(req, "jobId");
+    const projectId = +param(req, "projectId");
     const { action } = req.body;
     if (!action) return res.status(400).json({ error: "Action is required" });
-    const jobList = await storage.getJobs(+param(req, "projectId"));
+    const jobList = await storage.getJobs(projectId);
     const job = jobList.find((j: any) => j.id === jobId);
     if (!job) return res.status(404).json({ error: "Job not found" });
     const currentStatus = job.status || "unassigned";
     const newStatus = validateJobTransition(currentStatus, action);
     if (!newStatus) return res.status(400).json({ error: `Invalid transition: cannot '${action}' from '${currentStatus}'`, validActions: getValidJobActions(currentStatus) });
+
+    // Faz 4: Check dependencies — block start if dependencies not met
+    if (action === "start") {
+      const deps = await db.select().from(jobDependencies).where(eq(jobDependencies.jobId, jobId));
+      for (const dep of deps) {
+        const depJob = jobList.find(j => j.id === dep.dependsOnJobId);
+        if (depJob && depJob.status !== "delivered" && depJob.status !== "approved" && depJob.status !== "invoiced") {
+          return res.status(400).json({ error: `Blocked: waiting for "${depJob.jobName || depJob.jobCode}" to complete`, blockedBy: dep.dependsOnJobId });
+        }
+      }
+    }
+
     const updates: any = { status: newStatus };
     if (newStatus === "delivered") updates.deliveredAt = new Date().toISOString();
     if (newStatus === "approved") updates.approvedAt = new Date().toISOString();
@@ -519,5 +664,450 @@ router.get("/projects/:id/finance", requireAuth, async (req: Request, res: Respo
     res.status(500).json({ error: safeError("Finance fetch failed", e) });
   }
 });
+
+// ============================================
+// FAZ 4: PROJECT CLONE
+// ============================================
+
+router.post("/projects/:id/clone", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const projectId = +param(req, "id");
+    const project = await storage.getProject(projectId);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+
+    const { projectName, deadline } = req.body;
+    const year = new Date().getFullYear();
+    const customer = project.customerId ? await storage.getCustomer(project.customerId) : null;
+    const prefix = customer?.code || "PRJ";
+    const projectCode = await getNextSequenceNumber(projects, prefix, year, projects.projectCode);
+
+    const newProject = await storage.createProject({
+      entityId: project.entityId,
+      customerId: project.customerId,
+      subAccountId: project.subAccountId,
+      projectCode,
+      projectName: projectName || `${project.projectName} (Copy)`,
+      source: project.source,
+      pmId: (req as any).pmUserId,
+      status: "active",
+      currency: project.currency,
+      deadline: deadline || project.deadline,
+      notes: project.notes,
+      tags: project.tags,
+      metadata: project.metadata,
+    } as any);
+
+    // Clone jobs
+    const jobList = await storage.getJobs(projectId);
+    for (let i = 0; i < jobList.length; i++) {
+      const j = jobList[i];
+      await storage.createJob({
+        projectId: newProject.id,
+        jobCode: `J${String(i + 1).padStart(3, "0")}`,
+        jobName: j.jobName,
+        sourceLanguage: j.sourceLanguage,
+        targetLanguage: j.targetLanguage,
+        serviceType: j.serviceType,
+        unitType: j.unitType,
+        unitCount: j.unitCount,
+        unitRate: j.unitRate,
+        instructions: j.instructions,
+        status: "unassigned",
+        deadline: deadline || j.deadline,
+      } as any);
+    }
+
+    await logAudit((req as any).pmUserId, "clone_project", "project", newProject.id, null, { sourceProjectId: projectId }, getClientIp(req));
+    res.json(newProject);
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Project clone failed", e) });
+  }
+});
+
+// ============================================
+// FAZ 4: PROJECT TEMPLATE SYSTEM
+// ============================================
+
+router.get("/project-templates", requireAuth, async (_req: Request, res: Response) => {
+  try {
+    const templates = await db.select().from(projectTemplates).where(eq(projectTemplates.isActive, true)).orderBy(desc(projectTemplates.createdAt));
+    res.json({ templates });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to list templates", e) });
+  }
+});
+
+router.post("/project-templates", requireAuth, requireRole("admin", "gm", "operations_manager", "pm_team_lead"), async (req: Request, res: Response) => {
+  try {
+    const body = validate(z.object({
+      name: z.string().min(1).max(200),
+      description: z.string().optional(),
+      customerId: z.number().optional(),
+      sourceLanguage: z.string().optional(),
+      targetLanguages: z.array(z.string()).optional(),
+      serviceTypes: z.array(z.string()).optional(),
+      defaultInstructions: z.string().optional(),
+      defaultDeadlineDays: z.number().optional(),
+      metadata: z.any().optional(),
+    }), req.body, res);
+    if (!body) return;
+    const [template] = await db.insert(projectTemplates).values({ ...body, createdBy: (req as any).pmUserId }).returning();
+    await logAudit((req as any).pmUserId, "create", "project_template", template.id, null, template, getClientIp(req));
+    res.json(template);
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to create template", e) });
+  }
+});
+
+router.patch("/project-templates/:id", requireAuth, requireRole("admin", "gm", "operations_manager", "pm_team_lead"), async (req: Request, res: Response) => {
+  try {
+    const id = +param(req, "id");
+    const [updated] = await db.update(projectTemplates).set({ ...req.body, updatedAt: new Date() }).where(eq(projectTemplates.id, id)).returning();
+    if (!updated) return res.status(404).json({ error: "Template not found" });
+    res.json(updated);
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to update template", e) });
+  }
+});
+
+router.delete("/project-templates/:id", requireAuth, requireRole("admin", "gm"), async (req: Request, res: Response) => {
+  try {
+    const id = +param(req, "id");
+    await db.update(projectTemplates).set({ isActive: false }).where(eq(projectTemplates.id, id));
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to delete template", e) });
+  }
+});
+
+router.post("/project-templates/:id/apply", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const templateId = +param(req, "id");
+    const [template] = await db.select().from(projectTemplates).where(eq(projectTemplates.id, templateId));
+    if (!template) return res.status(404).json({ error: "Template not found" });
+
+    const { projectName, customerId, deadline } = req.body;
+    const effectiveCustomerId = customerId || template.customerId;
+    if (!effectiveCustomerId) return res.status(400).json({ error: "customerId is required" });
+
+    const year = new Date().getFullYear();
+    const customer = await storage.getCustomer(effectiveCustomerId);
+    const prefix = customer?.code || "PRJ";
+    const projectCode = await getNextSequenceNumber(projects, prefix, year, projects.projectCode);
+
+    const deadlineDate = deadline ? new Date(deadline) : (template.defaultDeadlineDays ? new Date(Date.now() + template.defaultDeadlineDays * 24 * 60 * 60 * 1000) : undefined);
+
+    const project = await storage.createProject({
+      projectName: projectName || `${template.name} — ${new Date().toISOString().slice(0, 10)}`,
+      customerId: effectiveCustomerId,
+      projectCode,
+      status: "active",
+      notes: template.defaultInstructions,
+      metadata: template.metadata,
+      deadline: deadlineDate?.toISOString(),
+    } as any);
+
+    // Auto-generate jobs from template target languages
+    const targetLangs = template.targetLanguages || [];
+    const srcLang = template.sourceLanguage || "";
+    if (targetLangs.length > 0) {
+      const serviceType = template.serviceTypes?.[0] || "translation";
+      for (let i = 0; i < targetLangs.length; i++) {
+        await storage.createJob({
+          projectId: project.id,
+          jobCode: `J${String(i + 1).padStart(3, "0")}`,
+          jobName: `${srcLang} → ${targetLangs[i]}`,
+          sourceLanguage: srcLang,
+          targetLanguage: targetLangs[i],
+          serviceType,
+          status: "unassigned",
+          deadline: deadlineDate?.toISOString(),
+        } as any);
+      }
+    }
+
+    await logAudit((req as any).pmUserId, "apply_template", "project", project.id, null, { templateId }, getClientIp(req));
+    res.json(project);
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to apply template", e) });
+  }
+});
+
+// ============================================
+// FAZ 4: SMART MATCH ENHANCEMENT (per project)
+// ============================================
+
+router.get("/projects/:projectId/smart-match", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const projectId = +param(req, "projectId");
+    const project = await storage.getProject(projectId);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+
+    const jobList = await storage.getJobs(projectId);
+    if (jobList.length === 0) return res.json({ vendors: [] });
+
+    // Aggregate language pairs and service types from all jobs
+    const langPairs = new Set<string>();
+    const serviceTypesSet = new Set<string>();
+    for (const j of jobList) {
+      if (j.sourceLanguage && j.targetLanguage) langPairs.add(`${j.sourceLanguage}|${j.targetLanguage}`);
+      if (j.serviceType) serviceTypesSet.add(j.serviceType.toLowerCase());
+    }
+
+    const allVendors = await db.select().from(vendors).where(sql`${vendors.status} IN ('Approved', 'approved', 'Active')`);
+    const allPairs = await db.select().from(vendorLanguagePairs);
+    const allRates = await db.select().from(vendorRateCards);
+
+    // Build maps
+    const pairMap = new Map<number, Array<{ source: string; target: string }>>();
+    for (const p of allPairs) {
+      if (!pairMap.has(p.vendorId)) pairMap.set(p.vendorId, []);
+      pairMap.get(p.vendorId)!.push({ source: p.sourceLanguage, target: p.targetLanguage });
+    }
+    const rateMap = new Map<number, number[]>();
+    for (const r of allRates) {
+      if (!rateMap.has(r.vendorId)) rateMap.set(r.vendorId, []);
+      rateMap.get(r.vendorId)!.push(parseFloat(r.rateValue));
+    }
+    const allRateValues = allRates.map(r => parseFloat(r.rateValue)).filter(v => v > 0);
+    const avgRate = allRateValues.length > 0 ? allRateValues.reduce((a, b) => a + b, 0) / allRateValues.length : 0.08;
+
+    // Count active job assignments per vendor
+    const activeAssignments = await db.select({ vendorId: jobs.vendorId, cnt: count() }).from(jobs).where(and(inArray(jobs.status, ["assigned", "in_progress"]), sql`${jobs.vendorId} IS NOT NULL`)).groupBy(jobs.vendorId);
+    const loadMap = new Map<number, number>();
+    activeAssignments.forEach(a => { if (a.vendorId) loadMap.set(a.vendorId, a.cnt); });
+
+    const scored = allVendors.map(v => {
+      let score = 0;
+      const factors: Record<string, number> = {};
+      const pairs = pairMap.get(v.id) || [];
+      const rates = rateMap.get(v.id) || [];
+      const vendorAvgRate = rates.length > 0 ? rates.reduce((a, b) => a + b, 0) / rates.length : 0;
+
+      // Language Pair Match (30%)
+      const langScore = pairs.some(p => langPairs.has(`${p.source.toUpperCase()}|${p.target.toUpperCase()}`)) ? 30 : 0;
+      factors.languagePair = langScore;
+      score += langScore;
+
+      // Specialization Match (20%)
+      const vendorSpecs = [...(v.translationSpecializations || []), ...(v.specializations || [])].map(s => s.toLowerCase());
+      const specOverlap = vendorSpecs.some(s => serviceTypesSet.has(s)) ? 20 : (vendorSpecs.length > 0 ? 5 : 0);
+      factors.specialization = specOverlap;
+      score += specOverlap;
+
+      // Quality Score (20%)
+      const qualScore = parseFloat(v.combinedQualityScore || "0");
+      factors.quality = Math.round((qualScore / 100) * 20);
+      score += factors.quality;
+
+      // Availability (15%) — penalize overloaded vendors
+      const currentLoad = loadMap.get(v.id) || 0;
+      const availScore = currentLoad === 0 ? 15 : currentLoad <= 3 ? 10 : currentLoad <= 6 ? 5 : 0;
+      factors.availability = availScore;
+      score += availScore;
+
+      // Response Time proxy (10%) — use value index as proxy
+      const vi = parseFloat(v.valueIndex || "0");
+      factors.responseTime = Math.round(Math.min(vi / 2, 1) * 10);
+      score += factors.responseTime;
+
+      // Rate Competitiveness (5%)
+      if (vendorAvgRate > 0 && avgRate > 0) {
+        factors.rate = Math.round(Math.min(avgRate / vendorAvgRate, 1.5) / 1.5 * 5);
+      } else {
+        factors.rate = 3;
+      }
+      score += factors.rate;
+
+      const reason = langScore >= 30 ? "Exact language pair match" : pairs.length > 0 ? "Related language experience" : "General availability";
+
+      return { vendorId: v.id, fullName: v.fullName, email: v.email, tier: v.tier, matchScore: Math.min(score, 100), factors, reason, currentLoad, averageRate: vendorAvgRate.toFixed(4), qualityScore: qualScore };
+    });
+
+    scored.sort((a, b) => b.matchScore - a.matchScore);
+    res.json({ vendors: scored.slice(0, 5) });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Smart match failed", e) });
+  }
+});
+
+// ============================================
+// FAZ 4: AUTO-DISPATCH RULES
+// ============================================
+
+router.get("/auto-dispatch-rules", requireAuth, async (_req: Request, res: Response) => {
+  try {
+    const rules = await db.select().from(autoDispatchRules).orderBy(desc(autoDispatchRules.priority));
+    res.json({ rules });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to list auto-dispatch rules", e) });
+  }
+});
+
+router.post("/auto-dispatch-rules", requireAuth, requireRole("admin", "gm", "operations_manager", "pm_team_lead"), async (req: Request, res: Response) => {
+  try {
+    const body = validate(z.object({
+      name: z.string().min(1).max(200),
+      description: z.string().optional(),
+      customerId: z.number().optional(),
+      sourceLanguage: z.string().optional(),
+      targetLanguage: z.string().optional(),
+      serviceType: z.string().optional(),
+      preferredVendorId: z.number().optional(),
+      minQualityScore: z.string().optional(),
+      maxRate: z.string().optional(),
+      priority: z.number().optional(),
+    }), req.body, res);
+    if (!body) return;
+    const [rule] = await db.insert(autoDispatchRules).values({ ...body, createdBy: (req as any).pmUserId }).returning();
+    await logAudit((req as any).pmUserId, "create", "auto_dispatch_rule", rule.id, null, rule, getClientIp(req));
+    res.json(rule);
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to create auto-dispatch rule", e) });
+  }
+});
+
+router.patch("/auto-dispatch-rules/:id", requireAuth, requireRole("admin", "gm", "operations_manager", "pm_team_lead"), async (req: Request, res: Response) => {
+  try {
+    const id = +param(req, "id");
+    const [updated] = await db.update(autoDispatchRules).set(req.body).where(eq(autoDispatchRules.id, id)).returning();
+    if (!updated) return res.status(404).json({ error: "Rule not found" });
+    res.json(updated);
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to update auto-dispatch rule", e) });
+  }
+});
+
+router.delete("/auto-dispatch-rules/:id", requireAuth, requireRole("admin", "gm"), async (req: Request, res: Response) => {
+  try {
+    const id = +param(req, "id");
+    await db.delete(autoDispatchRules).where(eq(autoDispatchRules.id, id));
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to delete auto-dispatch rule", e) });
+  }
+});
+
+router.post("/projects/:projectId/jobs/:jobId/auto-dispatch", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const projectId = +param(req, "projectId");
+    const jobId = +param(req, "jobId");
+    const jobList = await storage.getJobs(projectId);
+    const job = jobList.find((j: any) => j.id === jobId);
+    if (!job) return res.status(404).json({ error: "Job not found" });
+    if (job.vendorId) return res.status(400).json({ error: "Job already assigned" });
+
+    const project = await storage.getProject(projectId);
+
+    // Find matching auto-dispatch rules
+    const rules = await db.select().from(autoDispatchRules).where(eq(autoDispatchRules.isActive, true)).orderBy(desc(autoDispatchRules.priority));
+    let matchedVendorId: number | null = null;
+
+    for (const rule of rules) {
+      if (rule.sourceLanguage && rule.sourceLanguage !== job.sourceLanguage) continue;
+      if (rule.targetLanguage && rule.targetLanguage !== job.targetLanguage) continue;
+      if (rule.serviceType && rule.serviceType !== job.serviceType) continue;
+      if (rule.customerId && rule.customerId !== project?.customerId) continue;
+
+      if (rule.preferredVendorId) {
+        const [vendor] = await db.select().from(vendors).where(eq(vendors.id, rule.preferredVendorId));
+        if (vendor && (vendor.status === "Approved" || vendor.status === "approved" || vendor.status === "Active")) {
+          const qualScore = parseFloat(vendor.combinedQualityScore || "0");
+          const minQual = rule.minQualityScore ? parseFloat(rule.minQualityScore) : 0;
+          if (qualScore >= minQual) {
+            matchedVendorId = rule.preferredVendorId;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!matchedVendorId) {
+      return res.status(404).json({ error: "No matching auto-dispatch rule or vendor found" });
+    }
+
+    // Assign the vendor
+    const updated = await storage.updateJob(jobId, {
+      vendorId: matchedVendorId,
+      status: "assigned",
+      assignedAt: new Date().toISOString(),
+      assignedBy: (req as any).pmUserId,
+    } as any);
+
+    await logAudit((req as any).pmUserId, "auto_dispatch", "job", jobId, null, { vendorId: matchedVendorId }, getClientIp(req));
+    await createNotificationV2((req as any).pmUserId, "auto_dispatch", "Job auto-dispatched", `Job ${job.jobName} was auto-dispatched`, `/projects/${projectId}`);
+    res.json(updated);
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Auto-dispatch failed", e) });
+  }
+});
+
+// ============================================
+// FAZ 4: JOB DEPENDENCY CHAIN
+// ============================================
+
+router.post("/projects/:projectId/jobs/:jobId/dependencies", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const jobId = +param(req, "jobId");
+    const body = validate(z.object({
+      dependsOnJobId: z.number().int().positive(),
+      dependencyType: z.string().optional(),
+    }), req.body, res);
+    if (!body) return;
+
+    // Prevent self-dependency
+    if (jobId === body.dependsOnJobId) return res.status(400).json({ error: "Job cannot depend on itself" });
+
+    const [dep] = await db.insert(jobDependencies).values({
+      jobId,
+      dependsOnJobId: body.dependsOnJobId,
+      dependencyType: body.dependencyType || "finish_to_start",
+    }).returning();
+
+    await logAudit((req as any).pmUserId, "add_dependency", "job", jobId, null, { dependsOnJobId: body.dependsOnJobId }, getClientIp(req));
+    res.json(dep);
+  } catch (e: any) {
+    if (e.message?.includes("duplicate")) return res.status(409).json({ error: "Dependency already exists" });
+    res.status(500).json({ error: safeError("Failed to add dependency", e) });
+  }
+});
+
+router.delete("/projects/:projectId/jobs/:jobId/dependencies/:depId", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const depId = +param(req, "depId");
+    await db.delete(jobDependencies).where(eq(jobDependencies.id, depId));
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to remove dependency", e) });
+  }
+});
+
+router.get("/projects/:projectId/dependency-chain", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const projectId = +param(req, "projectId");
+    const jobList = await storage.getJobs(projectId);
+    const deps = await db.select().from(jobDependencies).where(
+      inArray(jobDependencies.jobId, jobList.map(j => j.id))
+    );
+
+    const chain = jobList.map(j => {
+      const jobDeps = deps.filter(d => d.jobId === j.id);
+      const blockedBy = jobDeps.map(d => {
+        const depJob = jobList.find(jj => jj.id === d.dependsOnJobId);
+        return { dependencyId: d.id, jobId: d.dependsOnJobId, jobName: depJob?.jobName, status: depJob?.status, type: d.dependencyType };
+      });
+      const isBlocked = blockedBy.some(b => b.status !== "delivered" && b.status !== "approved" && b.status !== "invoiced");
+      return { jobId: j.id, jobCode: j.jobCode, jobName: j.jobName, status: j.status, dependencies: blockedBy, isBlocked };
+    });
+
+    res.json({ chain });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to get dependency chain", e) });
+  }
+});
+
+// Validate dependencies in job transition (override)
+const originalTransition = router.stack?.find((s: any) => s.route?.path === "/projects/:projectId/jobs/:jobId/transition" && s.route?.methods?.post);
+// Note: Dependency validation is handled inline within the existing transition endpoint enhancement
 
 export default router;

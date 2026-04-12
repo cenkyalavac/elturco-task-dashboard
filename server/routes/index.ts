@@ -23,6 +23,7 @@ import integrationRouter from "./integration.router";
 import reportingRouter from "./reporting.router";
 import adminRouter from "./admin.router";
 import vmRouter from "./vm.router";
+import pmTeamLeadRouter from "./pm-team-lead.router";
 
 export async function registerRoutes(server: Server, app: Express) {
   // Initialize storage (seed data, run migrations)
@@ -46,4 +47,5 @@ export async function registerRoutes(server: Server, app: Express) {
   app.use("/api", reportingRouter);
   app.use("/api", adminRouter);
   app.use("/api", vmRouter);
+  app.use("/api", pmTeamLeadRouter);
 }

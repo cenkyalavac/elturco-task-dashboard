@@ -971,6 +971,57 @@ export const vendorOnboardingTasks = pgTable("vendor_onboarding_tasks", {
 });
 
 // ============================================
+// FAZ 4: Project Engine & Smart Assignment
+// ============================================
+
+// Project Templates
+export const projectTemplates = pgTable("project_templates", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 200 }).notNull(),
+  description: text("description"),
+  customerId: integer("customer_id").references(() => customers.id),
+  sourceLanguage: varchar("source_language", { length: 10 }),
+  targetLanguages: text("target_languages").array(),
+  serviceTypes: text("service_types").array(),
+  defaultInstructions: text("default_instructions"),
+  defaultDeadlineDays: integer("default_deadline_days"),
+  metadata: jsonb("metadata"),
+  isActive: boolean("is_active").default(true),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+// Auto-Dispatch Rules
+export const autoDispatchRules = pgTable("auto_dispatch_rules", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 200 }).notNull(),
+  description: text("description"),
+  customerId: integer("customer_id").references(() => customers.id),
+  sourceLanguage: varchar("source_language", { length: 10 }),
+  targetLanguage: varchar("target_language", { length: 10 }),
+  serviceType: varchar("service_type", { length: 100 }),
+  preferredVendorId: integer("preferred_vendor_id").references(() => vendors.id),
+  minQualityScore: decimal("min_quality_score", { precision: 5, scale: 2 }),
+  maxRate: decimal("max_rate", { precision: 10, scale: 4 }),
+  isActive: boolean("is_active").default(true),
+  priority: integer("priority").default(0),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// Job Dependencies
+export const jobDependencies = pgTable("job_dependencies", {
+  id: serial("id").primaryKey(),
+  jobId: integer("job_id").notNull().references(() => jobs.id, { onDelete: "cascade" }),
+  dependsOnJobId: integer("depends_on_job_id").notNull().references(() => jobs.id, { onDelete: "cascade" }),
+  dependencyType: varchar("dependency_type", { length: 50 }).default("finish_to_start"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  uniqueIndex("job_dep_unique").on(table.jobId, table.dependsOnJobId),
+]);
+
+// ============================================
 // INSERT SCHEMAS (Zod)
 // ============================================
 export const insertPmUserSchema = createInsertSchema(pmUsers).omit({ id: true });
@@ -1032,6 +1083,11 @@ export const insertVendorFilterPresetSchema = createInsertSchema(vendorFilterPre
 export const insertVendorEmailTemplateSchema = createInsertSchema(vendorEmailTemplates).omit({ id: true });
 export const insertVendorEmailSchema = createInsertSchema(vendorEmails).omit({ id: true });
 export const insertVendorOnboardingTaskSchema = createInsertSchema(vendorOnboardingTasks).omit({ id: true });
+
+// Faz 4 insert schemas
+export const insertProjectTemplateSchema = createInsertSchema(projectTemplates).omit({ id: true });
+export const insertAutoDispatchRuleSchema = createInsertSchema(autoDispatchRules).omit({ id: true });
+export const insertJobDependencySchema = createInsertSchema(jobDependencies).omit({ id: true });
 
 // ============================================
 // TYPES
@@ -1116,3 +1172,11 @@ export type VendorEmail = typeof vendorEmails.$inferSelect;
 export type InsertVendorEmail = z.infer<typeof insertVendorEmailSchema>;
 export type VendorOnboardingTask = typeof vendorOnboardingTasks.$inferSelect;
 export type InsertVendorOnboardingTask = z.infer<typeof insertVendorOnboardingTaskSchema>;
+
+// Faz 4 types
+export type ProjectTemplate = typeof projectTemplates.$inferSelect;
+export type InsertProjectTemplate = z.infer<typeof insertProjectTemplateSchema>;
+export type AutoDispatchRule = typeof autoDispatchRules.$inferSelect;
+export type InsertAutoDispatchRule = z.infer<typeof insertAutoDispatchRuleSchema>;
+export type JobDependency = typeof jobDependencies.$inferSelect;
+export type InsertJobDependency = z.infer<typeof insertJobDependencySchema>;

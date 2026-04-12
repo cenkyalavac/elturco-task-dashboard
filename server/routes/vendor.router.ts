@@ -9,7 +9,7 @@
 import { Router, Request, Response } from "express";
 import multer from "multer";
 import { z } from "zod";
-import { eq, and, sql, desc, asc, inArray, gte, lte, ilike, or } from "drizzle-orm";
+import { eq, and, sql, desc, asc, inArray, gte, lte, ilike, or, count } from "drizzle-orm";
 import { storage, db } from "../storage";
 import {
   vendors,
@@ -29,7 +29,11 @@ import {
   quizAttempts,
   quizzes,
   jobs,
+  vendorEmailTemplates,
+  vendorEmails,
+  vendorOnboardingTasks,
 } from "@shared/schema";
+import crypto from "crypto";
 import {
   requireAuth,
   requireRole,
@@ -716,6 +720,61 @@ router.patch("/vendors/:id/stage", requireAuth, async (req: Request, res: Respon
     });
 
     await logAudit((req as any).pmUserId, "stage_change", "vendor", vendorId, { status: oldStatus }, { status: newStatus }, getClientIp(req));
+
+    // ── Auto-triggers based on new stage ──
+    if (newStatus === "Quiz Pending") {
+      try {
+        const [activeQuiz] = await db.select().from(quizzes).where(eq(quizzes.isActive, true)).orderBy(desc(quizzes.createdAt)).limit(1);
+        if (activeQuiz) {
+          const token = crypto.randomUUID();
+          await db.insert(quizAssignments).values({ quizId: activeQuiz.id, vendorId, assignedBy: (req as any).pmUserId, status: "assigned", token, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) });
+          try {
+            const [vendor] = await db.select({ email: vendors.email, fullName: vendors.fullName }).from(vendors).where(eq(vendors.id, vendorId));
+            if (vendor?.email) {
+              const quizUrl = `${SITE_PUBLIC_URL}/#/quiz/${token}`;
+              await sendEmail([vendor.email], `Quiz Assignment: ${activeQuiz.title}`, `<p>Dear ${vendor.fullName},</p><p>You have been assigned a quiz: <strong>${activeQuiz.title}</strong>.</p><p><a href="${quizUrl}">Click here to take the quiz</a></p><p>The quiz expires in 7 days.</p>`);
+            }
+          } catch (emailErr) { console.error("Auto quiz email failed:", emailErr); }
+        }
+      } catch (err) { console.error("Auto quiz assign failed:", err); }
+    }
+    if (newStatus === "NDA Pending") {
+      try {
+        const [vendor] = await db.select({ email: vendors.email, fullName: vendors.fullName }).from(vendors).where(eq(vendors.id, vendorId));
+        if (vendor?.email) {
+          const [ndaTemplate] = await db.select().from(vendorEmailTemplates).where(eq(vendorEmailTemplates.category, "nda")).limit(1);
+          const subject = ndaTemplate?.subject || "NDA Document Required";
+          const body = ndaTemplate?.body?.replace(/\{\{vendor_name\}\}/g, vendor.fullName || "") || `<p>Dear ${vendor.fullName},</p><p>Please sign and return the NDA document to proceed with your onboarding.</p>`;
+          await sendEmail([vendor.email], subject, body);
+          await db.insert(vendorEmails).values({ vendorId, templateId: ndaTemplate?.id || null, subject, body, sentBy: (req as any).pmUserId, status: "sent" });
+        }
+      } catch (emailErr) { console.error("Auto NDA email failed:", emailErr); }
+    }
+    if (newStatus === "Active" && oldStatus !== "Active") {
+      try {
+        const [existingOnboarding] = await db.select({ count: count() }).from(vendorOnboardingTasks).where(eq(vendorOnboardingTasks.vendorId, vendorId));
+        if (existingOnboarding.count === 0) {
+          const tasks = [
+            { taskName: "Welcome email sent", taskType: "email", status: "completed" },
+            { taskName: "NDA signed", taskType: "document", status: "pending" },
+            { taskName: "Tax form submitted", taskType: "document", status: "pending" },
+            { taskName: "Payment info provided", taskType: "profile", status: "pending" },
+            { taskName: "First quiz completed", taskType: "quiz", status: "pending" },
+            { taskName: "Profile completed", taskType: "profile", status: "pending" },
+            { taskName: "First test task assigned", taskType: "task", status: "pending" },
+          ];
+          for (const task of tasks) { await db.insert(vendorOnboardingTasks).values({ vendorId, ...task }); }
+          const [vendor] = await db.select({ email: vendors.email, fullName: vendors.fullName }).from(vendors).where(eq(vendors.id, vendorId));
+          if (vendor?.email) {
+            const [welcomeTemplate] = await db.select().from(vendorEmailTemplates).where(eq(vendorEmailTemplates.category, "onboarding")).limit(1);
+            const subj = welcomeTemplate?.subject || "Welcome to El Turco Translation Services!";
+            const html = welcomeTemplate?.body?.replace(/\{\{vendor_name\}\}/g, vendor.fullName || "") || `<p>Dear ${vendor.fullName},</p><p>Welcome to our team! Your vendor account is now active.</p>`;
+            await sendEmail([vendor.email], subj, html);
+          }
+        }
+      } catch (err) { console.error("Auto onboarding failed:", err); }
+    }
+
     const updated = await storage.getVendor(vendorId);
     res.json(updated);
   } catch (e: any) {
@@ -1110,14 +1169,49 @@ router.post("/vendors/bulk/stage", requireAuth, requireRole("vm", "gm", "admin",
     let updated = 0;
     for (const vendorId of body.vendorIds) {
       const [old] = await db.select({ status: vendors.status }).from(vendors).where(eq(vendors.id, vendorId));
+      const oldStatus = old?.status || null;
       await db.update(vendors).set({ status: body.status, stageChangedDate: new Date(), updatedAt: new Date() }).where(eq(vendors.id, vendorId));
-      await db.insert(vendorStageHistory).values({
-        vendorId,
-        fromStage: old?.status || null,
-        toStage: body.status,
-        changedBy: (req as any).pmUserId,
-        notes: body.notes,
-      });
+      await db.insert(vendorStageHistory).values({ vendorId, fromStage: oldStatus, toStage: body.status, changedBy: (req as any).pmUserId, notes: body.notes });
+
+      // Auto-triggers (same as single stage change)
+      if (body.status === "Quiz Pending") {
+        try {
+          const [activeQuiz] = await db.select().from(quizzes).where(eq(quizzes.isActive, true)).orderBy(desc(quizzes.createdAt)).limit(1);
+          if (activeQuiz) {
+            const token = crypto.randomUUID();
+            await db.insert(quizAssignments).values({ quizId: activeQuiz.id, vendorId, assignedBy: (req as any).pmUserId, status: "assigned", token, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) });
+          }
+        } catch (err) { console.error("Bulk quiz auto-assign failed for vendor", vendorId, err); }
+      }
+      if (body.status === "NDA Pending") {
+        try {
+          const [vendor] = await db.select({ email: vendors.email, fullName: vendors.fullName }).from(vendors).where(eq(vendors.id, vendorId));
+          if (vendor?.email) {
+            const [ndaTemplate] = await db.select().from(vendorEmailTemplates).where(eq(vendorEmailTemplates.category, "nda")).limit(1);
+            const subject = ndaTemplate?.subject || "NDA Document Required";
+            const emailBody = ndaTemplate?.body?.replace(/\{\{vendor_name\}\}/g, vendor.fullName || "") || `<p>Dear ${vendor.fullName},</p><p>Please sign and return the NDA document.</p>`;
+            await sendEmail([vendor.email], subject, emailBody);
+            await db.insert(vendorEmails).values({ vendorId, templateId: ndaTemplate?.id || null, subject, body: emailBody, sentBy: (req as any).pmUserId, status: "sent" });
+          }
+        } catch (err) { console.error("Bulk NDA email failed for vendor", vendorId, err); }
+      }
+      if (body.status === "Active" && oldStatus !== "Active") {
+        try {
+          const [existingOnboarding] = await db.select({ count: count() }).from(vendorOnboardingTasks).where(eq(vendorOnboardingTasks.vendorId, vendorId));
+          if (existingOnboarding.count === 0) {
+            const tasks = [
+              { taskName: "Welcome email sent", taskType: "email", status: "completed" },
+              { taskName: "NDA signed", taskType: "document", status: "pending" },
+              { taskName: "Tax form submitted", taskType: "document", status: "pending" },
+              { taskName: "Payment info provided", taskType: "profile", status: "pending" },
+              { taskName: "First quiz completed", taskType: "quiz", status: "pending" },
+              { taskName: "Profile completed", taskType: "profile", status: "pending" },
+              { taskName: "First test task assigned", taskType: "task", status: "pending" },
+            ];
+            for (const task of tasks) { await db.insert(vendorOnboardingTasks).values({ vendorId, ...task }); }
+          }
+        } catch (err) { console.error("Bulk onboarding failed for vendor", vendorId, err); }
+      }
       updated++;
     }
     await logAudit((req as any).pmUserId, "bulk_stage_change", "vendor", 0, null, { vendorIds: body.vendorIds, status: body.status }, getClientIp(req));
@@ -1164,6 +1258,48 @@ router.post("/vendors/bulk/delete", requireAuth, requireRole("vm", "gm", "admin"
     res.json({ deleted });
   } catch (e: any) {
     res.status(500).json({ error: safeError("Bulk delete failed", e) });
+  }
+});
+
+// GAP-2: Bulk quiz assignment
+router.post("/vendors/bulk/quiz", requireAuth, requireRole("vm", "gm", "admin", "operations_manager"), async (req: Request, res: Response) => {
+  try {
+    const body = validate(z.object({ vendorIds: z.array(z.number().int().positive()), quizId: z.number().int().positive() }), req.body, res);
+    if (!body) return;
+    const results = [];
+    for (const vendorId of body.vendorIds) {
+      const token = crypto.randomUUID();
+      await db.insert(quizAssignments).values({ quizId: body.quizId, vendorId, assignedBy: (req as any).pmUserId, status: "assigned", token, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) });
+      results.push({ vendorId, token });
+    }
+    await logAudit((req as any).pmUserId, "bulk_quiz_assign", "vendor", 0, null, { vendorIds: body.vendorIds, quizId: body.quizId }, getClientIp(req));
+    res.json({ assigned: results.length, results });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Bulk quiz assign failed", e) });
+  }
+});
+
+// GAP-2: Bulk email send
+router.post("/vendors/bulk/email", requireAuth, requireRole("vm", "gm", "admin", "operations_manager"), async (req: Request, res: Response) => {
+  try {
+    const body = validate(z.object({ vendorIds: z.array(z.number().int().positive()), subject: z.string().min(1), body: z.string().min(1), templateId: z.number().optional() }), req.body, res);
+    if (!body) return;
+    let sent = 0, failed = 0;
+    for (const vendorId of body.vendorIds) {
+      try {
+        const [vendor] = await db.select({ email: vendors.email, fullName: vendors.fullName }).from(vendors).where(eq(vendors.id, vendorId));
+        if (vendor?.email) {
+          const html = body.body.replace(/\{\{vendor_name\}\}/g, vendor.fullName || "").replace(/\{\{vendor_email\}\}/g, vendor.email);
+          await sendEmail([vendor.email], body.subject, html);
+          await db.insert(vendorEmails).values({ vendorId, templateId: body.templateId || null, subject: body.subject, body: html, sentBy: (req as any).pmUserId, status: "sent" });
+          sent++;
+        }
+      } catch { failed++; }
+    }
+    await logAudit((req as any).pmUserId, "bulk_email_send", "vendor", 0, null, { vendorIds: body.vendorIds, subject: body.subject }, getClientIp(req));
+    res.json({ sent, failed });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Bulk email send failed", e) });
   }
 });
 

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest, getAuthToken } from "@/lib/queryClient";
+import { apiRequest, getAuthToken, queryClient } from "@/lib/queryClient";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -50,6 +50,9 @@ import {
   ChevronUp,
   X,
   Upload,
+  Tag,
+  Award,
+  Mail,
 } from "lucide-react";
 
 // ── Constants ──
@@ -1751,45 +1754,126 @@ function BulkActionsBar({
   onDelete: () => void;
   onExport: () => void;
 }) {
+  const [tagInput, setTagInput] = useState("");
+  const [showTagDialog, setShowTagDialog] = useState(false);
+  const [showQuizDialog, setShowQuizDialog] = useState(false);
+  const [showEmailDialog, setShowEmailDialog] = useState(false);
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailBody, setEmailBody] = useState("");
+
+  const { data: quizzesData } = useQuery({
+    queryKey: ["/api/quizzes"],
+    enabled: showQuizDialog,
+  });
+
+  const bulkTagMutation = useMutation({
+    mutationFn: async (tags: string[]) => {
+      await apiRequest("POST", "/api/vendors/bulk/tag", { vendorIds: Array.from(selectedIds), tags, mode: "add" });
+    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/vendors"] }); setShowTagDialog(false); setTagInput(""); },
+  });
+
+  const bulkQuizMutation = useMutation({
+    mutationFn: async (quizId: number) => {
+      await apiRequest("POST", "/api/vendors/bulk/quiz", { vendorIds: Array.from(selectedIds), quizId });
+    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/vendors"] }); setShowQuizDialog(false); },
+  });
+
+  const bulkEmailMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", "/api/vendors/bulk/email", { vendorIds: Array.from(selectedIds), subject: emailSubject, body: emailBody });
+    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/vendors"] }); setShowEmailDialog(false); setEmailSubject(""); setEmailBody(""); },
+  });
+
   if (selectedCount === 0) return null;
 
+  const activeQuizzes = ((quizzesData as any)?.quizzes || []).filter((q: any) => q.isActive);
+
   return (
-    <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-blue-500/25 bg-blue-500/5">
-      <span className="text-xs font-medium text-blue-400">
-        {selectedCount} vendor{selectedCount !== 1 ? "s" : ""} selected
-      </span>
-      <div className="flex items-center gap-2 ml-auto">
-        <Select onValueChange={onChangeStatus}>
-          <SelectTrigger className="h-7 w-[160px] text-xs">
-            <SelectValue placeholder="Change Status" />
-          </SelectTrigger>
-          <SelectContent>
-            {VENDOR_STATUSES.map((s) => (
-              <SelectItem key={s} value={s}>{s}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-7 text-xs border-white/10"
-          onClick={onExport}
-        >
-          Export Selected
-        </Button>
-        <Button
-          type="button"
-          variant="destructive"
-          size="sm"
-          className="h-7 text-xs"
-          onClick={onDelete}
-        >
-          <Trash2 className="w-3.5 h-3.5 mr-1" />
-          Delete
-        </Button>
+    <>
+      <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-blue-500/25 bg-blue-500/5">
+        <span className="text-xs font-medium text-blue-400">
+          {selectedCount} vendor{selectedCount !== 1 ? "s" : ""} selected
+        </span>
+        <div className="flex items-center gap-2 ml-auto flex-wrap">
+          <Select onValueChange={onChangeStatus}>
+            <SelectTrigger className="h-7 w-[160px] text-xs">
+              <SelectValue placeholder="Change Status" />
+            </SelectTrigger>
+            <SelectContent>
+              {VENDOR_STATUSES.map((s) => (
+                <SelectItem key={s} value={s}>{s}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button type="button" variant="outline" size="sm" className="h-7 text-xs border-white/10" onClick={() => setShowTagDialog(true)}>
+            <Tag className="w-3.5 h-3.5 mr-1" />Assign Tag
+          </Button>
+          <Button type="button" variant="outline" size="sm" className="h-7 text-xs border-white/10" onClick={() => setShowQuizDialog(true)}>
+            <Award className="w-3.5 h-3.5 mr-1" />Assign Quiz
+          </Button>
+          <Button type="button" variant="outline" size="sm" className="h-7 text-xs border-white/10" onClick={() => setShowEmailDialog(true)}>
+            <Mail className="w-3.5 h-3.5 mr-1" />Send Email
+          </Button>
+          <Button type="button" variant="outline" size="sm" className="h-7 text-xs border-white/10" onClick={onExport}>
+            Export Selected
+          </Button>
+          <Button type="button" variant="destructive" size="sm" className="h-7 text-xs" onClick={onDelete}>
+            <Trash2 className="w-3.5 h-3.5 mr-1" />Delete
+          </Button>
+        </div>
       </div>
-    </div>
+
+      {/* Tag Dialog */}
+      {showTagDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowTagDialog(false)}>
+          <div className="bg-[#1a1d27] border border-white/10 rounded-xl p-6 w-96" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-white text-sm font-medium mb-3">Assign Tag to {selectedCount} vendor(s)</h3>
+            <input value={tagInput} onChange={(e) => setTagInput(e.target.value)} placeholder="Enter tag name..." className="w-full bg-white/[0.04] border border-white/[0.08] rounded-md px-3 py-2 text-sm text-white mb-3" />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setShowTagDialog(false)}>Cancel</Button>
+              <Button size="sm" disabled={!tagInput.trim()} onClick={() => bulkTagMutation.mutate([tagInput.trim()])}>Assign</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quiz Dialog */}
+      {showQuizDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowQuizDialog(false)}>
+          <div className="bg-[#1a1d27] border border-white/10 rounded-xl p-6 w-96" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-white text-sm font-medium mb-3">Assign Quiz to {selectedCount} vendor(s)</h3>
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {activeQuizzes.length === 0 ? <p className="text-white/30 text-sm">No active quizzes</p> : activeQuizzes.map((q: any) => (
+                <button key={q.id} onClick={() => bulkQuizMutation.mutate(q.id)} className="w-full text-left px-3 py-2 rounded-md bg-white/[0.04] hover:bg-white/[0.08] text-sm text-white transition-colors">
+                  {q.title}
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-end mt-3">
+              <Button variant="outline" size="sm" onClick={() => setShowQuizDialog(false)}>Cancel</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Email Dialog */}
+      {showEmailDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowEmailDialog(false)}>
+          <div className="bg-[#1a1d27] border border-white/10 rounded-xl p-6 w-[500px]" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-white text-sm font-medium mb-3">Send Email to {selectedCount} vendor(s)</h3>
+            <input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} placeholder="Subject..." className="w-full bg-white/[0.04] border border-white/[0.08] rounded-md px-3 py-2 text-sm text-white mb-2" />
+            <textarea value={emailBody} onChange={(e) => setEmailBody(e.target.value)} placeholder="Email body (HTML supported, use {{vendor_name}} for personalization)..." rows={6} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-md px-3 py-2 text-sm text-white mb-3 resize-none" />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setShowEmailDialog(false)}>Cancel</Button>
+              <Button size="sm" disabled={!emailSubject.trim() || !emailBody.trim()} onClick={() => bulkEmailMutation.mutate()}>Send</Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
