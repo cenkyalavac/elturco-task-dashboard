@@ -747,11 +747,11 @@ export default function PurchaseOrdersPage() {
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs text-white/60">Entity</Label>
-              <Select value={form.entityId || "none"} onValueChange={v => setForm(p => ({ ...p, entityId: v === "none" ? "" : v, currency: entityList.find((e: any) => String(e.id) === v)?.currency || "EUR" }))}>
+              <Select value={form.entityId || "none"} onValueChange={v => { const ent = entityList.find((e: any) => String(e.id) === v); setForm(p => ({ ...p, entityId: v === "none" ? "" : v, currency: ent?.defaultCurrency || ent?.currency || "EUR" })); }}>
                 <SelectTrigger className="h-9 text-sm bg-white/[0.04] border-white/[0.08]"><SelectValue placeholder="Select..." /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Select entity</SelectItem>
-                  {entityList.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.name} ({e.currency})</SelectItem>)}
+                  {entityList.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.name} ({e.defaultCurrency || e.currency})</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
