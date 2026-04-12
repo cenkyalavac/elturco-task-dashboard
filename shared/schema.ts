@@ -605,19 +605,57 @@ export const payments = pgTable("payments", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
-// Auto-Accept Rules (new version, replaces BeLazy)
+// Auto-Accept Rules — Phase 2 (replaces BeLazy)
 export const autoAcceptRules = pgTable("auto_accept_rules", {
   id: serial("id").primaryKey(),
-  name: varchar("name", { length: 200 }).notNull(),
-  source: varchar("source", { length: 100 }),
-  account: varchar("account", { length: 200 }),
-  languagePair: varchar("language_pair", { length: 20 }),
-  role: varchar("role", { length: 50 }).notNull(),
-  vendorCodes: text("vendor_codes").notNull(),
-  assignmentType: varchar("assignment_type", { length: 50 }).default("sequence"),
-  maxWwc: integer("max_wwc"),
+  name: varchar("name", { length: 255 }).notNull(),
+  portalSource: varchar("portal_source", { length: 50 }).notNull(),
+  conditions: jsonb("conditions").notNull(), // Array of {field, operator, value}
+  action: varchar("action", { length: 20 }).notNull().default("approve"), // approve, ignore, manual_review
+  priority: integer("priority").notNull().default(100),
   enabled: boolean("enabled").default(true),
-  createdBy: integer("created_by").references(() => users.id),
+  createdBy: varchar("created_by", { length: 100 }),
+  lastModifiedBy: varchar("last_modified_by", { length: 100 }),
+  lastModifiedAt: timestamp("last_modified_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  matchCount: integer("match_count").default(0),
+  lastMatchedAt: timestamp("last_matched_at", { withTimezone: true }),
+});
+
+// Auto-Accept Log — match history
+export const autoAcceptLog = pgTable("auto_accept_log", {
+  id: serial("id").primaryKey(),
+  ruleId: integer("rule_id").references(() => autoAcceptRules.id),
+  taskId: varchar("task_id", { length: 255 }),
+  portalSource: varchar("portal_source", { length: 50 }),
+  taskData: jsonb("task_data"),
+  actionTaken: varchar("action_taken", { length: 20 }),
+  matchedAt: timestamp("matched_at", { withTimezone: true }).defaultNow(),
+});
+
+// Portal Credentials — store connection info for external portals (APS, Symfonie, etc.)
+export const portalCredentials = pgTable("portal_credentials", {
+  id: serial("id").primaryKey(),
+  portalSource: varchar("portal_source", { length: 50 }).notNull(),
+  credentials: jsonb("credentials").notNull(),
+  entityId: integer("entity_id").references(() => entities.id),
+  status: varchar("status", { length: 50 }).default("disconnected"), // connected, disconnected, error
+  lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+// Portal Tasks — tasks fetched from external portals
+export const portalTasks = pgTable("portal_tasks", {
+  id: serial("id").primaryKey(),
+  portalSource: varchar("portal_source", { length: 50 }).notNull(),
+  externalId: varchar("external_id", { length: 255 }).notNull(),
+  externalUrl: varchar("external_url", { length: 500 }),
+  taskData: jsonb("task_data").notNull(), // Raw task data from portal
+  status: varchar("status", { length: 50 }).default("pending"), // pending, approved, ignored, manual_review
+  autoAcceptRuleId: integer("auto_accept_rule_id").references(() => autoAcceptRules.id),
+  projectId: integer("project_id").references(() => projects.id),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
@@ -716,6 +754,9 @@ export const insertClientInvoiceSchema = createInsertSchema(clientInvoices).omit
 export const insertClientInvoiceLineSchema = createInsertSchema(clientInvoiceLines).omit({ id: true });
 export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true });
 export const insertAutoAcceptRuleSchema = createInsertSchema(autoAcceptRules).omit({ id: true });
+export const insertAutoAcceptLogSchema = createInsertSchema(autoAcceptLog).omit({ id: true });
+export const insertPortalCredentialSchema = createInsertSchema(portalCredentials).omit({ id: true });
+export const insertPortalTaskSchema = createInsertSchema(portalTasks).omit({ id: true });
 export const insertAuditLogSchema = createInsertSchema(auditLog).omit({ id: true });
 export const insertSettingSchema = createInsertSchema(settings).omit({ id: true });
 export const insertVendorSessionSchema = createInsertSchema(vendorSessions).omit({ id: true });
@@ -770,6 +811,9 @@ export type ClientInvoiceLine = typeof clientInvoiceLines.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
 export type AutoAcceptRule = typeof autoAcceptRules.$inferSelect;
+export type AutoAcceptLogEntry = typeof autoAcceptLog.$inferSelect;
+export type PortalCredential = typeof portalCredentials.$inferSelect;
+export type PortalTask = typeof portalTasks.$inferSelect;
 export type AuditLogEntry = typeof auditLog.$inferSelect;
 export type Setting = typeof settings.$inferSelect;
 export type VendorSession = typeof vendorSessions.$inferSelect;

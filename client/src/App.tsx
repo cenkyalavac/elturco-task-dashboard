@@ -33,10 +33,14 @@ import InvoicesPage from "@/pages/invoices";
 import PurchaseOrdersPage from "@/pages/purchase-orders";
 import FinancialDashboardPage from "@/pages/financial-dashboard";
 
+// Phase 2: Auto-Accept & Integrations
+import AutoAcceptPage from "@/pages/auto-accept";
+import IntegrationsPage from "@/pages/integrations";
+
 import {
   LogOut, BarChart3, Sun, Moon, Bell, CheckCheck, Menu, X,
   Users, Building2, FolderKanban, Award, LayoutDashboard, History, Settings, UserCircle,
-  DollarSign, FileText, ShoppingCart,
+  DollarSign, FileText, ShoppingCart, Zap, Plug,
 } from "lucide-react";
 
 // Theme context
@@ -192,6 +196,7 @@ function AppLayout() {
   const canSeeVendorMgmt = ["gm", "admin", "operations_manager", "vm"].includes(userRole);
   const canSeeFinances = ["gm", "operations_manager", "pm_team_lead", "admin"].includes(userRole);
   const canSeeAdmin = ["gm", "admin"].includes(userRole);
+  const canSeeIntegrations = ["gm", "admin", "operations_manager"].includes(userRole);
 
   return (
     <div className="flex h-screen bg-background">
@@ -226,6 +231,14 @@ function AppLayout() {
               <SidebarLink href="/finances" label="Dashboard" icon={<DollarSign className="w-4 h-4 shrink-0" />} />
               <SidebarLink href="/invoices" label="Invoices" icon={<FileText className="w-4 h-4 shrink-0" />} />
               <SidebarLink href="/purchase-orders" label="Purchase Orders" icon={<ShoppingCart className="w-4 h-4 shrink-0" />} />
+            </div>
+          )}
+
+          {canSeeIntegrations && (
+            <div className="mb-3">
+              {!sidebarCollapsed && <p className="px-3 mb-1 text-[10px] font-semibold text-white/20 uppercase tracking-wider">Integrations</p>}
+              <SidebarLink href="/auto-accept" label="Auto-Accept" icon={<Zap className="w-4 h-4 shrink-0" />} />
+              <SidebarLink href="/integrations" label="Portals" icon={<Plug className="w-4 h-4 shrink-0" />} />
             </div>
           )}
 
@@ -303,6 +316,8 @@ function AppLayout() {
             {canSeeFinances && <SidebarLink href="/finances" label="Finances" icon={<DollarSign className="w-4 h-4" />} />}
             {canSeeFinances && <SidebarLink href="/invoices" label="Invoices" icon={<FileText className="w-4 h-4" />} />}
             {canSeeFinances && <SidebarLink href="/purchase-orders" label="POs" icon={<ShoppingCart className="w-4 h-4" />} />}
+            {canSeeIntegrations && <SidebarLink href="/auto-accept" label="Auto-Accept" icon={<Zap className="w-4 h-4" />} />}
+            {canSeeIntegrations && <SidebarLink href="/integrations" label="Portals" icon={<Plug className="w-4 h-4" />} />}
             {canSeeAdmin && <SidebarLink href="/admin" label="Admin" icon={<Settings className="w-4 h-4" />} />}
           </div>
         )}
@@ -323,6 +338,8 @@ function AppLayout() {
             <Route path="/finances">{() => <ProtectedRoute component={FinancialDashboardPage} />}</Route>
             <Route path="/invoices">{() => <ProtectedRoute component={InvoicesPage} />}</Route>
             <Route path="/purchase-orders">{() => <ProtectedRoute component={PurchaseOrdersPage} />}</Route>
+            <Route path="/auto-accept">{() => <ProtectedRoute component={AutoAcceptPage} />}</Route>
+            <Route path="/integrations">{() => <ProtectedRoute component={IntegrationsPage} />}</Route>
             <Route component={NotFound} />
           </Switch>
         </main>

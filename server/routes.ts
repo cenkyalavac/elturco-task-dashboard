@@ -1,16 +1,21 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import { storage, db } from "./storage";
-import { taskNotes, pmFavorites, customerRateCards, projects, qualityReports, jobs, vendors } from "@shared/schema";
+import { taskNotes, pmFavorites, customerRateCards, projects, qualityReports, jobs, vendors,
+  autoAcceptRules as autoAcceptRulesTable, autoAcceptLog as autoAcceptLogTable,
+  portalCredentials as portalCredentialsTable, portalTasks as portalTasksTable,
+} from "@shared/schema";
 import { wsBroadcast } from "./ws";
 import { gsWriteToColumn, gsIsAvailable, gsReadSheet, type SheetWriteConfig } from "./gsheets";
 import { createToken, verifyToken } from "./jwt";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, asc, desc, count } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import multer from "multer";
+import { evaluateTask, processTask, getConditionFieldConfig } from "./auto-accept-engine";
+import { testConnection as apsTestConnection, fetchOpenTasks as apsFetchOpenTasks, mapToAutoAcceptFormat as apsMapToAutoAcceptFormat } from "./integrations/aps-client";
 
 // ============================================
 // ZOD VALIDATION SCHEMAS
@@ -163,6 +168,20 @@ function validate<T>(schema: z.ZodType<T>, data: unknown, res: Response): T | nu
     return null;
   }
   return result.data;
+}
+
+// Mask sensitive credential fields for API responses
+function maskCredentials(creds: Record<string, any>): Record<string, any> {
+  const masked = { ...creds };
+  for (const key of Object.keys(masked)) {
+    const lower = key.toLowerCase();
+    if (lower.includes("token") || lower.includes("secret") || lower.includes("password") || lower.includes("apikey")) {
+      if (typeof masked[key] === "string" && masked[key].length > 0) {
+        masked[key] = masked[key].slice(0, 4) + "****";
+      }
+    }
+  }
+  return masked;
 }
 
 // Safe error message — never leak internal DB details to the client
@@ -4166,6 +4185,259 @@ const freelancers = (Array.isArray(data) ? data : [])
   app.get("/api/portal/documents", requireVendorAuth, async (req: Request, res: Response) => {
     const docs = await storage.getVendorDocuments();
     res.json(docs);
+  });
+
+  // ============================================
+  // PHASE 2: AUTO-ACCEPT RULES ENGINE
+  // ============================================
+
+  const autoAcceptRoleGuard = requireRole("gm", "admin", "operations_manager");
+
+  // GET /api/auto-accept-rules — list all rules
+  app.get("/api/auto-accept-rules", requireAuth, autoAcceptRoleGuard, async (_req: Request, res: Response) => {
+    try {
+      const rules = await db.select().from(autoAcceptRulesTable).orderBy(asc(autoAcceptRulesTable.priority));
+      res.json(rules);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to fetch rules", e) });
+    }
+  });
+
+  // POST /api/auto-accept-rules — create a rule
+  app.post("/api/auto-accept-rules", requireAuth, autoAcceptRoleGuard, async (req: Request, res: Response) => {
+    try {
+      const { name, portalSource, conditions, action, priority, enabled } = req.body;
+      if (!name || !portalSource || !conditions) return res.status(400).json({ error: "name, portalSource, and conditions are required" });
+      const currentUser = (req as any).currentUser;
+      const [rule] = await db.insert(autoAcceptRulesTable).values({
+        name,
+        portalSource,
+        conditions,
+        action: action || "approve",
+        priority: priority ?? 100,
+        enabled: enabled !== false,
+        createdBy: currentUser?.email || currentUser?.name || null,
+        lastModifiedBy: currentUser?.email || currentUser?.name || null,
+        lastModifiedAt: new Date(),
+      }).returning();
+      await logAudit((req as any).pmUserId, "create", "auto_accept_rule", rule.id, null, rule, req.ip || null);
+      res.json(rule);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to create rule", e) });
+    }
+  });
+
+  // GET /api/auto-accept-rules/:id — get single rule
+  app.get("/api/auto-accept-rules/:id", requireAuth, autoAcceptRoleGuard, async (req: Request, res: Response) => {
+    try {
+      const [rule] = await db.select().from(autoAcceptRulesTable).where(eq(autoAcceptRulesTable.id, +param(req, "id")));
+      if (!rule) return res.status(404).json({ error: "Rule not found" });
+      res.json(rule);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to fetch rule", e) });
+    }
+  });
+
+  // PATCH /api/auto-accept-rules/:id — update a rule
+  app.patch("/api/auto-accept-rules/:id", requireAuth, autoAcceptRoleGuard, async (req: Request, res: Response) => {
+    try {
+      const id = +param(req, "id");
+      const [existing] = await db.select().from(autoAcceptRulesTable).where(eq(autoAcceptRulesTable.id, id));
+      if (!existing) return res.status(404).json({ error: "Rule not found" });
+      const currentUser = (req as any).currentUser;
+      const updates: any = {};
+      for (const key of ["name", "portalSource", "conditions", "action", "priority", "enabled"]) {
+        if (req.body[key] !== undefined) updates[key] = req.body[key];
+      }
+      updates.lastModifiedBy = currentUser?.email || currentUser?.name || null;
+      updates.lastModifiedAt = new Date();
+      const [updated] = await db.update(autoAcceptRulesTable).set(updates).where(eq(autoAcceptRulesTable.id, id)).returning();
+      await logAudit((req as any).pmUserId, "update", "auto_accept_rule", id, existing, updated, req.ip || null);
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to update rule", e) });
+    }
+  });
+
+  // DELETE /api/auto-accept-rules/:id — delete a rule
+  app.delete("/api/auto-accept-rules/:id", requireAuth, autoAcceptRoleGuard, async (req: Request, res: Response) => {
+    try {
+      const id = +param(req, "id");
+      const [existing] = await db.select().from(autoAcceptRulesTable).where(eq(autoAcceptRulesTable.id, id));
+      if (!existing) return res.status(404).json({ error: "Rule not found" });
+      await db.delete(autoAcceptRulesTable).where(eq(autoAcceptRulesTable.id, id));
+      await logAudit((req as any).pmUserId, "delete", "auto_accept_rule", id, existing, null, req.ip || null);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to delete rule", e) });
+    }
+  });
+
+  // POST /api/auto-accept-rules/:id/toggle — enable/disable
+  app.post("/api/auto-accept-rules/:id/toggle", requireAuth, autoAcceptRoleGuard, async (req: Request, res: Response) => {
+    try {
+      const id = +param(req, "id");
+      const [existing] = await db.select().from(autoAcceptRulesTable).where(eq(autoAcceptRulesTable.id, id));
+      if (!existing) return res.status(404).json({ error: "Rule not found" });
+      const [updated] = await db.update(autoAcceptRulesTable).set({ enabled: !existing.enabled, lastModifiedAt: new Date() }).where(eq(autoAcceptRulesTable.id, id)).returning();
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to toggle rule", e) });
+    }
+  });
+
+  // GET /api/auto-accept-log — view match history
+  app.get("/api/auto-accept-log", requireAuth, autoAcceptRoleGuard, async (req: Request, res: Response) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+      const offset = parseInt(req.query.offset as string) || 0;
+      const logs = await db.select().from(autoAcceptLogTable).orderBy(desc(autoAcceptLogTable.matchedAt)).limit(limit).offset(offset);
+      const [{ total }] = await db.select({ total: count() }).from(autoAcceptLogTable);
+      res.json({ logs, total });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to fetch log", e) });
+    }
+  });
+
+  // POST /api/auto-accept/evaluate — dry run test
+  app.post("/api/auto-accept/evaluate", requireAuth, autoAcceptRoleGuard, async (req: Request, res: Response) => {
+    try {
+      const { portalSource, taskData } = req.body;
+      if (!portalSource || !taskData) return res.status(400).json({ error: "portalSource and taskData are required" });
+      const result = await evaluateTask(portalSource, taskData, { dryRun: true });
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to evaluate", e) });
+    }
+  });
+
+  // GET /api/auto-accept/field-config — get available condition fields
+  app.get("/api/auto-accept/field-config", requireAuth, autoAcceptRoleGuard, async (_req: Request, res: Response) => {
+    res.json(getConditionFieldConfig());
+  });
+
+  // ============================================
+  // PHASE 2: PORTAL CREDENTIALS (APS, etc.)
+  // ============================================
+
+  // GET /api/portal-credentials — list all portal connections
+  app.get("/api/portal-credentials", requireAuth, autoAcceptRoleGuard, async (_req: Request, res: Response) => {
+    try {
+      const creds = await db.select().from(portalCredentialsTable).orderBy(portalCredentialsTable.portalSource);
+      // Don't return actual tokens/passwords to the client
+      const safe = creds.map(c => ({
+        ...c,
+        credentials: maskCredentials(c.credentials as Record<string, any>),
+      }));
+      res.json(safe);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to fetch credentials", e) });
+    }
+  });
+
+  // POST /api/portal-credentials — create/update portal credentials
+  app.post("/api/portal-credentials", requireAuth, autoAcceptRoleGuard, async (req: Request, res: Response) => {
+    try {
+      const { portalSource, credentials, entityId } = req.body;
+      if (!portalSource || !credentials) return res.status(400).json({ error: "portalSource and credentials are required" });
+      // Check if credentials already exist for this portal
+      const [existing] = await db.select().from(portalCredentialsTable).where(eq(portalCredentialsTable.portalSource, portalSource));
+      if (existing) {
+        // Update
+        const [updated] = await db.update(portalCredentialsTable).set({
+          credentials,
+          entityId: entityId || null,
+          updatedAt: new Date(),
+        }).where(eq(portalCredentialsTable.id, existing.id)).returning();
+        res.json({ ...updated, credentials: maskCredentials(updated.credentials as Record<string, any>) });
+      } else {
+        // Create
+        const [created] = await db.insert(portalCredentialsTable).values({
+          portalSource,
+          credentials,
+          entityId: entityId || null,
+          status: "disconnected",
+        }).returning();
+        res.json({ ...created, credentials: maskCredentials(created.credentials as Record<string, any>) });
+      }
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to save credentials", e) });
+    }
+  });
+
+  // POST /api/portal-credentials/test — test a portal connection
+  app.post("/api/portal-credentials/test", requireAuth, autoAcceptRoleGuard, async (req: Request, res: Response) => {
+    try {
+      const { portalSource, credentials } = req.body;
+      if (!portalSource || !credentials) return res.status(400).json({ error: "portalSource and credentials are required" });
+
+      if (portalSource === "aps") {
+        const result = await apsTestConnection(credentials);
+        // Update status in DB if credentials exist
+        const [existing] = await db.select().from(portalCredentialsTable).where(eq(portalCredentialsTable.portalSource, "aps"));
+        if (existing) {
+          await db.update(portalCredentialsTable).set({
+            status: result.success ? "connected" : "error",
+            lastSyncAt: result.success ? new Date() : existing.lastSyncAt,
+            updatedAt: new Date(),
+          }).where(eq(portalCredentialsTable.id, existing.id));
+        }
+        return res.json(result);
+      }
+
+      res.json({ success: false, message: `Portal '${portalSource}' test not implemented yet` });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Connection test failed", e) });
+    }
+  });
+
+  // POST /api/portal-credentials/aps/sync — trigger APS task sync
+  app.post("/api/portal-credentials/aps/sync", requireAuth, autoAcceptRoleGuard, async (_req: Request, res: Response) => {
+    try {
+      const [cred] = await db.select().from(portalCredentialsTable).where(eq(portalCredentialsTable.portalSource, "aps"));
+      if (!cred) return res.status(404).json({ error: "APS credentials not configured" });
+      const credentials = cred.credentials as any;
+      const tasks = await apsFetchOpenTasks(credentials);
+      // Store new tasks
+      let newCount = 0;
+      for (const task of tasks) {
+        const [existing] = await db.select().from(portalTasksTable).where(
+          and(eq(portalTasksTable.portalSource, "aps"), eq(portalTasksTable.externalId, task.key)),
+        );
+        if (!existing) {
+          const taskDataForEngine = apsMapToAutoAcceptFormat(task);
+          const result = await processTask("aps", task.key, taskDataForEngine);
+          await db.insert(portalTasksTable).values({
+            portalSource: "aps",
+            externalId: task.key,
+            externalUrl: task.url,
+            taskData: task as any,
+            status: result.action === "approve" ? "approved" : result.action === "ignore" ? "ignored" : "pending",
+            autoAcceptRuleId: result.ruleId,
+            processedAt: new Date(),
+          });
+          newCount++;
+        }
+      }
+      // Update sync timestamp
+      await db.update(portalCredentialsTable).set({ lastSyncAt: new Date(), status: "connected" }).where(eq(portalCredentialsTable.id, cred.id));
+      res.json({ success: true, total: tasks.length, new: newCount });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Sync failed", e) });
+    }
+  });
+
+  // GET /api/portal-tasks — list portal tasks
+  app.get("/api/portal-tasks", requireAuth, autoAcceptRoleGuard, async (req: Request, res: Response) => {
+    try {
+      const source = req.query.source as string;
+      const status = req.query.status as string;
+      let query = db.select().from(portalTasksTable).orderBy(desc(portalTasksTable.createdAt)).limit(100).$dynamic();
+      if (source) query = query.where(eq(portalTasksTable.portalSource, source));
+      res.json(await query);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to fetch portal tasks", e) });
+    }
   });
 
   // ---- VENDOR MAGIC LINK AUTH ----
