@@ -69,6 +69,16 @@ import {
   FileCheck,
   ChevronRight,
 } from "lucide-react";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from "recharts";
 
 // ── Constants ──
 
@@ -2076,6 +2086,53 @@ function QualityTab({
           </div>
         </CardContent>
       </Card>
+
+      {/* Quality Score Trend Chart */}
+      {reports && reports.length > 0 && (() => {
+        const chartData = [...reports]
+          .filter((r) => r.reportDate && r.score != null)
+          .sort((a, b) => new Date(a.reportDate!).getTime() - new Date(b.reportDate!).getTime())
+          .reduce<{ date: string; QS?: number; LQA?: number }[]>((acc, r) => {
+            const date = new Date(r.reportDate!).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" });
+            const existing = acc.find((d) => d.date === date);
+            const key = r.reportType?.toUpperCase() === "LQA" ? "LQA" : "QS";
+            if (existing) {
+              existing[key] = r.score!;
+            } else {
+              acc.push({ date, [key]: r.score! });
+            }
+            return acc;
+          }, []);
+
+        return chartData.length > 0 ? (
+          <Card className="bg-white/[0.03] border-white/[0.06]">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-white/70 flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-purple-400" />
+                Quality Score Trend
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                    <XAxis dataKey="date" tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 11 }} stroke="rgba(255,255,255,0.1)" />
+                    <YAxis domain={[0, 100]} tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 11 }} stroke="rgba(255,255,255,0.1)" />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: "rgba(15,15,20,0.95)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", color: "#fff" }}
+                      labelStyle={{ color: "rgba(255,255,255,0.6)" }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }} />
+                    <Line type="monotone" dataKey="QS" stroke="#a78bfa" strokeWidth={2} dot={{ fill: "#a78bfa", r: 3 }} connectNulls />
+                    <Line type="monotone" dataKey="LQA" stroke="#22d3ee" strokeWidth={2} dot={{ fill: "#22d3ee", r: 3 }} connectNulls />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null;
+      })()}
 
       {/* Quality Reports Table */}
       <Card className="bg-white/[0.03] border-white/[0.06]">
