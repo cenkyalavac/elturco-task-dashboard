@@ -134,12 +134,12 @@ function ApsConnectionCard({ credential }: { credential?: PortalCredential }) {
   });
 
   return (
-    <Card className="border border-border">
+    <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="text-base">Lionbridge APS (Jira)</CardTitle>
-            <CardDescription>Connect to Lionbridge APS via Jira REST API</CardDescription>
+            <CardTitle className="text-base text-white">Lionbridge APS (Jira)</CardTitle>
+            <CardDescription className="text-white/50">Connect to Lionbridge APS via Jira REST API</CardDescription>
           </div>
           {credential && statusBadge(credential.status)}
         </div>
@@ -147,19 +147,19 @@ function ApsConnectionCard({ credential }: { credential?: PortalCredential }) {
       <CardContent className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1">
+            <label className="text-xs font-medium text-white/40 mb-1 flex items-center gap-1">
               <Globe className="w-3 h-3" /> Jira Base URL
             </label>
             <Input value={jiraBaseUrl} onChange={e => setJiraBaseUrl(e.target.value)} placeholder="https://aps.lionbridge.com" />
           </div>
           <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1">
+            <label className="text-xs font-medium text-white/40 mb-1 flex items-center gap-1">
               <Mail className="w-3 h-3" /> Jira Email
             </label>
             <Input value={jiraEmail} onChange={e => setJiraEmail(e.target.value)} placeholder="user@example.com" />
           </div>
           <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1">
+            <label className="text-xs font-medium text-white/40 mb-1 flex items-center gap-1">
               <Key className="w-3 h-3" /> API Token
             </label>
             <Input
@@ -170,24 +170,24 @@ function ApsConnectionCard({ credential }: { credential?: PortalCredential }) {
             />
           </div>
           <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 block">Project Key</label>
+            <label className="text-xs font-medium text-white/40 mb-1 block">Project Key</label>
             <Input value={jiraProjectKey} onChange={e => setJiraProjectKey(e.target.value)} placeholder="PROJ" />
           </div>
         </div>
 
         {credential?.lastSyncAt && (
-          <p className="text-xs text-muted-foreground">Last synced: {new Date(credential.lastSyncAt).toLocaleString()}</p>
+          <p className="text-xs text-white/40">Last synced: {new Date(credential.lastSyncAt).toLocaleString()}</p>
         )}
 
         <div className="flex items-center gap-2 pt-2">
-          <Button variant="outline" size="sm" onClick={() => testMutation.mutate()} disabled={testMutation.isPending || !jiraBaseUrl || !jiraEmail}>
+          <Button variant="outline" size="sm" className="bg-white/[0.06] text-white/80 hover:bg-white/[0.1] border-white/[0.06] rounded-lg" onClick={() => testMutation.mutate()} disabled={testMutation.isPending || !jiraBaseUrl || !jiraEmail}>
             {testMutation.isPending ? "Testing..." : "Test Connection"}
           </Button>
-          <Button size="sm" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+          <Button size="sm" className="bg-white text-black hover:bg-white/90 font-medium rounded-lg" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
             {saveMutation.isPending ? "Saving..." : "Save Credentials"}
           </Button>
           {credential && credential.status === "connected" && (
-            <Button variant="outline" size="sm" onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending}>
+            <Button variant="outline" size="sm" className="bg-white/[0.06] text-white/80 hover:bg-white/[0.1] border-white/[0.06] rounded-lg" onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending}>
               <RefreshCw className={`w-3.5 h-3.5 mr-1 ${syncMutation.isPending ? "animate-spin" : ""}`} />
               {syncMutation.isPending ? "Syncing..." : "Sync Now"}
             </Button>
