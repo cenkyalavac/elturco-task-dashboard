@@ -22,6 +22,7 @@ import portalRouter from "./portal.router";
 import integrationRouter from "./integration.router";
 import reportingRouter from "./reporting.router";
 import adminRouter from "./admin.router";
+import vmRouter from "./vm.router";
 
 export async function registerRoutes(server: Server, app: Express) {
   // Initialize storage (seed data, run migrations)
@@ -44,4 +45,5 @@ export async function registerRoutes(server: Server, app: Express) {
   app.use("/api", integrationRouter);
   app.use("/api", reportingRouter);
   app.use("/api", adminRouter);
+  app.use("/api", vmRouter);
 }

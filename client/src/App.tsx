@@ -50,11 +50,18 @@ import VendorApplyPage from "@/pages/vendor-apply";
 import QuizTakePage from "@/pages/quiz-take";
 import QuizzesPage from "@/pages/quizzes";
 
+// Faz 3: VM Experience
+import VMDashboardPage from "@/pages/vm-dashboard";
+import VMReviewApplicationsPage from "@/pages/vm-review-applications";
+import VMCapacityMapPage from "@/pages/vm-capacity-map";
+import VMAnalyticsPage from "@/pages/vm-analytics";
+
 import {
   LogOut, BarChart3, Sun, Moon, Bell, CheckCheck, Menu, X,
   Users, Building2, FolderKanban, Award, LayoutDashboard, History, Settings,
   DollarSign, FileText, ShoppingCart, Zap, Plug,
   Search, TrendingUp, Shield, Calendar, GitBranch,
+  ClipboardCheck, Grid3x3, Mail,
 } from "lucide-react";
 
 // Theme context
@@ -69,6 +76,13 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
   const { isAuthenticated } = useAuth();
   if (!isAuthenticated && !getAuthToken()) return <Redirect to="/login" />;
   return <Component />;
+}
+
+function VMRedirectDashboard() {
+  const { user } = useAuth();
+  const userRole = (user as any)?.role || getCurrentUser()?.role || "pm";
+  if (userRole === "vm") return <Redirect to="/vm-dashboard" />;
+  return <ProtectedRoute component={DashboardPage} />;
 }
 
 function SidebarLink({ href, label, icon }: { href: string; label: string; icon?: React.ReactNode }) {
@@ -302,6 +316,16 @@ function AppLayout() {
             {canSeeVendorMgmt && <SidebarLink href="/team-availability" label="Availability" icon={<Calendar className="w-4 h-4 shrink-0" />} />}
           </div>
 
+          {canSeeVendorMgmt && (
+            <div className="mb-3">
+              {!sidebarCollapsed && <p className="px-3 mb-1 text-[10px] font-semibold text-white/20 uppercase tracking-wider">VM Tools</p>}
+              <SidebarLink href="/vm-dashboard" label="VM Dashboard" icon={<LayoutDashboard className="w-4 h-4 shrink-0" />} />
+              <SidebarLink href="/vm/review-applications" label="Review Apps" icon={<ClipboardCheck className="w-4 h-4 shrink-0" />} />
+              <SidebarLink href="/vm/capacity-map" label="Capacity Map" icon={<Grid3x3 className="w-4 h-4 shrink-0" />} />
+              <SidebarLink href="/vm/analytics" label="VM Analytics" icon={<BarChart3 className="w-4 h-4 shrink-0" />} />
+            </div>
+          )}
+
           {canSeeFinances && (
             <div className="mb-3">
               {!sidebarCollapsed && <p className="px-3 mb-1 text-[10px] font-semibold text-white/20 uppercase tracking-wider">Finances</p>}
@@ -406,6 +430,10 @@ function AppLayout() {
             {canSeeFinances && <SidebarLink href="/finances" label="Finances" icon={<DollarSign className="w-4 h-4" />} />}
             {canSeeFinances && <SidebarLink href="/invoices" label="Invoices" icon={<FileText className="w-4 h-4" />} />}
             {canSeeFinances && <SidebarLink href="/purchase-orders" label="POs" icon={<ShoppingCart className="w-4 h-4" />} />}
+            {canSeeVendorMgmt && <SidebarLink href="/vm-dashboard" label="VM Dashboard" icon={<LayoutDashboard className="w-4 h-4" />} />}
+            {canSeeVendorMgmt && <SidebarLink href="/vm/review-applications" label="Review Apps" icon={<ClipboardCheck className="w-4 h-4" />} />}
+            {canSeeVendorMgmt && <SidebarLink href="/vm/capacity-map" label="Capacity Map" icon={<Grid3x3 className="w-4 h-4" />} />}
+            {canSeeVendorMgmt && <SidebarLink href="/vm/analytics" label="VM Analytics" icon={<BarChart3 className="w-4 h-4" />} />}
             {canSeeIntegrations && <SidebarLink href="/auto-accept" label="Auto-Accept" icon={<Zap className="w-4 h-4" />} />}
             {canSeeIntegrations && <SidebarLink href="/integrations" label="Portals" icon={<Plug className="w-4 h-4" />} />}
             {canSeeAdmin && <SidebarLink href="/admin" label="Admin" icon={<Settings className="w-4 h-4" />} />}
@@ -414,7 +442,7 @@ function AppLayout() {
 
         <main className="flex-1 overflow-auto">
           <Switch>
-            <Route path="/">{() => <ErrorBoundary level="page"><ProtectedRoute component={DashboardPage} /></ErrorBoundary>}</Route>
+            <Route path="/">{() => <ErrorBoundary level="page"><VMRedirectDashboard /></ErrorBoundary>}</Route>
             <Route path="/history">{() => <ProtectedRoute component={AssignmentsPage} />}</Route>
             <Route path="/analytics">{() => <ProtectedRoute component={AnalyticsPage} />}</Route>
             <Route path="/admin">{() => <ProtectedRoute component={AdminPage} />}</Route>
@@ -435,6 +463,11 @@ function AppLayout() {
             <Route path="/purchase-orders">{() => <ProtectedRoute component={PurchaseOrdersPage} />}</Route>
             <Route path="/auto-accept">{() => <ProtectedRoute component={AutoAcceptPage} />}</Route>
             <Route path="/integrations">{() => <ProtectedRoute component={IntegrationsPage} />}</Route>
+            {/* Faz 3: VM Experience */}
+            <Route path="/vm-dashboard">{() => <ProtectedRoute component={VMDashboardPage} />}</Route>
+            <Route path="/vm/review-applications">{() => <ProtectedRoute component={VMReviewApplicationsPage} />}</Route>
+            <Route path="/vm/capacity-map">{() => <ProtectedRoute component={VMCapacityMapPage} />}</Route>
+            <Route path="/vm/analytics">{() => <ProtectedRoute component={VMAnalyticsPage} />}</Route>
             <Route component={NotFound} />
           </Switch>
         </main>
