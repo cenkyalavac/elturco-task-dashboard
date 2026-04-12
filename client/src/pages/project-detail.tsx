@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -436,8 +437,11 @@ export default function ProjectDetailPage() {
         <TabsContent value="overview" className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Project Info */}
-            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4 space-y-3">
-              <h3 className="text-sm font-medium text-white/70 flex items-center gap-2"><FolderKanban className="w-3.5 h-3.5" /> Project Info</h3>
+            <Card className="bg-white/[0.03] border-white/[0.06]">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-white/70 flex items-center gap-2"><FolderKanban className="w-3.5 h-3.5" /> Project Info</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
               {editing ? (
                 <div className="space-y-2">
                   <FieldEdit label="Project Name" value={form.projectName || ""} onChange={(v) => setFormField("projectName", v)} />
@@ -467,11 +471,15 @@ export default function ProjectDetailPage() {
                   )}
                 </div>
               )}
-            </div>
+              </CardContent>
+            </Card>
 
             {/* Client Info */}
-            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4 space-y-3">
-              <h3 className="text-sm font-medium text-white/70 flex items-center gap-2"><Building2 className="w-3.5 h-3.5" /> Client Info</h3>
+            <Card className="bg-white/[0.03] border-white/[0.06]">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-white/70 flex items-center gap-2"><Building2 className="w-3.5 h-3.5" /> Client Info</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
               {editing ? (
                 <div className="space-y-2">
                   <div>
@@ -506,11 +514,15 @@ export default function ProjectDetailPage() {
                   <InfoRow icon={<User className="w-3 h-3" />} label="PM" value={pmUser ? pmUser.name : (project.pmId ? `User #${project.pmId}` : "Unassigned")} />
                 </div>
               )}
-            </div>
+              </CardContent>
+            </Card>
 
             {/* Dates */}
-            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4 space-y-3">
-              <h3 className="text-sm font-medium text-white/70 flex items-center gap-2"><Calendar className="w-3.5 h-3.5" /> Dates</h3>
+            <Card className="bg-white/[0.03] border-white/[0.06]">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-white/70 flex items-center gap-2"><Calendar className="w-3.5 h-3.5" /> Dates</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
               {editing ? (
                 <div className="space-y-2">
                   <div>
@@ -533,11 +545,15 @@ export default function ProjectDetailPage() {
                   <InfoRow icon={<Calendar className="w-3 h-3" />} label="Completed" value={formatDate(project.completedAt)} />
                 </div>
               )}
-            </div>
+              </CardContent>
+            </Card>
 
             {/* Details: Status, Currency, Notes, Tags */}
-            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4 space-y-3">
-              <h3 className="text-sm font-medium text-white/70 flex items-center gap-2"><Briefcase className="w-3.5 h-3.5" /> Details</h3>
+            <Card className="bg-white/[0.03] border-white/[0.06]">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-white/70 flex items-center gap-2"><Briefcase className="w-3.5 h-3.5" /> Details</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
               {editing ? (
                 <div className="space-y-2">
                   <div>
@@ -574,12 +590,13 @@ export default function ProjectDetailPage() {
                   )}
                 </div>
               )}
-            </div>
+              </CardContent>
+            </Card>
           </div>
         </TabsContent>
 
         {/* TAB: JOBS */}
-        <TabsContent value="jobs" className="space-y-3">
+        <TabsContent value="jobs" className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-white/70">Jobs</h3>
             <Button size="sm" onClick={() => setShowAddJob(true)} className="bg-blue-600 hover:bg-blue-700 text-white text-xs">
@@ -639,28 +656,37 @@ export default function ProjectDetailPage() {
         {/* TAB: FINANCIALS */}
         <TabsContent value="financials" className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4 text-center">
-              <p className="text-[10px] text-white/30 mb-1">Total Revenue</p>
-              <p className="text-xl font-bold text-emerald-400">{formatCurrency(financials.totalRevenue, currency)}</p>
-            </div>
-            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4 text-center">
-              <p className="text-[10px] text-white/30 mb-1">Total Cost</p>
-              <p className="text-xl font-bold text-orange-400">{formatCurrency(financials.totalCost, currency)}</p>
-            </div>
-            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4 text-center">
-              <p className="text-[10px] text-white/30 mb-1">Margin</p>
-              <p className={`text-xl font-bold ${financials.margin >= 0 ? "text-emerald-400" : "text-red-400"}`}>{formatCurrency(financials.margin, currency)}</p>
-            </div>
-            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4 text-center">
-              <p className="text-[10px] text-white/30 mb-1">Margin %</p>
-              <p className={`text-xl font-bold ${financials.marginPct >= 0 ? "text-emerald-400" : "text-red-400"}`}>{financials.marginPct.toFixed(1)}%</p>
-            </div>
+            <Card className="bg-white/[0.03] border-white/[0.06] border-l-4 border-l-emerald-500">
+              <CardContent className="p-4 text-center">
+                <p className="text-[10px] text-white/30 mb-1">Total Revenue</p>
+                <p className="text-xl font-bold text-emerald-400">{formatCurrency(financials.totalRevenue, currency)}</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-white/[0.03] border-white/[0.06] border-l-4 border-l-red-500">
+              <CardContent className="p-4 text-center">
+                <p className="text-[10px] text-white/30 mb-1">Total Cost</p>
+                <p className="text-xl font-bold text-orange-400">{formatCurrency(financials.totalCost, currency)}</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-white/[0.03] border-white/[0.06] border-l-4 border-l-blue-500">
+              <CardContent className="p-4 text-center">
+                <p className="text-[10px] text-white/30 mb-1">Margin</p>
+                <p className={`text-xl font-bold ${financials.margin >= 0 ? "text-emerald-400" : "text-red-400"}`}>{formatCurrency(financials.margin, currency)}</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-white/[0.03] border-white/[0.06] border-l-4 border-l-blue-500">
+              <CardContent className="p-4 text-center">
+                <p className="text-[10px] text-white/30 mb-1">Margin %</p>
+                <p className={`text-xl font-bold ${financials.marginPct >= 0 ? "text-emerald-400" : "text-red-400"}`}>{financials.marginPct.toFixed(1)}%</p>
+              </CardContent>
+            </Card>
           </div>
           {jobs.length > 0 && (
-            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg overflow-hidden">
-              <div className="px-4 py-3 border-b border-white/[0.06]">
-                <h3 className="text-sm font-medium text-white/70 flex items-center gap-2"><TrendingUp className="w-3.5 h-3.5" /> Jobs Breakdown</h3>
-              </div>
+            <Card className="bg-white/[0.03] border-white/[0.06] overflow-hidden">
+              <CardHeader className="pb-0">
+                <CardTitle className="text-sm font-medium text-white/70 flex items-center gap-2"><TrendingUp className="w-3.5 h-3.5" /> Jobs Breakdown</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0 pt-3">
               <Table>
                 <TableHeader>
                   <TableRow className="border-white/[0.06] hover:bg-transparent">
@@ -696,17 +722,20 @@ export default function ProjectDetailPage() {
                   </TableRow>
                 </TableBody>
               </Table>
-            </div>
+              </CardContent>
+            </Card>
           )}
         </TabsContent>
 
         {/* TAB: FILES */}
-        <TabsContent value="files">
-          <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-8 text-center">
-            <Upload className="w-10 h-10 text-white/10 mx-auto mb-3" />
-            <p className="text-sm text-white/30 mb-1">File management coming soon</p>
-            <p className="text-xs text-white/15">Upload and manage project files here.</p>
-          </div>
+        <TabsContent value="files" className="space-y-4">
+          <Card className="bg-white/[0.03] border-white/[0.06]">
+            <CardContent className="p-8 text-center">
+              <Upload className="w-10 h-10 text-white/10 mx-auto mb-3" />
+              <p className="text-sm text-white/30 mb-1">File management coming soon</p>
+              <p className="text-xs text-white/15">Upload and manage project files here.</p>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 

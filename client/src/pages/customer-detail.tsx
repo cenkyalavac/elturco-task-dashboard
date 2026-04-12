@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
@@ -379,10 +380,13 @@ export default function CustomerDetailPage() {
         <TabsContent value="overview" className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Info Card */}
-            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4 space-y-3">
-              <h3 className="text-sm font-medium text-white/70 flex items-center gap-2">
-                <Building2 className="w-3.5 h-3.5" /> Info
-              </h3>
+            <Card className="bg-white/[0.03] border-white/[0.06]">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-white/70 flex items-center gap-2">
+                  <Building2 className="w-3.5 h-3.5" /> Info
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
               {editing ? (
                 <div className="space-y-2">
                   <FieldEdit label="Name" value={form.name || ""} onChange={(v) => setFormField("name", v)} />
@@ -429,13 +433,17 @@ export default function CustomerDetailPage() {
                   {primaryPmUser && <InfoRow icon={<Users className="w-3 h-3" />} label="Primary PM" value={primaryPmUser.name} />}
                 </div>
               )}
-            </div>
+              </CardContent>
+            </Card>
 
             {/* Contact Card */}
-            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4 space-y-3">
-              <h3 className="text-sm font-medium text-white/70 flex items-center gap-2">
-                <Mail className="w-3.5 h-3.5" /> Contact
-              </h3>
+            <Card className="bg-white/[0.03] border-white/[0.06]">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-white/70 flex items-center gap-2">
+                  <Mail className="w-3.5 h-3.5" /> Contact
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
               {editing ? (
                 <div className="space-y-2">
                   <FieldEdit label="Email" value={form.email || ""} onChange={(v) => setFormField("email", v)} />
@@ -455,13 +463,17 @@ export default function CustomerDetailPage() {
                   )}
                 </div>
               )}
-            </div>
+              </CardContent>
+            </Card>
 
             {/* Financial Card */}
-            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4 space-y-3">
-              <h3 className="text-sm font-medium text-white/70 flex items-center gap-2">
-                <DollarSign className="w-3.5 h-3.5" /> Financial
-              </h3>
+            <Card className="bg-white/[0.03] border-white/[0.06]">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-white/70 flex items-center gap-2">
+                  <DollarSign className="w-3.5 h-3.5" /> Financial
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
               {editing ? (
                 <div className="space-y-2">
                   <FieldEdit label="Currency" value={form.currency || ""} onChange={(v) => setFormField("currency", v)} />
@@ -494,13 +506,17 @@ export default function CustomerDetailPage() {
                   {customer.minimumFee && <InfoRow icon={<DollarSign className="w-3 h-3" />} label="Minimum Fee" value={formatCurrency(customer.minimumFee, customer.currency || "EUR")} />}
                 </div>
               )}
-            </div>
+              </CardContent>
+            </Card>
 
             {/* Notes & Tags */}
-            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4 space-y-3">
-              <h3 className="text-sm font-medium text-white/70 flex items-center gap-2">
-                <FileText className="w-3.5 h-3.5" /> Notes & Tags
-              </h3>
+            <Card className="bg-white/[0.03] border-white/[0.06]">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-white/70 flex items-center gap-2">
+                  <FileText className="w-3.5 h-3.5" /> Notes & Tags
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
               {editing ? (
                 <div className="space-y-2">
                   <div>
@@ -535,12 +551,13 @@ export default function CustomerDetailPage() {
                   )}
                 </div>
               )}
-            </div>
+              </CardContent>
+            </Card>
           </div>
         </TabsContent>
 
         {/* TAB: Contacts */}
-        <TabsContent value="contacts" className="space-y-3">
+        <TabsContent value="contacts" className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-white/70">Contacts</h3>
             <Button size="sm" onClick={() => setShowAddContact(true)} className="bg-blue-600 hover:bg-blue-700 text-white text-xs">
@@ -591,7 +608,7 @@ export default function CustomerDetailPage() {
         </TabsContent>
 
         {/* TAB: Sub-Accounts */}
-        <TabsContent value="sub-accounts" className="space-y-3">
+        <TabsContent value="sub-accounts" className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-white/70">Sub-Accounts</h3>
             <Button size="sm" onClick={() => setShowAddSubAccount(true)} className="bg-blue-600 hover:bg-blue-700 text-white text-xs">
@@ -641,7 +658,7 @@ export default function CustomerDetailPage() {
         </TabsContent>
 
         {/* TAB: PM Assignments */}
-        <TabsContent value="pm-assignments" className="space-y-3">
+        <TabsContent value="pm-assignments" className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-white/70">PM Assignments</h3>
             <Button size="sm" onClick={() => setShowAddPmAssignment(true)} className="bg-blue-600 hover:bg-blue-700 text-white text-xs">
@@ -693,7 +710,7 @@ export default function CustomerDetailPage() {
         </TabsContent>
 
         {/* TAB: Rate Card */}
-        <TabsContent value="rate-card" className="space-y-3">
+        <TabsContent value="rate-card" className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-white/70">Rate Card</h3>
             <Button size="sm" onClick={() => setShowAddRate(true)} className="bg-blue-600 hover:bg-blue-700 text-white text-xs">
@@ -750,7 +767,7 @@ export default function CustomerDetailPage() {
         </TabsContent>
 
         {/* TAB: Projects */}
-        <TabsContent value="projects" className="space-y-3">
+        <TabsContent value="projects" className="space-y-4">
           <h3 className="text-sm font-medium text-white/70">Projects</h3>
           {projectsQuery.isLoading ? (
             <Skeleton className="h-32 bg-white/[0.04] rounded" />
@@ -801,7 +818,7 @@ export default function CustomerDetailPage() {
         </TabsContent>
 
         {/* TAB: Invoices */}
-        <TabsContent value="invoices" className="space-y-3">
+        <TabsContent value="invoices" className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-white/70">Invoices</h3>
             <Link href="/invoices">
