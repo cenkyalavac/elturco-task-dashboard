@@ -4,6 +4,7 @@ import { storage, db } from "./storage";
 import { taskNotes, pmFavorites, customerRateCards, projects, qualityReports, jobs, vendors,
   autoAcceptRules as autoAcceptRulesTable, autoAcceptLog as autoAcceptLogTable,
   portalCredentials as portalCredentialsTable, portalTasks as portalTasksTable,
+  vendorRateCards, vendorFiles, clientInvoices, clientInvoiceLines, poLineItems, purchaseOrders, payments, entities, customers, auditLog, users,
 } from "@shared/schema";
 import { wsBroadcast } from "./ws";
 import { gsWriteToColumn, gsIsAvailable, gsReadSheet, type SheetWriteConfig } from "./gsheets";
@@ -4097,6 +4098,489 @@ const freelancers = (Array.isArray(data) ? data : [])
       res.json(data);
     } catch (e: any) {
       res.status(500).json({ error: safeError("Internal server error", e) });
+    }
+  });
+
+  // ============================================
+  // PHASE 6: NEW API ENDPOINTS
+  // ============================================
+
+  // ---- ENHANCED PAYMENTS ----
+  // Note: /summary and /cash-flow MUST be registered before /:id
+  app.get("/api/payments/summary", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const filters: any = {};
+      if (req.query.type) filters.type = req.query.type;
+      if (req.query.entityId) filters.entityId = +req.query.entityId;
+      if (req.query.startDate) filters.startDate = req.query.startDate;
+      if (req.query.endDate) filters.endDate = req.query.endDate;
+      const summary = await storage.getPaymentsSummary(filters);
+      res.json(summary);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Internal server error", e) });
+    }
+  });
+
+  app.get("/api/payments/cash-flow", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const months = req.query.months ? +req.query.months : 12;
+      const entityId = req.query.entityId ? +req.query.entityId : undefined;
+      const data = await storage.getCashFlow(months, entityId);
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Internal server error", e) });
+    }
+  });
+
+  app.get("/api/payments/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const payment = await storage.getPayment(+param(req, "id"));
+      if (!payment) return res.status(404).json({ error: "Payment not found" });
+      res.json(payment);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Internal server error", e) });
+    }
+  });
+
+  app.delete("/api/payments/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const id = +param(req, "id");
+      const payment = await storage.getPayment(id);
+      if (!payment) return res.status(404).json({ error: "Payment not found" });
+      await storage.deletePayment(id);
+      await logAudit((req as any).pmUserId, "delete", "payment", id, payment, null, getClientIp(req));
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Internal server error", e) });
+    }
+  });
+
+  // ---- VENDOR RATE CARDS CRUD ----
+  app.post("/api/vendors/:id/rate-cards", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const vendorId = +param(req, "id");
+      const body = validate(createRateCardSchema, req.body, res);
+      if (!body) return;
+      const rc = await storage.createVendorRateCard({ ...body, vendorId });
+      await logAudit((req as any).pmUserId, "create", "vendor_rate_card", rc.id, null, rc, getClientIp(req));
+      res.status(201).json(rc);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to create rate card", e) });
+    }
+  });
+
+  app.patch("/api/vendors/:id/rate-cards/:rcId", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const rcId = +param(req, "rcId");
+      const rc = await storage.updateVendorRateCard(rcId, req.body);
+      res.json(rc);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to update rate card", e) });
+    }
+  });
+
+  app.delete("/api/vendors/:id/rate-cards/:rcId", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const rcId = +param(req, "rcId");
+      await storage.deleteVendorRateCard(rcId);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to delete rate card", e) });
+    }
+  });
+
+  // ---- VENDOR DOCUMENTS (per-vendor file uploads) ----
+  const docUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+  app.get("/api/vendors/:id/files", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const files = await storage.getVendorFiles(+param(req, "id"));
+      res.json(files);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Internal server error", e) });
+    }
+  });
+
+  app.post("/api/vendors/:id/files", requireAuth, docUpload.single("file"), async (req: Request, res: Response) => {
+    try {
+      const vendorId = +param(req, "id");
+      const file = (req as any).file as Express.Multer.File | undefined;
+      let fileName = req.body.fileName || "untitled";
+      let fileUrl = req.body.fileUrl || null;
+      let fileSize = req.body.fileSize ? +req.body.fileSize : null;
+      if (file) {
+        fileName = file.originalname;
+        fileUrl = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
+        fileSize = file.size;
+      }
+      const doc = await storage.createVendorFile({
+        vendorId,
+        documentType: req.body.documentType || "other",
+        fileName,
+        fileUrl,
+        fileSize,
+        uploadedBy: (req as any).pmUserId,
+      });
+      await logAudit((req as any).pmUserId, "upload", "vendor_file", doc.id, null, { id: doc.id, vendorId, fileName }, getClientIp(req));
+      res.status(201).json(doc);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to upload document", e) });
+    }
+  });
+
+  app.delete("/api/vendors/:id/files/:docId", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const docId = +param(req, "docId");
+      const doc = await storage.getVendorFile(docId);
+      await storage.deleteVendorFile(docId);
+      await logAudit((req as any).pmUserId, "delete", "vendor_file", docId, doc, null, getClientIp(req));
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to delete document", e) });
+    }
+  });
+
+  // ---- VENDOR PERFORMANCE ----
+  app.get("/api/vendors/:id/performance", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const perf = await storage.getVendorPerformance(+param(req, "id"));
+      res.json(perf);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Internal server error", e) });
+    }
+  });
+
+  // ---- INVOICE LINE ITEMS CRUD ----
+  app.get("/api/invoices/:id/line-items", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const lines = await storage.getInvoiceLines(+param(req, "id"));
+      res.json(lines);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Internal server error", e) });
+    }
+  });
+
+  app.post("/api/invoices/:id/line-items", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const invoiceId = +param(req, "id");
+      const line = await storage.createInvoiceLine({ ...req.body, invoiceId });
+      res.status(201).json(line);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to create line item", e) });
+    }
+  });
+
+  app.patch("/api/invoices/:id/line-items/:liId", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const liId = +param(req, "liId");
+      const line = await storage.updateInvoiceLine(liId, req.body);
+      res.json(line);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to update line item", e) });
+    }
+  });
+
+  app.delete("/api/invoices/:id/line-items/:liId", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const liId = +param(req, "liId");
+      await storage.deleteInvoiceLine(liId);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to delete line item", e) });
+    }
+  });
+
+  // Invoice recalculate totals from line items
+  app.post("/api/invoices/:id/recalculate", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const id = +param(req, "id");
+      const invoice = await storage.getInvoice(id);
+      if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+      const lines = await storage.getInvoiceLines(id);
+      const subtotal = lines.reduce((sum, l) => sum + parseFloat(String(l.amount) || "0"), 0);
+      const taxRate = parseFloat(String(invoice.taxRate) || "0");
+      const taxAmount = subtotal * (taxRate / 100);
+      const total = subtotal + taxAmount;
+      const updated = await storage.updateInvoice(id, {
+        subtotal: String(subtotal),
+        taxAmount: String(taxAmount),
+        total: String(total),
+      });
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to recalculate invoice", e) });
+    }
+  });
+
+  // ---- PO LINE ITEMS CRUD ----
+  app.get("/api/purchase-orders/:id/line-items", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const lines = await storage.getPoLineItems(+param(req, "id"));
+      res.json(lines);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Internal server error", e) });
+    }
+  });
+
+  app.post("/api/purchase-orders/:id/line-items", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const purchaseOrderId = +param(req, "id");
+      const line = await storage.createPoLineItem({ ...req.body, purchaseOrderId });
+      res.status(201).json(line);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to create PO line item", e) });
+    }
+  });
+
+  app.patch("/api/purchase-orders/:id/line-items/:liId", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const liId = +param(req, "liId");
+      const line = await storage.updatePoLineItem(liId, req.body);
+      res.json(line);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to update PO line item", e) });
+    }
+  });
+
+  app.delete("/api/purchase-orders/:id/line-items/:liId", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const liId = +param(req, "liId");
+      await storage.deletePoLineItem(liId);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to delete PO line item", e) });
+    }
+  });
+
+  // PO recalculate totals from line items
+  app.post("/api/purchase-orders/:id/recalculate", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const id = +param(req, "id");
+      const po = await storage.getPurchaseOrder(id);
+      if (!po) return res.status(404).json({ error: "PO not found" });
+      const lines = await storage.getPoLineItems(id);
+      const total = lines.reduce((sum, l) => sum + parseFloat(String(l.amount) || "0"), 0);
+      const updated = await storage.updatePurchaseOrder(id, { amount: String(total) });
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to recalculate PO", e) });
+    }
+  });
+
+  // ---- CUSTOMER RATE CARDS CRUD (enhanced) ----
+  app.patch("/api/customers/:id/rate-card/:rcId", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const rcId = +param(req, "rcId");
+      const rc = await storage.updateCustomerRateCard(rcId, req.body);
+      res.json(rc);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Failed to update customer rate card", e) });
+    }
+  });
+
+  // ---- RATE CARD LOOKUP ----
+  app.get("/api/rate-cards/lookup", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { customerId, vendorId, sourceLang, targetLang, serviceType } = req.query;
+      const result = await storage.lookupRateCards({
+        customerId: customerId ? +customerId : undefined,
+        vendorId: vendorId ? +vendorId : undefined,
+        sourceLang: sourceLang as string,
+        targetLang: targetLang as string,
+        serviceType: serviceType as string,
+      });
+      const customerRate = result.customerRate ? parseFloat(String(result.customerRate.rateValue)) : null;
+      const vendorRate = result.vendorRate ? parseFloat(String(result.vendorRate.rateValue)) : null;
+      const margin = customerRate && vendorRate ? ((customerRate - vendorRate) / customerRate) * 100 : null;
+      res.json({ customerRate: result.customerRate, vendorRate: result.vendorRate, margin });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Internal server error", e) });
+    }
+  });
+
+  // ---- DASHBOARD KPIs ----
+  app.get("/api/dashboard/kpis", requireAuth, async (_req: Request, res: Response) => {
+    try {
+      const kpis = await storage.getDashboardKpis();
+      res.json(kpis);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Internal server error", e) });
+    }
+  });
+
+  app.get("/api/dashboard/activity", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const limit = req.query.limit ? +req.query.limit : 20;
+      const activity = await storage.getDashboardActivity(limit);
+      res.json(activity);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Internal server error", e) });
+    }
+  });
+
+  app.get("/api/dashboard/deadlines", requireAuth, async (_req: Request, res: Response) => {
+    try {
+      const deadlines = await storage.getDashboardDeadlines();
+      res.json(deadlines);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Internal server error", e) });
+    }
+  });
+
+  app.get("/api/dashboard/project-pipeline", requireAuth, async (_req: Request, res: Response) => {
+    try {
+      const pipeline = await storage.getProjectPipeline();
+      res.json(pipeline);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Internal server error", e) });
+    }
+  });
+
+  // ---- FINANCIAL REPORTS (enhanced) ----
+  app.get("/api/financial/ap-aging", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
+    try {
+      const entityId = req.query.entityId ? +req.query.entityId : undefined;
+      const aging = await storage.getAPAgingReport(entityId);
+      res.json(aging);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Internal server error", e) });
+    }
+  });
+
+  app.get("/api/financial/pnl", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
+    try {
+      const filters: any = {};
+      if (req.query.entityId) filters.entityId = +req.query.entityId;
+      if (req.query.startDate) filters.startDate = req.query.startDate;
+      if (req.query.endDate) filters.endDate = req.query.endDate;
+      const pnl = await storage.getPnlReport(filters);
+      res.json(pnl);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Internal server error", e) });
+    }
+  });
+
+  app.get("/api/financial/entity-comparison", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
+    try {
+      const startDate = req.query.startDate as string | undefined;
+      const endDate = req.query.endDate as string | undefined;
+      const data = await storage.getEntityComparison(startDate, endDate);
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Internal server error", e) });
+    }
+  });
+
+  // ---- CSV EXPORTS ----
+  app.get("/api/export/invoices", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const entityId = req.query.entityId ? +req.query.entityId : undefined;
+      const data = await storage.getAllInvoicesForExport(entityId);
+      const rows = data.map((r: any) => ({
+        invoice_number: r.invoice.invoiceNumber || "",
+        date: r.invoice.invoiceDate || "",
+        due_date: r.invoice.dueDate || "",
+        customer: r.customerName || "",
+        entity: r.entityName || "",
+        subtotal: r.invoice.subtotal || "",
+        tax: r.invoice.taxAmount || "",
+        total: r.invoice.total || "",
+        currency: r.invoice.currency || "",
+        status: r.invoice.status || "",
+        payment_terms: r.invoice.paymentTerms || "",
+      }));
+      const headers = Object.keys(rows[0] || {});
+      const csv = [headers.join(","), ...rows.map((r: any) => headers.map(h => `"${String(r[h] || "").replace(/"/g, '""')}"`).join(","))].join("\n");
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", "attachment; filename=invoices.csv");
+      res.send(csv);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Export failed", e) });
+    }
+  });
+
+  app.get("/api/export/purchase-orders", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const entityId = req.query.entityId ? +req.query.entityId : undefined;
+      const data = await storage.getAllPurchaseOrdersForExport(entityId);
+      const rows = data.map((r: any) => ({
+        po_number: r.po.poNumber || "",
+        vendor: r.vendorName || "",
+        entity: r.entityName || "",
+        amount: r.po.amount || "",
+        currency: r.po.currency || "",
+        status: r.po.status || "",
+        payment_method: r.po.paymentMethod || "",
+        payment_date: r.po.paymentDate || "",
+        payment_terms: r.po.paymentTerms || "",
+        created: r.po.createdAt || "",
+      }));
+      const headers = Object.keys(rows[0] || {});
+      const csv = [headers.join(","), ...rows.map((r: any) => headers.map(h => `"${String(r[h] || "").replace(/"/g, '""')}"`).join(","))].join("\n");
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", "attachment; filename=purchase-orders.csv");
+      res.send(csv);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Export failed", e) });
+    }
+  });
+
+  app.get("/api/export/payments", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const entityId = req.query.entityId ? +req.query.entityId : undefined;
+      const data = await storage.getAllPaymentsForExport(entityId);
+      const rows = data.map((p: any) => ({
+        type: p.type || "",
+        amount: p.amount || "",
+        currency: p.currency || "",
+        payment_date: p.paymentDate || "",
+        payment_method: p.paymentMethod || "",
+        reference: p.reference || "",
+        notes: p.notes || "",
+        created: p.createdAt || "",
+      }));
+      const headers = Object.keys(rows[0] || {});
+      const csv = [headers.join(","), ...rows.map((r: any) => headers.map(h => `"${String(r[h] || "").replace(/"/g, '""')}"`).join(","))].join("\n");
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", "attachment; filename=payments.csv");
+      res.send(csv);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Export failed", e) });
+    }
+  });
+
+  app.get("/api/export/vendors", requireAuth, async (_req: Request, res: Response) => {
+    try {
+      const data = await storage.getAllVendorsForExport();
+      const rows = data.map((v: any) => ({
+        resource_code: v.resourceCode || "",
+        full_name: v.fullName || "",
+        email: v.email || "",
+        phone: v.phone || "",
+        status: v.status || "",
+        tier: v.tier || "",
+        native_language: v.nativeLanguage || "",
+        location: v.location || "",
+        resource_type: v.resourceType || "",
+        currency: v.currency || "",
+        availability: v.availability || "",
+        combined_quality_score: v.combinedQualityScore || "",
+        average_lqa_score: v.averageLqaScore || "",
+        average_qs_score: v.averageQsScore || "",
+        nda_signed: v.ndaSigned ? "Yes" : "No",
+        tested: v.tested ? "Yes" : "No",
+        certified: v.certified ? "Yes" : "No",
+        service_types: (v.serviceTypes || []).join("; "),
+        specializations: (v.specializations || []).join("; "),
+        tags: (v.tags || []).join("; "),
+      }));
+      const headers = Object.keys(rows[0] || {});
+      const csv = [headers.join(","), ...rows.map((r: any) => headers.map(h => `"${String(r[h] || "").replace(/"/g, '""')}"`).join(","))].join("\n");
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", "attachment; filename=vendors.csv");
+      res.send(csv);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Export failed", e) });
     }
   });
 

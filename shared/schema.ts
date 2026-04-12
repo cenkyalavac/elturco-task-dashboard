@@ -313,6 +313,11 @@ export const vendors = pgTable("vendors", {
   notes: text("notes"),
   specialInstructions: text("special_instructions"),
 
+  // Vendor Tier (Phase 6)
+  tier: varchar("tier", { length: 20 }).default("standard"), // premium, standard, economy, probation, blacklisted
+  availableFrom: date("available_from"),
+  availableUntil: date("available_until"),
+
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
@@ -337,10 +342,16 @@ export const vendorRateCards = pgTable("vendor_rate_cards", {
   serviceType: varchar("service_type", { length: 100 }),
   rateType: varchar("rate_type", { length: 50 }),
   rateValue: decimal("rate_value", { precision: 10, scale: 4 }).notNull(),
+  ratePerWord: decimal("rate_per_word", { precision: 8, scale: 4 }),
+  ratePerHour: decimal("rate_per_hour", { precision: 8, scale: 2 }),
+  minimumCharge: decimal("minimum_charge", { precision: 8, scale: 2 }),
   currency: varchar("currency", { length: 3 }).default("EUR"),
   specialization: varchar("specialization", { length: 200 }),
   account: varchar("account", { length: 200 }),
+  effectiveFrom: date("effective_from"),
+  effectiveUntil: date("effective_until"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }),
 });
 
 // Quality Reports
@@ -388,6 +399,18 @@ export const vendorDocuments = pgTable("vendor_documents", {
   requiresSignature: boolean("requires_signature").default(false),
   requiredForApproval: boolean("required_for_approval").default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// Vendor Files (per-vendor uploaded documents: CV, NDA, certificates, etc.)
+export const vendorFiles = pgTable("vendor_files", {
+  id: serial("id").primaryKey(),
+  vendorId: integer("vendor_id").notNull().references(() => vendors.id, { onDelete: "cascade" }),
+  documentType: varchar("document_type", { length: 50 }), // cv, nda, certificate, test_result, contract, other
+  fileName: varchar("file_name", { length: 500 }).notNull(),
+  fileUrl: text("file_url"),
+  fileSize: integer("file_size"),
+  uploadedBy: integer("uploaded_by").references(() => users.id),
+  uploadedAt: timestamp("uploaded_at", { withTimezone: true }).defaultNow(),
 });
 
 // Document Signatures
@@ -546,6 +569,7 @@ export const purchaseOrders = pgTable("purchase_orders", {
   status: varchar("status", { length: 50 }).default("draft"),
   paymentMethod: varchar("payment_method", { length: 50 }),
   paymentDate: date("payment_date"),
+  paymentTerms: varchar("payment_terms", { length: 20 }),
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
@@ -566,6 +590,9 @@ export const clientInvoices = pgTable("client_invoices", {
   status: varchar("status", { length: 50 }).default("draft"),
   externalInvoiceUrl: varchar("external_invoice_url", { length: 500 }),
   paymentReceivedDate: date("payment_received_date"),
+  paymentTerms: varchar("payment_terms", { length: 20 }).default("net_30"),
+  taxRate: decimal("tax_rate", { precision: 5, scale: 2 }).default("0"),
+  creditNoteFor: integer("credit_note_for"), // references another invoice for credit notes
   notes: text("notes"),
   // QBO Integration fields (Verbato Ltd only)
   qboInvoiceId: varchar("qbo_invoice_id", { length: 200 }),
@@ -584,8 +611,11 @@ export const clientInvoiceLines = pgTable("client_invoice_lines", {
   jobId: integer("job_id").references(() => jobs.id),
   description: text("description"),
   quantity: decimal("quantity", { precision: 12, scale: 2 }),
+  unit: varchar("unit", { length: 20 }), // words, hours, pages, fixed
   unitPrice: decimal("unit_price", { precision: 10, scale: 4 }),
   amount: decimal("amount", { precision: 12, scale: 2 }),
+  taxRate: decimal("tax_rate", { precision: 5, scale: 2 }).default("0"),
+  sortOrder: integer("sort_order").default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
@@ -601,7 +631,22 @@ export const payments = pgTable("payments", {
   paymentMethod: varchar("payment_method", { length: 50 }),
   reference: varchar("reference", { length: 200 }),
   notes: text("notes"),
+  entityId: integer("entity_id").references(() => entities.id),
+  recordedBy: integer("recorded_by"), // pmUserId who recorded it
   createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// PO Line Items
+export const poLineItems = pgTable("po_line_items", {
+  id: serial("id").primaryKey(),
+  purchaseOrderId: integer("purchase_order_id").notNull().references(() => purchaseOrders.id, { onDelete: "cascade" }),
+  description: text("description").notNull(),
+  quantity: decimal("quantity", { precision: 12, scale: 2 }).notNull(),
+  unit: varchar("unit", { length: 20 }), // words, hours, pages, fixed
+  unitPrice: decimal("unit_price", { precision: 8, scale: 4 }).notNull(),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  sortOrder: integer("sort_order").default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
@@ -761,6 +806,8 @@ export const insertAuditLogSchema = createInsertSchema(auditLog).omit({ id: true
 export const insertSettingSchema = createInsertSchema(settings).omit({ id: true });
 export const insertVendorSessionSchema = createInsertSchema(vendorSessions).omit({ id: true });
 export const insertCustomerRateCardSchema = createInsertSchema(customerRateCards).omit({ id: true });
+export const insertVendorFileSchema = createInsertSchema(vendorFiles).omit({ id: true });
+export const insertPoLineItemSchema = createInsertSchema(poLineItems).omit({ id: true });
 
 // ============================================
 // TYPES
@@ -819,3 +866,5 @@ export type Setting = typeof settings.$inferSelect;
 export type VendorSession = typeof vendorSessions.$inferSelect;
 export type NotificationV2 = typeof notificationsV2.$inferSelect;
 export type CustomerRateCard = typeof customerRateCards.$inferSelect;
+export type VendorFile = typeof vendorFiles.$inferSelect;
+export type PoLineItem = typeof poLineItems.$inferSelect;

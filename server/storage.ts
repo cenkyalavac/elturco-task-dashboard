@@ -6,6 +6,7 @@ import {
   sequencePresets, autoAssignRules, notifications, freelancerSessions,
   entities, users, vendors, vendorLanguagePairs, vendorRateCards, qualityReports,
   vendorDocuments, vendorDocumentSignatures, vendorActivities, vendorNotes,
+  vendorFiles, customerRateCards, poLineItems,
   customers, customerContacts, customerSubAccounts, pmCustomerAssignments,
   projects, jobs, purchaseOrders, clientInvoices, clientInvoiceLines, payments,
   autoAcceptRules, autoAcceptLog, portalCredentials, portalTasks,
@@ -23,6 +24,7 @@ import {
   type Entity, type User, type Vendor, type Customer, type Project, type Job,
   type QualityReport, type PurchaseOrder, type VendorNote, type VendorActivity,
   type ClientInvoice, type ClientInvoiceLine, type Payment,
+  type VendorFile, type PoLineItem, type CustomerRateCard,
 } from "@shared/schema";
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -1071,6 +1073,397 @@ export class DatabaseStorage implements IStorage {
     const marginPercent = totalRevenue > 0 ? (grossMargin / totalRevenue) * 100 : 0;
 
     return { totalRevenue, totalCost, grossMargin, marginPercent };
+  }
+
+  // ============================================
+  // PHASE 6: NEW STORAGE METHODS
+  // ============================================
+
+  // Vendor Rate Card CRUD (enhanced)
+  async createVendorRateCard(data: any) {
+    const [result] = await db.insert(vendorRateCards).values(data).returning();
+    return result;
+  }
+  async updateVendorRateCard(id: number, data: any) {
+    await db.update(vendorRateCards).set({ ...data, updatedAt: new Date() }).where(eq(vendorRateCards.id, id));
+    const [result] = await db.select().from(vendorRateCards).where(eq(vendorRateCards.id, id));
+    return result;
+  }
+  async deleteVendorRateCard(id: number) {
+    await db.delete(vendorRateCards).where(eq(vendorRateCards.id, id));
+  }
+
+  // Vendor Files (per-vendor document uploads)
+  async getVendorFiles(vendorId: number) {
+    return db.select().from(vendorFiles).where(eq(vendorFiles.vendorId, vendorId)).orderBy(desc(vendorFiles.id));
+  }
+  async createVendorFile(data: any) {
+    const [result] = await db.insert(vendorFiles).values(data).returning();
+    return result;
+  }
+  async deleteVendorFile(id: number) {
+    await db.delete(vendorFiles).where(eq(vendorFiles.id, id));
+  }
+  async getVendorFile(id: number) {
+    const [result] = await db.select().from(vendorFiles).where(eq(vendorFiles.id, id));
+    return result;
+  }
+
+  // Customer Rate Card CRUD (enhanced)
+  async getCustomerRateCards(customerId: number) {
+    return db.select().from(customerRateCards).where(eq(customerRateCards.customerId, customerId));
+  }
+  async createCustomerRateCard(data: any) {
+    const [result] = await db.insert(customerRateCards).values(data).returning();
+    return result;
+  }
+  async updateCustomerRateCard(id: number, data: any) {
+    await db.update(customerRateCards).set(data).where(eq(customerRateCards.id, id));
+    const [result] = await db.select().from(customerRateCards).where(eq(customerRateCards.id, id));
+    return result;
+  }
+  async deleteCustomerRateCard(id: number) {
+    await db.delete(customerRateCards).where(eq(customerRateCards.id, id));
+  }
+
+  // Rate Card Lookup (for auto-populating)
+  async lookupRateCards(params: { customerId?: number; vendorId?: number; sourceLang?: string; targetLang?: string; serviceType?: string }) {
+    let customerRate = null;
+    let vendorRate = null;
+
+    if (params.customerId) {
+      const conditions: any[] = [eq(customerRateCards.customerId, params.customerId)];
+      if (params.sourceLang) conditions.push(eq(customerRateCards.sourceLanguage, params.sourceLang));
+      if (params.targetLang) conditions.push(eq(customerRateCards.targetLanguage, params.targetLang));
+      if (params.serviceType) conditions.push(eq(customerRateCards.serviceType, params.serviceType));
+      const [result] = await db.select().from(customerRateCards).where(and(...conditions)).limit(1);
+      customerRate = result || null;
+    }
+
+    if (params.vendorId) {
+      const conditions: any[] = [eq(vendorRateCards.vendorId, params.vendorId)];
+      if (params.sourceLang) conditions.push(eq(vendorRateCards.sourceLanguage, params.sourceLang));
+      if (params.targetLang) conditions.push(eq(vendorRateCards.targetLanguage, params.targetLang));
+      if (params.serviceType) conditions.push(eq(vendorRateCards.serviceType, params.serviceType));
+      const [result] = await db.select().from(vendorRateCards).where(and(...conditions)).limit(1);
+      vendorRate = result || null;
+    }
+
+    return { customerRate, vendorRate };
+  }
+
+  // Invoice Line Item CRUD (individual)
+  async getInvoiceLine(id: number) {
+    const [result] = await db.select().from(clientInvoiceLines).where(eq(clientInvoiceLines.id, id));
+    return result;
+  }
+  async updateInvoiceLine(id: number, data: any) {
+    await db.update(clientInvoiceLines).set(data).where(eq(clientInvoiceLines.id, id));
+    const [result] = await db.select().from(clientInvoiceLines).where(eq(clientInvoiceLines.id, id));
+    return result;
+  }
+  async deleteInvoiceLine(id: number) {
+    await db.delete(clientInvoiceLines).where(eq(clientInvoiceLines.id, id));
+  }
+
+  // PO Line Items
+  async getPoLineItems(purchaseOrderId: number) {
+    return db.select().from(poLineItems).where(eq(poLineItems.purchaseOrderId, purchaseOrderId)).orderBy(asc(poLineItems.sortOrder));
+  }
+  async createPoLineItem(data: any) {
+    const [result] = await db.insert(poLineItems).values(data).returning();
+    return result;
+  }
+  async getPoLineItem(id: number) {
+    const [result] = await db.select().from(poLineItems).where(eq(poLineItems.id, id));
+    return result;
+  }
+  async updatePoLineItem(id: number, data: any) {
+    await db.update(poLineItems).set(data).where(eq(poLineItems.id, id));
+    const [result] = await db.select().from(poLineItems).where(eq(poLineItems.id, id));
+    return result;
+  }
+  async deletePoLineItem(id: number) {
+    await db.delete(poLineItems).where(eq(poLineItems.id, id));
+  }
+  async deletePoLineItems(purchaseOrderId: number) {
+    await db.delete(poLineItems).where(eq(poLineItems.purchaseOrderId, purchaseOrderId));
+  }
+
+  // Enhanced Payment queries
+  async getPayment(id: number) {
+    const [result] = await db.select().from(payments).where(eq(payments.id, id));
+    return result;
+  }
+  async deletePayment(id: number) {
+    await db.delete(payments).where(eq(payments.id, id));
+  }
+  async getPaymentsEnhanced(filters: { type?: string; entityId?: number; startDate?: string; endDate?: string; invoiceId?: number; purchaseOrderId?: number; page?: number; limit?: number } = {}) {
+    const { type, entityId, startDate, endDate, invoiceId, purchaseOrderId, page = 1, limit = 50 } = filters;
+    const conditions: any[] = [];
+    if (type) conditions.push(eq(payments.type, type));
+    if (entityId) conditions.push(eq(payments.entityId, entityId));
+    if (invoiceId) conditions.push(eq(payments.invoiceId, invoiceId));
+    if (purchaseOrderId) conditions.push(eq(payments.purchaseOrderId, purchaseOrderId));
+    if (startDate) conditions.push(gte(payments.paymentDate, startDate));
+    if (endDate) conditions.push(lte(payments.paymentDate, endDate));
+    let query = db.select().from(payments).$dynamic();
+    if (conditions.length > 0) query = query.where(and(...conditions));
+    const offset = (page - 1) * limit;
+    return query.orderBy(desc(payments.id)).limit(limit).offset(offset);
+  }
+  async getPaymentsSummary(filters: { type?: string; entityId?: number; startDate?: string; endDate?: string } = {}) {
+    const { type, entityId, startDate, endDate } = filters;
+    const conditions: any[] = [];
+    if (type) conditions.push(eq(payments.type, type));
+    if (entityId) conditions.push(eq(payments.entityId, entityId));
+    if (startDate) conditions.push(gte(payments.paymentDate, startDate));
+    if (endDate) conditions.push(lte(payments.paymentDate, endDate));
+    let query = db.select({
+      type: payments.type,
+      total: sql<string>`COALESCE(SUM(${payments.amount}::numeric), 0)`,
+      count: sql<number>`count(*)::int`,
+    }).from(payments).$dynamic();
+    if (conditions.length > 0) query = query.where(and(...conditions));
+    return query.groupBy(payments.type);
+  }
+  async getCashFlow(months = 12, entityId?: number) {
+    const conditions: any[] = [
+      sql`${payments.paymentDate}::date >= CURRENT_DATE - INTERVAL '${sql.raw(String(months))} months'`,
+    ];
+    if (entityId) conditions.push(eq(payments.entityId, entityId));
+
+    return db.select({
+      month: sql<string>`TO_CHAR(${payments.paymentDate}::date, 'YYYY-MM')`,
+      type: payments.type,
+      total: sql<string>`COALESCE(SUM(${payments.amount}::numeric), 0)`,
+    }).from(payments)
+      .where(and(...conditions))
+      .groupBy(sql`TO_CHAR(${payments.paymentDate}::date, 'YYYY-MM')`, payments.type)
+      .orderBy(sql`TO_CHAR(${payments.paymentDate}::date, 'YYYY-MM')`);
+  }
+
+  // Dashboard KPIs
+  async getDashboardKpis() {
+    const [activeProjects] = await db.select({ count: sql<number>`count(*)::int` }).from(projects).where(eq(projects.status, "active"));
+    const [pendingInvoices] = await db.select({ count: sql<number>`count(*)::int` }).from(clientInvoices).where(sql`${clientInvoices.status} IN ('draft', 'sent')`);
+    const [overdueInvoices] = await db.select({ count: sql<number>`count(*)::int` }).from(clientInvoices).where(eq(clientInvoices.status, "overdue"));
+    const [monthlyRevenue] = await db.select({
+      total: sql<string>`COALESCE(SUM(${clientInvoices.total}::numeric), 0)`,
+    }).from(clientInvoices).where(and(
+      sql`TO_CHAR(${clientInvoices.invoiceDate}::date, 'YYYY-MM') = TO_CHAR(CURRENT_DATE, 'YYYY-MM')`,
+      sql`${clientInvoices.status} IN ('paid', 'sent', 'overdue')`,
+    ));
+    const [availableVendors] = await db.select({ count: sql<number>`count(*)::int` }).from(vendors).where(
+      and(eq(vendors.status, "Approved"), sql`(${vendors.availableUntil} IS NULL OR ${vendors.availableUntil}::date >= CURRENT_DATE)`)
+    );
+    return {
+      activeProjects: activeProjects?.count || 0,
+      pendingInvoices: pendingInvoices?.count || 0,
+      overdueInvoices: overdueInvoices?.count || 0,
+      monthlyRevenue: parseFloat(monthlyRevenue?.total || "0"),
+      availableVendors: availableVendors?.count || 0,
+    };
+  }
+
+  // Dashboard Activity (recent audit log)
+  async getDashboardActivity(limit = 20) {
+    return db.select().from(auditLog).orderBy(desc(auditLog.id)).limit(limit);
+  }
+
+  // Dashboard Deadlines (next 7 days)
+  async getDashboardDeadlines() {
+    return db.select({
+      id: projects.id,
+      projectName: projects.projectName,
+      deadline: projects.deadline,
+      status: projects.status,
+      customerName: customers.name,
+    }).from(projects)
+      .leftJoin(customers, eq(projects.customerId, customers.id))
+      .where(and(
+        sql`${projects.deadline} IS NOT NULL`,
+        sql`${projects.deadline} >= CURRENT_TIMESTAMP`,
+        sql`${projects.deadline} <= CURRENT_TIMESTAMP + INTERVAL '7 days'`,
+        sql`${projects.status} NOT IN ('completed', 'cancelled')`,
+      ))
+      .orderBy(asc(projects.deadline))
+      .limit(50);
+  }
+
+  // Dashboard Project Pipeline
+  async getProjectPipeline() {
+    return db.select({
+      status: projects.status,
+      count: sql<number>`count(*)::int`,
+    }).from(projects).groupBy(projects.status);
+  }
+
+  // AP Aging (vendor PO aging)
+  async getAPAgingReport(entityId?: number) {
+    const conditions: any[] = [
+      sql`${purchaseOrders.status} IN ('sent', 'accepted', 'draft')`,
+    ];
+    if (entityId) conditions.push(eq(purchaseOrders.entityId, entityId));
+
+    const [result] = await db.select({
+      current: sql<string>`COALESCE(SUM(CASE WHEN ${purchaseOrders.createdAt} >= CURRENT_DATE - INTERVAL '30 days' THEN ${purchaseOrders.amount}::numeric ELSE 0 END), 0)`,
+      days30: sql<string>`COALESCE(SUM(CASE WHEN ${purchaseOrders.createdAt} < CURRENT_DATE - INTERVAL '30 days' AND ${purchaseOrders.createdAt} >= CURRENT_DATE - INTERVAL '60 days' THEN ${purchaseOrders.amount}::numeric ELSE 0 END), 0)`,
+      days60: sql<string>`COALESCE(SUM(CASE WHEN ${purchaseOrders.createdAt} < CURRENT_DATE - INTERVAL '60 days' AND ${purchaseOrders.createdAt} >= CURRENT_DATE - INTERVAL '90 days' THEN ${purchaseOrders.amount}::numeric ELSE 0 END), 0)`,
+      days90: sql<string>`COALESCE(SUM(CASE WHEN ${purchaseOrders.createdAt} < CURRENT_DATE - INTERVAL '90 days' AND ${purchaseOrders.createdAt} >= CURRENT_DATE - INTERVAL '120 days' THEN ${purchaseOrders.amount}::numeric ELSE 0 END), 0)`,
+      over90: sql<string>`COALESCE(SUM(CASE WHEN ${purchaseOrders.createdAt} < CURRENT_DATE - INTERVAL '120 days' THEN ${purchaseOrders.amount}::numeric ELSE 0 END), 0)`,
+    }).from(purchaseOrders).where(and(...conditions));
+
+    return {
+      current: parseFloat(result?.current || "0"),
+      days30: parseFloat(result?.days30 || "0"),
+      days60: parseFloat(result?.days60 || "0"),
+      days90: parseFloat(result?.days90 || "0"),
+      over90: parseFloat(result?.over90 || "0"),
+    };
+  }
+
+  // P&L Report
+  async getPnlReport(filters: { entityId?: number; startDate?: string; endDate?: string } = {}) {
+    const { entityId, startDate, endDate } = filters;
+    const revConditions: any[] = [];
+    const costConditions: any[] = [];
+    if (entityId) {
+      revConditions.push(eq(clientInvoices.entityId, entityId));
+      costConditions.push(eq(purchaseOrders.entityId, entityId));
+    }
+    if (startDate) {
+      revConditions.push(gte(clientInvoices.invoiceDate, startDate));
+      costConditions.push(gte(purchaseOrders.createdAt, new Date(startDate)));
+    }
+    if (endDate) {
+      revConditions.push(lte(clientInvoices.invoiceDate, endDate));
+      costConditions.push(lte(purchaseOrders.createdAt, new Date(endDate)));
+    }
+    revConditions.push(sql`${clientInvoices.status} IN ('paid', 'sent', 'overdue')`);
+
+    let revQuery = db.select({
+      total: sql<string>`COALESCE(SUM(${clientInvoices.total}::numeric), 0)`,
+      subtotal: sql<string>`COALESCE(SUM(${clientInvoices.subtotal}::numeric), 0)`,
+      tax: sql<string>`COALESCE(SUM(${clientInvoices.taxAmount}::numeric), 0)`,
+    }).from(clientInvoices).$dynamic();
+    if (revConditions.length > 0) revQuery = revQuery.where(and(...revConditions));
+
+    let costQuery = db.select({
+      total: sql<string>`COALESCE(SUM(${purchaseOrders.amount}::numeric), 0)`,
+    }).from(purchaseOrders).$dynamic();
+    if (costConditions.length > 0) costQuery = costQuery.where(and(...costConditions));
+
+    const [[rev], [cost]] = await Promise.all([revQuery, costQuery]);
+    const revenue = parseFloat(rev?.total || "0");
+    const totalCost = parseFloat(cost?.total || "0");
+    const grossProfit = revenue - totalCost;
+    const margin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
+
+    return {
+      revenue,
+      subtotal: parseFloat(rev?.subtotal || "0"),
+      tax: parseFloat(rev?.tax || "0"),
+      cost: totalCost,
+      grossProfit,
+      margin,
+    };
+  }
+
+  // Entity Comparison
+  async getEntityComparison(startDate?: string, endDate?: string) {
+    const allEntities = await db.select().from(entities);
+    const result = [];
+    for (const entity of allEntities) {
+      const summary = await this.getFinancialSummary({ entityId: entity.id, startDate, endDate });
+      result.push({
+        entityId: entity.id,
+        entityName: entity.name,
+        entityCode: entity.code,
+        ...summary,
+        grossProfit: summary.totalRevenue - summary.totalCost,
+        margin: summary.totalRevenue > 0 ? ((summary.totalRevenue - summary.totalCost) / summary.totalRevenue) * 100 : 0,
+      });
+    }
+    return result;
+  }
+
+  // Vendor Performance
+  async getVendorPerformance(vendorId: number) {
+    // QS Trend
+    const qsReports = await db.select({
+      score: qualityReports.qsScore,
+      date: qualityReports.reportDate,
+    }).from(qualityReports)
+      .where(and(eq(qualityReports.vendorId, vendorId), sql`${qualityReports.qsScore} IS NOT NULL`))
+      .orderBy(asc(qualityReports.reportDate));
+
+    // LQA Trend
+    const lqaReports = await db.select({
+      score: qualityReports.lqaScore,
+      date: qualityReports.reportDate,
+    }).from(qualityReports)
+      .where(and(eq(qualityReports.vendorId, vendorId), sql`${qualityReports.lqaScore} IS NOT NULL`))
+      .orderBy(asc(qualityReports.reportDate));
+
+    // Volume (jobs count)
+    const [jobStats] = await db.select({
+      totalJobs: sql<number>`count(*)::int`,
+      totalWords: sql<string>`COALESCE(SUM(${jobs.unitCount}::numeric), 0)`,
+    }).from(jobs).where(eq(jobs.vendorId, vendorId));
+
+    // On-time rate
+    const [onTimeStats] = await db.select({
+      total: sql<number>`count(*)::int`,
+      onTime: sql<number>`count(CASE WHEN ${jobs.status} = 'completed' AND (${jobs.deadline} IS NULL OR ${jobs.updatedAt} <= ${jobs.deadline}) THEN 1 END)::int`,
+    }).from(jobs).where(and(eq(jobs.vendorId, vendorId), eq(jobs.status, "completed")));
+
+    const onTimeRate = onTimeStats?.total && onTimeStats.total > 0 ? (onTimeStats.onTime / onTimeStats.total) * 100 : 100;
+
+    return {
+      qsTrend: qsReports,
+      lqaTrend: lqaReports,
+      totalJobs: jobStats?.totalJobs || 0,
+      totalWords: parseFloat(jobStats?.totalWords || "0"),
+      onTimeRate,
+    };
+  }
+
+  // Export helpers
+  async getAllInvoicesForExport(entityId?: number) {
+    let query = db.select({
+      invoice: clientInvoices,
+      customerName: customers.name,
+      entityName: entities.name,
+    }).from(clientInvoices)
+      .leftJoin(customers, eq(clientInvoices.customerId, customers.id))
+      .leftJoin(entities, eq(clientInvoices.entityId, entities.id))
+      .$dynamic();
+    if (entityId) query = query.where(eq(clientInvoices.entityId, entityId));
+    return query.orderBy(desc(clientInvoices.id));
+  }
+
+  async getAllPurchaseOrdersForExport(entityId?: number) {
+    let query = db.select({
+      po: purchaseOrders,
+      vendorName: vendors.fullName,
+      entityName: entities.name,
+    }).from(purchaseOrders)
+      .leftJoin(vendors, eq(purchaseOrders.vendorId, vendors.id))
+      .leftJoin(entities, eq(purchaseOrders.entityId, entities.id))
+      .$dynamic();
+    if (entityId) query = query.where(eq(purchaseOrders.entityId, entityId));
+    return query.orderBy(desc(purchaseOrders.id));
+  }
+
+  async getAllPaymentsForExport(entityId?: number) {
+    let query = db.select().from(payments).$dynamic();
+    if (entityId) query = query.where(eq(payments.entityId, entityId));
+    return query.orderBy(desc(payments.id));
+  }
+
+  async getAllVendorsForExport() {
+    return db.select().from(vendors).orderBy(asc(vendors.fullName));
   }
 
   // Get completed jobs not yet invoiced
