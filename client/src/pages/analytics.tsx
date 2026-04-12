@@ -108,12 +108,18 @@ export default function AnalyticsPage() {
   if (isLoading) {
     return (
       <div className="p-6 space-y-4" data-testid="analytics-loading">
-        <h1 className="text-lg font-semibold">Analytics</h1>
+        <div className="border-b border-white/[0.06] bg-white/[0.02] -mx-6 px-6 -mt-6 pt-6 pb-4 mb-2">
+          <h1 className="text-lg font-semibold text-white">Analytics</h1>
+        </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-24 rounded-lg" />)}
+          {[...Array(4)].map((_, i) => (
+            <Skeleton key={i} className="h-24 rounded-xl bg-white/[0.03]" />
+          ))}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-72 rounded-lg" />)}
+          {[...Array(4)].map((_, i) => (
+            <Skeleton key={i} className="h-72 rounded-xl bg-white/[0.03]" />
+          ))}
         </div>
       </div>
     );
@@ -122,8 +128,14 @@ export default function AnalyticsPage() {
   if (error || !data) {
     return (
       <div className="p-6" data-testid="analytics-error">
-        <h1 className="text-lg font-semibold mb-4">Analytics</h1>
-        <p className="text-muted-foreground">No data available yet. Start assigning tasks to see analytics.</p>
+        <div className="border-b border-white/[0.06] bg-white/[0.02] -mx-6 px-6 -mt-6 pt-6 pb-4 mb-6">
+          <h1 className="text-lg font-semibold text-white">Analytics</h1>
+        </div>
+        <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg p-12 text-center">
+          <BarChart3 className="w-10 h-10 text-white/20 mx-auto mb-3" />
+          <p className="text-white/60 text-sm">No data available yet.</p>
+          <p className="text-white/40 text-xs mt-1">Start assigning tasks to see analytics.</p>
+        </div>
       </div>
     );
   }
@@ -195,11 +207,13 @@ export default function AnalyticsPage() {
 
   return (
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto" data-testid="analytics-page">
-      <h1 className="text-lg font-semibold text-foreground">Analytics</h1>
+      <div className="border-b border-white/[0.06] bg-white/[0.02] -mx-6 px-6 -mt-6 pt-6 pb-4 mb-2">
+        <h1 className="text-lg font-semibold text-white">Analytics</h1>
+      </div>
 
       {/* ── Filter Bar ── */}
       <div
-        className="flex flex-wrap items-center gap-2 p-3 rounded-lg bg-card border border-white/[0.06]"
+        className="flex flex-wrap items-center gap-2 p-3 bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg"
         data-testid="analytics-filter-bar"
       >
         <Filter className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
@@ -426,9 +440,9 @@ export default function AnalyticsPage() {
       {/* ── Row 2: Monthly Volume + Status Distribution ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Monthly Volume — Dual Axis BarChart */}
-        <Card className="bg-card border border-white/[0.06]" data-testid="chart-monthly-volume">
+        <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg" data-testid="chart-monthly-volume">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold text-foreground">Monthly Volume</CardTitle>
+            <CardTitle className="text-sm font-semibold text-white">Monthly Volume</CardTitle>
           </CardHeader>
           <CardContent>
             {monthlyData.length > 0 ? (
@@ -452,9 +466,9 @@ export default function AnalyticsPage() {
         </Card>
 
         {/* Task Status Distribution — PieChart */}
-        <Card className="bg-card border border-white/[0.06]" data-testid="chart-status-distribution">
+        <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg" data-testid="chart-status-distribution">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold text-foreground">Task Status Distribution</CardTitle>
+            <CardTitle className="text-sm font-semibold text-white">Task Status Distribution</CardTitle>
           </CardHeader>
           <CardContent>
             {statusData.length > 0 ? (
@@ -488,9 +502,9 @@ export default function AnalyticsPage() {
       {/* ── Row 3: Top 15 Freelancers by WWC + Account Distribution ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Top 15 Freelancers by WWC — horizontal BarChart */}
-        <Card className="bg-card border border-white/[0.06]" data-testid="chart-top-freelancers">
+        <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg" data-testid="chart-top-freelancers">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold text-foreground">Top 15 Freelancers by WWC</CardTitle>
+            <CardTitle className="text-sm font-semibold text-white">Top 15 Freelancers by WWC</CardTitle>
           </CardHeader>
           <CardContent>
             {topFreelancers.length > 0 ? (
@@ -553,9 +567,9 @@ export default function AnalyticsPage() {
         </Card>
 
         {/* Translator Workload Balance — horizontal BarChart */}
-        <Card className="bg-card border border-white/[0.06]" data-testid="chart-workload-balance">
+        <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg" data-testid="chart-workload-balance">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <CardTitle className="text-sm font-semibold text-white flex items-center gap-2">
               Translator Workload
               {data.avgOngoingPerTranslator > 0 && (
                 <span className="text-[10px] font-normal text-muted-foreground">
@@ -595,9 +609,9 @@ export default function AnalyticsPage() {
       {/* ── Row 3b: Account Distribution ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Account Distribution — BarChart */}
-        <Card className="bg-card border border-white/[0.06]" data-testid="chart-account-distribution">
+        <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg" data-testid="chart-account-distribution">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold text-foreground">Account Distribution (Top 10)</CardTitle>
+            <CardTitle className="text-sm font-semibold text-white">Account Distribution (Top 10)</CardTitle>
           </CardHeader>
           <CardContent>
             {accountData.length > 0 ? (
@@ -628,9 +642,9 @@ export default function AnalyticsPage() {
 
       {/* ── Row 4: Source Distribution ── */}
       {sourceData.length > 0 && (
-        <Card className="bg-card border border-white/[0.06]" data-testid="chart-source-distribution">
+        <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg" data-testid="chart-source-distribution">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold text-foreground">Source Distribution</CardTitle>
+            <CardTitle className="text-sm font-semibold text-white">Source Distribution</CardTitle>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={Math.max(260, sourceData.length * 36)}>
@@ -660,9 +674,9 @@ export default function AnalyticsPage() {
       {(dayData.length > 0 || typeData.length > 0) && (
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Dispatch Activity — AreaChart */}
-        <Card className="bg-card border border-white/[0.06] md:col-span-2" data-testid="chart-dispatch-activity">
+        <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg md:col-span-2" data-testid="chart-dispatch-activity">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold text-foreground">Dispatch Activity</CardTitle>
+            <CardTitle className="text-sm font-semibold text-white">Dispatch Activity</CardTitle>
           </CardHeader>
           <CardContent>
             {dayData.length > 0 ? (
@@ -699,9 +713,9 @@ export default function AnalyticsPage() {
         </Card>
 
         {/* Assignment Types — PieChart */}
-        <Card className="bg-card border border-white/[0.06]" data-testid="chart-assignment-types">
+        <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg" data-testid="chart-assignment-types">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold text-foreground">Assignment Types</CardTitle>
+            <CardTitle className="text-sm font-semibold text-white">Assignment Types</CardTitle>
           </CardHeader>
           <CardContent>
             {typeData.length > 0 ? (
@@ -745,16 +759,16 @@ function KpiCard({ icon, label, value, color, testId, onClick }: {
 }) {
   return (
     <Card
-      className={`bg-card border border-white/[0.06] transition-all duration-150 ${onClick ? "cursor-pointer hover:border-white/[0.15] hover:shadow-lg hover:shadow-black/10" : ""}`}
+      className={`bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg transition-all duration-150 ${onClick ? "cursor-pointer hover:border-white/[0.15] hover:shadow-xl hover:shadow-black/10" : ""}`}
       data-testid={testId}
       onClick={onClick}
     >
       <CardContent className="p-4">
         <div className="flex items-center gap-2 mb-1">
           <span className={color}>{icon}</span>
-          <span className="text-xs text-muted-foreground">{label}</span>
+          <span className="text-xs text-white/40">{label}</span>
         </div>
-        <p className="text-2xl font-bold text-foreground tabular-nums">{value}</p>
+        <p className="text-2xl font-bold text-white tabular-nums">{value}</p>
       </CardContent>
     </Card>
   );
@@ -762,6 +776,9 @@ function KpiCard({ icon, label, value, color, testId, onClick }: {
 
 function EmptyChart() {
   return (
-    <p className="text-center text-muted-foreground py-12 text-sm">No data</p>
+    <div className="text-center py-12">
+      <BarChart3 className="w-8 h-8 text-white/20 mx-auto mb-2" />
+      <p className="text-white/40 text-sm">No data available</p>
+    </div>
   );
 }
