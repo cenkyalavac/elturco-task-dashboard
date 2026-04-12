@@ -417,6 +417,139 @@ export class DatabaseStorage implements IStorage {
         entity_id INTEGER REFERENCES entities(id),
         created_at TIMESTAMPTZ DEFAULT NOW()
       );`,
+
+      // 009: Faz 6 — Quality Management System (Kalite Yönetim Sistemi)
+
+      // LQA Reports (MQM-based Language Quality Assessment)
+      `CREATE TABLE IF NOT EXISTS lqa_reports (
+        id SERIAL PRIMARY KEY,
+        project_id INTEGER REFERENCES projects(id),
+        job_id INTEGER REFERENCES jobs(id),
+        vendor_id INTEGER REFERENCES vendors(id),
+        evaluator_id INTEGER REFERENCES users(id),
+        source_language VARCHAR(10),
+        target_language VARCHAR(10),
+        word_count INTEGER,
+        total_score DECIMAL(5,2),
+        max_score DECIMAL(5,2),
+        pass_fail VARCHAR(10) DEFAULT 'pending',
+        pass_threshold DECIMAL(5,2) DEFAULT 98.00,
+        notes TEXT,
+        status VARCHAR(50) DEFAULT 'draft',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );`,
+      `CREATE INDEX IF NOT EXISTS idx_lqa_reports_vendor ON lqa_reports(vendor_id);`,
+      `CREATE INDEX IF NOT EXISTS idx_lqa_reports_project ON lqa_reports(project_id);`,
+      `CREATE INDEX IF NOT EXISTS idx_lqa_reports_status ON lqa_reports(status);`,
+
+      // LQA Errors (individual error annotations)
+      `CREATE TABLE IF NOT EXISTS lqa_errors (
+        id SERIAL PRIMARY KEY,
+        report_id INTEGER NOT NULL REFERENCES lqa_reports(id) ON DELETE CASCADE,
+        category VARCHAR(100) NOT NULL,
+        subcategory VARCHAR(100),
+        severity VARCHAR(20) NOT NULL,
+        segment_text TEXT,
+        error_description TEXT,
+        penalty_points DECIMAL(5,2) NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );`,
+      `CREATE INDEX IF NOT EXISTS idx_lqa_errors_report ON lqa_errors(report_id);`,
+
+      // LQA Disputes (vendor dispute on LQA findings)
+      `CREATE TABLE IF NOT EXISTS lqa_disputes (
+        id SERIAL PRIMARY KEY,
+        report_id INTEGER NOT NULL REFERENCES lqa_reports(id),
+        error_id INTEGER,
+        vendor_id INTEGER NOT NULL REFERENCES vendors(id),
+        dispute_reason TEXT NOT NULL,
+        vendor_evidence TEXT,
+        ql_response TEXT,
+        resolution VARCHAR(50) DEFAULT 'open',
+        resolved_by INTEGER REFERENCES users(id),
+        resolved_at TIMESTAMPTZ,
+        original_severity VARCHAR(20),
+        new_severity VARCHAR(20),
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );`,
+      `CREATE INDEX IF NOT EXISTS idx_lqa_disputes_report ON lqa_disputes(report_id);`,
+      `CREATE INDEX IF NOT EXISTS idx_lqa_disputes_vendor ON lqa_disputes(vendor_id);`,
+
+      // Vendor Quality Scores (cumulative QS scorecard)
+      `CREATE TABLE IF NOT EXISTS vendor_quality_scores (
+        id SERIAL PRIMARY KEY,
+        vendor_id INTEGER NOT NULL REFERENCES vendors(id),
+        period VARCHAR(20) NOT NULL,
+        avg_lqa_score DECIMAL(5,2),
+        total_reports INTEGER DEFAULT 0,
+        pass_count INTEGER DEFAULT 0,
+        fail_count INTEGER DEFAULT 0,
+        dispute_count INTEGER DEFAULT 0,
+        accepted_disputes INTEGER DEFAULT 0,
+        final_qs DECIMAL(5,2),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(vendor_id, period)
+      );`,
+      `CREATE INDEX IF NOT EXISTS idx_vendor_quality_scores_vendor ON vendor_quality_scores(vendor_id);`,
+
+      // RCA Reports (Root Cause Analysis)
+      `CREATE TABLE IF NOT EXISTS rca_reports (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(300) NOT NULL,
+        project_id INTEGER REFERENCES projects(id),
+        job_id INTEGER REFERENCES jobs(id),
+        vendor_id INTEGER REFERENCES vendors(id),
+        lqa_report_id INTEGER REFERENCES lqa_reports(id),
+        category VARCHAR(100) NOT NULL,
+        root_cause TEXT NOT NULL,
+        impact VARCHAR(50),
+        corrective_action TEXT,
+        preventive_action TEXT,
+        assigned_to INTEGER REFERENCES users(id),
+        status VARCHAR(50) DEFAULT 'open',
+        due_date DATE,
+        closed_at TIMESTAMPTZ,
+        closed_by INTEGER REFERENCES users(id),
+        created_by INTEGER REFERENCES users(id),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );`,
+      `CREATE INDEX IF NOT EXISTS idx_rca_reports_vendor ON rca_reports(vendor_id);`,
+      `CREATE INDEX IF NOT EXISTS idx_rca_reports_status ON rca_reports(status);`,
+
+      // Quality Alerts
+      `CREATE TABLE IF NOT EXISTS quality_alerts (
+        id SERIAL PRIMARY KEY,
+        vendor_id INTEGER REFERENCES vendors(id),
+        alert_type VARCHAR(50) NOT NULL,
+        severity VARCHAR(20) DEFAULT 'warning',
+        message TEXT NOT NULL,
+        threshold_value DECIMAL(5,2),
+        actual_value DECIMAL(5,2),
+        acknowledged BOOLEAN DEFAULT false,
+        acknowledged_by INTEGER REFERENCES users(id),
+        acknowledged_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );`,
+      `CREATE INDEX IF NOT EXISTS idx_quality_alerts_vendor ON quality_alerts(vendor_id);`,
+      `CREATE INDEX IF NOT EXISTS idx_quality_alerts_acknowledged ON quality_alerts(acknowledged);`,
+
+      // Customer Feedback
+      `CREATE TABLE IF NOT EXISTS customer_feedback (
+        id SERIAL PRIMARY KEY,
+        project_id INTEGER REFERENCES projects(id),
+        customer_id INTEGER REFERENCES customers(id),
+        overall_rating INTEGER CHECK (overall_rating BETWEEN 1 AND 5),
+        accuracy_rating INTEGER CHECK (accuracy_rating BETWEEN 1 AND 5),
+        timeliness_rating INTEGER CHECK (timeliness_rating BETWEEN 1 AND 5),
+        communication_rating INTEGER CHECK (communication_rating BETWEEN 1 AND 5),
+        comments TEXT,
+        submitted_at TIMESTAMPTZ DEFAULT NOW(),
+        submitted_by INTEGER REFERENCES users(id)
+      );`,
+      `CREATE INDEX IF NOT EXISTS idx_customer_feedback_project ON customer_feedback(project_id);`,
+      `CREATE INDEX IF NOT EXISTS idx_customer_feedback_customer ON customer_feedback(customer_id);`,
     ];
 
     for (const migration of migrations) {

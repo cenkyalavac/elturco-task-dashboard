@@ -1119,7 +1119,7 @@ router.post("/projects/:projectId/auto-invoice", requireAuth, requireFinanceRole
         const nextNum = (entity as any).invoiceNextNumber || 1;
         invoiceNumber = `${prefix}-${new Date().getFullYear()}-${String(nextNum).padStart(4, "0")}`;
         // Increment the next number
-        await db.update(entities).set(sql`invoice_next_number = COALESCE(invoice_next_number, 1) + 1`).where(eq(entities.id, entityId));
+        await db.execute(sql`UPDATE entities SET invoice_next_number = COALESCE(invoice_next_number, 1) + 1 WHERE id = ${entityId}`);
       }
     }
 

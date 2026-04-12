@@ -66,12 +66,15 @@ import SettingsAutoDispatchPage from "@/pages/settings-auto-dispatch";
 import VendorInvoicesPage from "@/pages/vendor-invoices";
 import PaymentQueuePage from "@/pages/payment-queue";
 
+// Faz 6: Quality Management System
+import QualityDashboardPage from "@/pages/quality-dashboard";
+
 import {
   LogOut, BarChart3, Sun, Moon, Bell, CheckCheck, Menu, X,
   Users, Building2, FolderKanban, Award, LayoutDashboard, History, Settings,
   DollarSign, FileText, ShoppingCart, Zap, Plug,
   Search, TrendingUp, Shield, Calendar, GitBranch,
-  ClipboardCheck, Grid3x3, Mail, Archive, LayoutTemplate, Briefcase,
+  ClipboardCheck, Grid3x3, Mail, Archive, LayoutTemplate, Briefcase, ShieldCheck,
 } from "lucide-react";
 
 // Theme context
@@ -92,6 +95,7 @@ function VMRedirectDashboard() {
   const { user } = useAuth();
   const userRole = (user as any)?.role || getCurrentUser()?.role || "pm";
   if (userRole === "vm") return <Redirect to="/vm-dashboard" />;
+  if (userRole === "quality_lead") return <Redirect to="/quality-dashboard" />;
   if (userRole === "pm_team_lead") return <Redirect to="/pm-team-lead" />;
   return <ProtectedRoute component={DashboardPage} />;
 }
@@ -324,6 +328,7 @@ function AppLayout() {
             <SidebarLink href="/projects" label="Projects" icon={<FolderKanban className="w-4 h-4 shrink-0" />} />
             <SidebarLink href="/projects/archive" label="Archive" icon={<Archive className="w-4 h-4 shrink-0" />} />
             <SidebarLink href="/quality" label="Quality" icon={<Award className="w-4 h-4 shrink-0" />} />
+            <SidebarLink href="/quality-dashboard" label="QL Dashboard" icon={<ShieldCheck className="w-4 h-4 shrink-0" />} />
             <SidebarLink href="/quality-analytics" label="Quality Analytics" icon={<TrendingUp className="w-4 h-4 shrink-0" />} />
             {canSeeVendorMgmt && <SidebarLink href="/document-compliance" label="Compliance" icon={<Shield className="w-4 h-4 shrink-0" />} />}
             {canSeeVendorMgmt && <SidebarLink href="/team-availability" label="Availability" icon={<Calendar className="w-4 h-4 shrink-0" />} />}
@@ -446,6 +451,7 @@ function AppLayout() {
             <SidebarLink href="/customers" label="Customers" icon={<Building2 className="w-4 h-4" />} />
             <SidebarLink href="/projects" label="Projects" icon={<FolderKanban className="w-4 h-4" />} />
             <SidebarLink href="/quality" label="Quality" icon={<Award className="w-4 h-4" />} />
+            <SidebarLink href="/quality-dashboard" label="QL Dashboard" icon={<ShieldCheck className="w-4 h-4" />} />
             <SidebarLink href="/quality-analytics" label="Quality Analytics" icon={<TrendingUp className="w-4 h-4" />} />
             {canSeeVendorMgmt && <SidebarLink href="/document-compliance" label="Compliance" icon={<Shield className="w-4 h-4" />} />}
             {canSeeVendorMgmt && <SidebarLink href="/team-availability" label="Availability" icon={<Calendar className="w-4 h-4" />} />}
@@ -485,6 +491,8 @@ function AppLayout() {
             <Route path="/projects/:id">{() => <ProtectedRoute component={ProjectDetailPage} />}</Route>
             <Route path="/quality">{() => <ErrorBoundary level="page"><ProtectedRoute component={QualityPage} /></ErrorBoundary>}</Route>
             <Route path="/quality-analytics">{() => <ProtectedRoute component={QualityAnalyticsPage} />}</Route>
+            {/* Faz 6: Quality Management System */}
+            <Route path="/quality-dashboard">{() => <ProtectedRoute component={QualityDashboardPage} />}</Route>
             <Route path="/document-compliance">{() => <ProtectedRoute component={DocumentCompliancePage} />}</Route>
             <Route path="/team-availability">{() => <ProtectedRoute component={TeamAvailabilityPage} />}</Route>
             <Route path="/finances">{() => <ProtectedRoute component={FinancialDashboardPage} />}</Route>

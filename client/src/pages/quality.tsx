@@ -309,6 +309,471 @@ function StarRating({ value, onChange }: { value: number; onChange: (v: number) 
   );
 }
 
+// ── Faz 6: LQA (MQM) Tab ──
+
+const MQM_FULL_CATEGORIES = [
+  { name: "Accuracy", subcategories: ["Mistranslation", "Omission", "Addition", "Untranslated", "Over-translation"] },
+  { name: "Fluency", subcategories: ["Grammar", "Punctuation", "Spelling", "Register", "Coherence"] },
+  { name: "Terminology", subcategories: ["Inconsistent", "Wrong term", "Non-standard"] },
+  { name: "Style", subcategories: ["Awkward", "Inconsistent style", "Unidiomatic"] },
+  { name: "Locale Convention", subcategories: ["Date/time format", "Number format", "Currency", "Measurement"] },
+  { name: "Verity", subcategories: ["Culture-specific reference", "Text direction"] },
+] as const;
+
+const SEVERITY_OPTIONS = [
+  { value: "critical", label: "Critical (5 pts)", color: "text-red-400" },
+  { value: "major", label: "Major (3 pts)", color: "text-amber-400" },
+  { value: "minor", label: "Minor (1 pt)", color: "text-blue-400" },
+  { value: "preferential", label: "Preferential (0 pts)", color: "text-white/40" },
+] as const;
+
+function Faz6LqaTab() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [selectedReport, setSelectedReport] = useState<any>(null);
+  const [newError, setNewError] = useState({ category: "", subcategory: "", severity: "minor", segmentText: "", errorDescription: "" });
+  const [newReport, setNewReport] = useState({ vendorId: 0, sourceLanguage: "", targetLanguage: "", wordCount: 0, passThreshold: 98, notes: "" });
+
+  const { data: lqaReports = [], isLoading } = useQuery({
+    queryKey: ["/api/quality/lqa-reports"],
+    queryFn: async () => { const r = await apiRequest("GET", "/api/quality/lqa-reports"); return r.json(); },
+  });
+
+  const { data: vendorList = [] } = useQuery({
+    queryKey: ["/api/vendors?status=all&limit=500"],
+    queryFn: async () => { const r = await apiRequest("GET", "/api/vendors?status=all&limit=500"); const d = await r.json(); return d.vendors || d || []; },
+  });
+
+  const { data: reportDetail } = useQuery({
+    queryKey: ["/api/quality/lqa-reports", selectedReport?.id],
+    queryFn: async () => { const r = await apiRequest("GET", `/api/quality/lqa-reports/${selectedReport.id}`); return r.json(); },
+    enabled: !!selectedReport?.id,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (data: any) => { const r = await apiRequest("POST", "/api/quality/lqa-reports", data); return r.json(); },
+    onSuccess: (data) => { qc.invalidateQueries({ queryKey: ["/api/quality/lqa-reports"] }); setCreateOpen(false); setSelectedReport(data); toast({ title: "LQA report created" }); },
+  });
+
+  const addErrorMutation = useMutation({
+    mutationFn: async ({ reportId, data }: { reportId: number; data: any }) => { const r = await apiRequest("POST", `/api/quality/lqa-reports/${reportId}/errors`, data); return r.json(); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/quality/lqa-reports", selectedReport?.id] }); toast({ title: "Error added" }); setNewError({ category: "", subcategory: "", severity: "minor", segmentText: "", errorDescription: "" }); },
+  });
+
+  const submitMutation = useMutation({
+    mutationFn: async (reportId: number) => { const r = await apiRequest("POST", `/api/quality/lqa-reports/${reportId}/submit`); return r.json(); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/quality/lqa-reports"] }); qc.invalidateQueries({ queryKey: ["/api/quality/lqa-reports", selectedReport?.id] }); toast({ title: "LQA report submitted" }); },
+  });
+
+  const removeErrorMutation = useMutation({
+    mutationFn: async ({ reportId, errorId }: { reportId: number; errorId: number }) => { await apiRequest("DELETE", `/api/quality/lqa-reports/${reportId}/errors/${errorId}`); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/quality/lqa-reports", selectedReport?.id] }); toast({ title: "Error removed" }); },
+  });
+
+  const currentCat = MQM_FULL_CATEGORIES.find(c => c.name === newError.category);
+
+  if (selectedReport) {
+    const detail = reportDetail || selectedReport;
+    const errors = detail.errors || [];
+    const score = detail.total_score != null ? Number(detail.total_score) : null;
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={() => setSelectedReport(null)}><ChevronLeft className="w-4 h-4" /> Back</Button>
+          <h2 className="text-sm font-semibold text-white">LQA Report #{detail.id}</h2>
+          <Badge className={`text-[9px] ${detail.status === "draft" ? "bg-zinc-500/15 text-zinc-400" : detail.status === "submitted" ? "bg-blue-500/15 text-blue-400" : "bg-emerald-500/15 text-emerald-400"}`}>{detail.status}</Badge>
+          {score != null && <span className={`text-sm font-mono ${score >= 98 ? "text-emerald-400" : score >= 85 ? "text-amber-400" : "text-red-400"}`}>{score.toFixed(1)}</span>}
+          {detail.pass_fail && detail.pass_fail !== "pending" && <Badge className={`text-[9px] ${detail.pass_fail === "pass" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>{detail.pass_fail}</Badge>}
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+          <div className="bg-white/[0.03] rounded-lg p-3"><span className="text-white/40">Language</span><p className="text-white/80 mt-1">{detail.source_language}→{detail.target_language}</p></div>
+          <div className="bg-white/[0.03] rounded-lg p-3"><span className="text-white/40">Word Count</span><p className="text-white/80 mt-1">{detail.word_count || "—"}</p></div>
+          <div className="bg-white/[0.03] rounded-lg p-3"><span className="text-white/40">Threshold</span><p className="text-white/80 mt-1">{detail.pass_threshold || 98}%</p></div>
+          <div className="bg-white/[0.03] rounded-lg p-3"><span className="text-white/40">Errors</span><p className="text-white/80 mt-1">{errors.length}</p></div>
+        </div>
+
+        {/* Error list */}
+        {errors.length > 0 && (
+          <Card className="bg-[#12141c] border-white/[0.06]">
+            <CardHeader className="pb-2"><CardTitle className="text-xs text-white/60">Errors Found</CardTitle></CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader><TableRow className="border-white/[0.06]">
+                  <TableHead className="text-[10px] text-white/40">Category</TableHead>
+                  <TableHead className="text-[10px] text-white/40">Subcategory</TableHead>
+                  <TableHead className="text-[10px] text-white/40">Severity</TableHead>
+                  <TableHead className="text-[10px] text-white/40">Points</TableHead>
+                  <TableHead className="text-[10px] text-white/40">Description</TableHead>
+                  {detail.status === "draft" && <TableHead className="text-[10px] text-white/40 w-8"></TableHead>}
+                </TableRow></TableHeader>
+                <TableBody>
+                  {errors.map((e: any) => (
+                    <TableRow key={e.id} className="border-white/[0.03]">
+                      <TableCell className="text-[11px] text-white/70">{e.category}</TableCell>
+                      <TableCell className="text-[11px] text-white/50">{e.subcategory || "—"}</TableCell>
+                      <TableCell><Badge className={`text-[9px] ${e.severity === "critical" ? "bg-red-500/15 text-red-400" : e.severity === "major" ? "bg-amber-500/15 text-amber-400" : e.severity === "minor" ? "bg-blue-500/15 text-blue-400" : "bg-zinc-500/15 text-zinc-400"}`}>{e.severity}</Badge></TableCell>
+                      <TableCell className="text-[11px] text-white/60 font-mono">{e.penalty_points}</TableCell>
+                      <TableCell className="text-[11px] text-white/50 max-w-[200px] truncate">{e.error_description || e.segment_text || "—"}</TableCell>
+                      {detail.status === "draft" && <TableCell><Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => removeErrorMutation.mutate({ reportId: detail.id, errorId: e.id })}><Trash2 className="w-3 h-3 text-red-400" /></Button></TableCell>}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Add error form (only for drafts) */}
+        {detail.status === "draft" && (
+          <Card className="bg-[#12141c] border-white/[0.06]">
+            <CardHeader className="pb-2"><CardTitle className="text-xs text-white/60">Add Error</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div>
+                  <Label className="text-[10px] text-white/40">Category</Label>
+                  <Select value={newError.category} onValueChange={(v) => setNewError({ ...newError, category: v, subcategory: "" })}>
+                    <SelectTrigger className="h-8 text-xs bg-white/[0.03] border-white/[0.08]"><SelectValue placeholder="Category" /></SelectTrigger>
+                    <SelectContent>{MQM_FULL_CATEGORIES.map(c => <SelectItem key={c.name} value={c.name}>{c.name}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-[10px] text-white/40">Subcategory</Label>
+                  <Select value={newError.subcategory} onValueChange={(v) => setNewError({ ...newError, subcategory: v })}>
+                    <SelectTrigger className="h-8 text-xs bg-white/[0.03] border-white/[0.08]"><SelectValue placeholder="Subcategory" /></SelectTrigger>
+                    <SelectContent>{(currentCat?.subcategories || []).map((s: string) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-[10px] text-white/40">Severity</Label>
+                  <Select value={newError.severity} onValueChange={(v) => setNewError({ ...newError, severity: v })}>
+                    <SelectTrigger className="h-8 text-xs bg-white/[0.03] border-white/[0.08]"><SelectValue /></SelectTrigger>
+                    <SelectContent>{SEVERITY_OPTIONS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-[10px] text-white/40">Description</Label>
+                  <Input className="h-8 text-xs bg-white/[0.03] border-white/[0.08]" placeholder="Error description" value={newError.errorDescription} onChange={(e) => setNewError({ ...newError, errorDescription: e.target.value })} />
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <Button size="sm" className="text-xs" disabled={!newError.category || !newError.severity || addErrorMutation.isPending}
+                  onClick={() => addErrorMutation.mutate({ reportId: detail.id, data: newError })}>
+                  {addErrorMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Plus className="w-3 h-3 mr-1" />} Add Error
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {detail.status === "draft" && (
+          <div className="flex justify-end">
+            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" disabled={submitMutation.isPending}
+              onClick={() => submitMutation.mutate(detail.id)}>
+              {submitMutation.isPending && <Loader2 className="w-3 h-3 animate-spin mr-1" />} Submit Report
+            </Button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-white/60">MQM-based Language Quality Assessment Reports</p>
+        <Button size="sm" className="gap-1.5 bg-white text-black hover:bg-white/90 font-medium rounded-lg" onClick={() => setCreateOpen(true)}><Plus className="w-4 h-4" /> New LQA Report</Button>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-2">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12" />)}</div>
+      ) : (
+        <Table>
+          <TableHeader><TableRow className="border-white/[0.06]">
+            <TableHead className="text-[10px] text-white/40">ID</TableHead>
+            <TableHead className="text-[10px] text-white/40">Vendor</TableHead>
+            <TableHead className="text-[10px] text-white/40">Languages</TableHead>
+            <TableHead className="text-[10px] text-white/40">Score</TableHead>
+            <TableHead className="text-[10px] text-white/40">Pass/Fail</TableHead>
+            <TableHead className="text-[10px] text-white/40">Status</TableHead>
+            <TableHead className="text-[10px] text-white/40">Created</TableHead>
+          </TableRow></TableHeader>
+          <TableBody>
+            {(lqaReports as any[]).map((r: any) => (
+              <TableRow key={r.id} className="border-white/[0.03] cursor-pointer hover:bg-white/[0.02]" onClick={() => setSelectedReport(r)}>
+                <TableCell className="text-[11px] text-white/50">#{r.id}</TableCell>
+                <TableCell className="text-[11px] text-white/70">{(vendorList as any[]).find((v: any) => v.id === r.vendor_id)?.fullName || `Vendor #${r.vendor_id}`}</TableCell>
+                <TableCell className="text-[11px] text-white/50">{r.source_language}→{r.target_language}</TableCell>
+                <TableCell className={`text-[11px] font-mono ${r.total_score != null ? (Number(r.total_score) >= 98 ? "text-emerald-400" : Number(r.total_score) >= 85 ? "text-amber-400" : "text-red-400") : "text-white/30"}`}>{r.total_score != null ? Number(r.total_score).toFixed(1) : "—"}</TableCell>
+                <TableCell><Badge className={`text-[9px] ${r.pass_fail === "pass" ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/25" : r.pass_fail === "fail" ? "bg-red-500/15 text-red-400 border-red-500/25" : "bg-zinc-500/15 text-zinc-400 border-zinc-500/25"}`}>{r.pass_fail || "pending"}</Badge></TableCell>
+                <TableCell><Badge className={`text-[9px] ${r.status === "draft" ? "bg-zinc-500/15 text-zinc-400" : r.status === "submitted" ? "bg-blue-500/15 text-blue-400" : "bg-emerald-500/15 text-emerald-400"}`}>{r.status}</Badge></TableCell>
+                <TableCell className="text-[10px] text-white/30">{r.created_at ? new Date(r.created_at).toLocaleDateString() : "—"}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+
+      {/* Create LQA Dialog */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="bg-card border border-white/[0.08] text-foreground max-w-md">
+          <DialogHeader><DialogTitle className="text-white">New LQA Report (MQM)</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-[10px] text-white/40">Vendor</Label>
+              <Select value={newReport.vendorId ? String(newReport.vendorId) : ""} onValueChange={(v) => setNewReport({ ...newReport, vendorId: +v })}>
+                <SelectTrigger className="h-8 text-xs bg-white/[0.03] border-white/[0.08]"><SelectValue placeholder="Select vendor" /></SelectTrigger>
+                <SelectContent>{(vendorList as any[]).slice(0, 100).map((v: any) => <SelectItem key={v.id} value={String(v.id)}>{v.fullName}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label className="text-[10px] text-white/40">Source Lang</Label><Input className="h-8 text-xs bg-white/[0.03] border-white/[0.08]" placeholder="EN" value={newReport.sourceLanguage} onChange={(e) => setNewReport({ ...newReport, sourceLanguage: e.target.value })} /></div>
+              <div><Label className="text-[10px] text-white/40">Target Lang</Label><Input className="h-8 text-xs bg-white/[0.03] border-white/[0.08]" placeholder="TR" value={newReport.targetLanguage} onChange={(e) => setNewReport({ ...newReport, targetLanguage: e.target.value })} /></div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label className="text-[10px] text-white/40">Word Count</Label><Input className="h-8 text-xs bg-white/[0.03] border-white/[0.08]" type="number" value={newReport.wordCount || ""} onChange={(e) => setNewReport({ ...newReport, wordCount: +e.target.value })} /></div>
+              <div><Label className="text-[10px] text-white/40">Pass Threshold (%)</Label><Input className="h-8 text-xs bg-white/[0.03] border-white/[0.08]" type="number" value={newReport.passThreshold} onChange={(e) => setNewReport({ ...newReport, passThreshold: +e.target.value })} /></div>
+            </div>
+            <div><Label className="text-[10px] text-white/40">Notes</Label><Textarea className="text-xs bg-white/[0.03] border-white/[0.08]" rows={2} value={newReport.notes} onChange={(e) => setNewReport({ ...newReport, notes: e.target.value })} /></div>
+          </div>
+          <DialogFooter>
+            <Button size="sm" variant="ghost" onClick={() => setCreateOpen(false)}>Cancel</Button>
+            <Button size="sm" disabled={!newReport.vendorId || createMutation.isPending}
+              onClick={() => createMutation.mutate(newReport)}>
+              {createMutation.isPending && <Loader2 className="w-3 h-3 animate-spin mr-1" />} Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ── Faz 6: RCA Tab ──
+
+function Faz6RcaTab() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newRca, setNewRca] = useState({ title: "", category: "Translation", rootCause: "", impact: "medium", correctiveAction: "", preventiveAction: "" });
+
+  const { data: rcaReports = [], isLoading } = useQuery({
+    queryKey: ["/api/quality/rca"],
+    queryFn: async () => { const r = await apiRequest("GET", "/api/quality/rca"); return r.json(); },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (data: any) => { const r = await apiRequest("POST", "/api/quality/rca", data); return r.json(); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/quality/rca"] }); setCreateOpen(false); toast({ title: "RCA report created" }); },
+  });
+
+  const updateStatusMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: number; status: string }) => { const r = await apiRequest("PATCH", `/api/quality/rca/${id}`, { status }); return r.json(); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/quality/rca"] }); toast({ title: "RCA status updated" }); },
+  });
+
+  const RCA_CATEGORIES = ["Translation", "Process", "Technology", "Communication", "Training", "Resource"];
+  const RCA_STATUSES = ["open", "in_progress", "implemented", "verified", "closed"];
+  const statusColors: Record<string, string> = { open: "bg-red-500/15 text-red-400", in_progress: "bg-amber-500/15 text-amber-400", implemented: "bg-blue-500/15 text-blue-400", verified: "bg-emerald-500/15 text-emerald-400", closed: "bg-zinc-500/15 text-zinc-400" };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-white/60">Root Cause Analysis Reports</p>
+        <Button size="sm" className="gap-1.5 bg-white text-black hover:bg-white/90 font-medium rounded-lg" onClick={() => setCreateOpen(true)}><Plus className="w-4 h-4" /> New RCA</Button>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-2">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12" />)}</div>
+      ) : (
+        <Table>
+          <TableHeader><TableRow className="border-white/[0.06]">
+            <TableHead className="text-[10px] text-white/40">ID</TableHead>
+            <TableHead className="text-[10px] text-white/40">Title</TableHead>
+            <TableHead className="text-[10px] text-white/40">Category</TableHead>
+            <TableHead className="text-[10px] text-white/40">Impact</TableHead>
+            <TableHead className="text-[10px] text-white/40">Status</TableHead>
+            <TableHead className="text-[10px] text-white/40">Assigned To</TableHead>
+            <TableHead className="text-[10px] text-white/40">Due</TableHead>
+            <TableHead className="text-[10px] text-white/40">Actions</TableHead>
+          </TableRow></TableHeader>
+          <TableBody>
+            {(rcaReports as any[]).map((r: any) => (
+              <TableRow key={r.id} className="border-white/[0.03]">
+                <TableCell className="text-[11px] text-white/50">#{r.id}</TableCell>
+                <TableCell className="text-[11px] text-white/70 max-w-[200px] truncate">{r.title}</TableCell>
+                <TableCell className="text-[11px] text-white/50">{r.category}</TableCell>
+                <TableCell><Badge className={`text-[9px] ${r.impact === "high" ? "bg-red-500/15 text-red-400" : r.impact === "medium" ? "bg-amber-500/15 text-amber-400" : "bg-blue-500/15 text-blue-400"}`}>{r.impact || "—"}</Badge></TableCell>
+                <TableCell>
+                  <Select value={r.status} onValueChange={(v) => updateStatusMutation.mutate({ id: r.id, status: v })}>
+                    <SelectTrigger className="h-6 text-[10px] bg-transparent border-0 p-0 w-auto"><Badge className={`text-[9px] ${statusColors[r.status] || "bg-zinc-500/15 text-zinc-400"}`}>{r.status}</Badge></SelectTrigger>
+                    <SelectContent>{RCA_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                  </Select>
+                </TableCell>
+                <TableCell className="text-[11px] text-white/50">{r.assigned_to_name || "—"}</TableCell>
+                <TableCell className="text-[10px] text-white/30">{r.due_date || "—"}</TableCell>
+                <TableCell><Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => setSelectedReport && undefined}><Eye className="w-3 h-3 text-white/40" /></Button></TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+
+      {/* Create RCA Dialog */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="bg-card border border-white/[0.08] text-foreground max-w-lg">
+          <DialogHeader><DialogTitle className="text-white">New Root Cause Analysis</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div><Label className="text-[10px] text-white/40">Title</Label><Input className="h-8 text-xs bg-white/[0.03] border-white/[0.08]" value={newRca.title} onChange={(e) => setNewRca({ ...newRca, title: e.target.value })} /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-[10px] text-white/40">Category</Label>
+                <Select value={newRca.category} onValueChange={(v) => setNewRca({ ...newRca, category: v })}>
+                  <SelectTrigger className="h-8 text-xs bg-white/[0.03] border-white/[0.08]"><SelectValue /></SelectTrigger>
+                  <SelectContent>{RCA_CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-[10px] text-white/40">Impact</Label>
+                <Select value={newRca.impact} onValueChange={(v) => setNewRca({ ...newRca, impact: v })}>
+                  <SelectTrigger className="h-8 text-xs bg-white/[0.03] border-white/[0.08]"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="high">High</SelectItem><SelectItem value="medium">Medium</SelectItem><SelectItem value="low">Low</SelectItem></SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div><Label className="text-[10px] text-white/40">Root Cause</Label><Textarea className="text-xs bg-white/[0.03] border-white/[0.08]" rows={2} value={newRca.rootCause} onChange={(e) => setNewRca({ ...newRca, rootCause: e.target.value })} /></div>
+            <div><Label className="text-[10px] text-white/40">Corrective Action</Label><Textarea className="text-xs bg-white/[0.03] border-white/[0.08]" rows={2} value={newRca.correctiveAction} onChange={(e) => setNewRca({ ...newRca, correctiveAction: e.target.value })} /></div>
+            <div><Label className="text-[10px] text-white/40">Preventive Action</Label><Textarea className="text-xs bg-white/[0.03] border-white/[0.08]" rows={2} value={newRca.preventiveAction} onChange={(e) => setNewRca({ ...newRca, preventiveAction: e.target.value })} /></div>
+          </div>
+          <DialogFooter>
+            <Button size="sm" variant="ghost" onClick={() => setCreateOpen(false)}>Cancel</Button>
+            <Button size="sm" disabled={!newRca.title || !newRca.rootCause || createMutation.isPending}
+              onClick={() => createMutation.mutate(newRca)}>
+              {createMutation.isPending && <Loader2 className="w-3 h-3 animate-spin mr-1" />} Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ── Faz 6: Customer Feedback Tab ──
+
+function Faz6FeedbackTab() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newFeedback, setNewFeedback] = useState({ overallRating: 5, accuracyRating: 5, timelinessRating: 5, communicationRating: 5, comments: "" });
+
+  const { data: feedbacks = [], isLoading } = useQuery({
+    queryKey: ["/api/quality/customer-feedback"],
+    queryFn: async () => { const r = await apiRequest("GET", "/api/quality/customer-feedback"); return r.json(); },
+  });
+
+  const { data: summary } = useQuery({
+    queryKey: ["/api/quality/customer-feedback/summary"],
+    queryFn: async () => { const r = await apiRequest("GET", "/api/quality/customer-feedback/summary"); return r.json(); },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (data: any) => { const r = await apiRequest("POST", "/api/quality/customer-feedback", data); return r.json(); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/quality/customer-feedback"] }); qc.invalidateQueries({ queryKey: ["/api/quality/customer-feedback/summary"] }); setCreateOpen(false); toast({ title: "Feedback submitted" }); },
+  });
+
+  const renderStars = (rating: number) => [...Array(5)].map((_, i) => <Star key={i} className={`w-3 h-3 ${i < rating ? "text-amber-400 fill-amber-400" : "text-white/10"}`} />);
+
+  return (
+    <div className="space-y-4">
+      {/* Summary Cards */}
+      {summary && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Card className="bg-[#12141c] border-white/[0.06]"><CardContent className="p-3">
+            <p className="text-[10px] text-white/40 mb-1">Overall Avg</p>
+            <div className="flex items-center gap-1">{renderStars(Math.round(Number(summary.avg_overall || 0)))}<span className="text-xs text-white/70 ml-1">{summary.avg_overall || "—"}</span></div>
+          </CardContent></Card>
+          <Card className="bg-[#12141c] border-white/[0.06]"><CardContent className="p-3">
+            <p className="text-[10px] text-white/40 mb-1">Accuracy</p>
+            <p className="text-lg font-bold text-blue-400">{summary.avg_accuracy || "—"}</p>
+          </CardContent></Card>
+          <Card className="bg-[#12141c] border-white/[0.06]"><CardContent className="p-3">
+            <p className="text-[10px] text-white/40 mb-1">Timeliness</p>
+            <p className="text-lg font-bold text-emerald-400">{summary.avg_timeliness || "—"}</p>
+          </CardContent></Card>
+          <Card className="bg-[#12141c] border-white/[0.06]"><CardContent className="p-3">
+            <p className="text-[10px] text-white/40 mb-1">Total Feedback</p>
+            <p className="text-lg font-bold text-white/70">{summary.total_feedback || 0}</p>
+          </CardContent></Card>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-white/60">Customer Satisfaction Feedback</p>
+        <Button size="sm" className="gap-1.5 bg-white text-black hover:bg-white/90 font-medium rounded-lg" onClick={() => setCreateOpen(true)}><Plus className="w-4 h-4" /> Add Feedback</Button>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-2">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12" />)}</div>
+      ) : (
+        <Table>
+          <TableHeader><TableRow className="border-white/[0.06]">
+            <TableHead className="text-[10px] text-white/40">Customer</TableHead>
+            <TableHead className="text-[10px] text-white/40">Project</TableHead>
+            <TableHead className="text-[10px] text-white/40">Overall</TableHead>
+            <TableHead className="text-[10px] text-white/40">Accuracy</TableHead>
+            <TableHead className="text-[10px] text-white/40">Timeliness</TableHead>
+            <TableHead className="text-[10px] text-white/40">Communication</TableHead>
+            <TableHead className="text-[10px] text-white/40">Comments</TableHead>
+            <TableHead className="text-[10px] text-white/40">Date</TableHead>
+          </TableRow></TableHeader>
+          <TableBody>
+            {(feedbacks as any[]).map((f: any) => (
+              <TableRow key={f.id} className="border-white/[0.03]">
+                <TableCell className="text-[11px] text-white/70">{f.customer_name || "—"}</TableCell>
+                <TableCell className="text-[11px] text-white/50">{f.project_name || "—"}</TableCell>
+                <TableCell><div className="flex gap-0.5">{renderStars(f.overall_rating)}</div></TableCell>
+                <TableCell><div className="flex gap-0.5">{renderStars(f.accuracy_rating || 0)}</div></TableCell>
+                <TableCell><div className="flex gap-0.5">{renderStars(f.timeliness_rating || 0)}</div></TableCell>
+                <TableCell><div className="flex gap-0.5">{renderStars(f.communication_rating || 0)}</div></TableCell>
+                <TableCell className="text-[10px] text-white/40 max-w-[150px] truncate">{f.comments || "—"}</TableCell>
+                <TableCell className="text-[10px] text-white/30">{f.submitted_at ? new Date(f.submitted_at).toLocaleDateString() : "—"}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+
+      {/* Create Feedback Dialog */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="bg-card border border-white/[0.08] text-foreground max-w-md">
+          <DialogHeader><DialogTitle className="text-white">Submit Customer Feedback</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            {[{ key: "overallRating", label: "Overall Rating" }, { key: "accuracyRating", label: "Accuracy" }, { key: "timelinessRating", label: "Timeliness" }, { key: "communicationRating", label: "Communication" }].map(({ key, label }) => (
+              <div key={key}>
+                <Label className="text-[10px] text-white/40">{label}</Label>
+                <div className="flex gap-1 mt-1">
+                  {[1, 2, 3, 4, 5].map(v => (
+                    <button key={v} onClick={() => setNewFeedback({ ...newFeedback, [key]: v })}
+                      className="p-0.5"><Star className={`w-5 h-5 ${v <= (newFeedback as any)[key] ? "text-amber-400 fill-amber-400" : "text-white/10"}`} /></button>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <div><Label className="text-[10px] text-white/40">Comments</Label><Textarea className="text-xs bg-white/[0.03] border-white/[0.08]" rows={3} value={newFeedback.comments} onChange={(e) => setNewFeedback({ ...newFeedback, comments: e.target.value })} /></div>
+          </div>
+          <DialogFooter>
+            <Button size="sm" variant="ghost" onClick={() => setCreateOpen(false)}>Cancel</Button>
+            <Button size="sm" disabled={createMutation.isPending} onClick={() => createMutation.mutate(newFeedback)}>
+              {createMutation.isPending && <Loader2 className="w-3 h-3 animate-spin mr-1" />} Submit
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 // ── Main Page ──
 
 export default function QualityPage() {
@@ -981,6 +1446,18 @@ export default function QualityPage() {
           <TabsTrigger value="analytics" className="gap-1.5 text-xs">
             <BarChart3 className="w-3.5 h-3.5" />
             Analytics
+          </TabsTrigger>
+          <TabsTrigger value="lqa-v2" className="gap-1.5 text-xs">
+            <ClipboardCheck className="w-3.5 h-3.5" />
+            LQA (MQM)
+          </TabsTrigger>
+          <TabsTrigger value="rca" className="gap-1.5 text-xs">
+            <Filter className="w-3.5 h-3.5" />
+            RCA
+          </TabsTrigger>
+          <TabsTrigger value="feedback" className="gap-1.5 text-xs">
+            <Star className="w-3.5 h-3.5" />
+            Feedback
           </TabsTrigger>
         </TabsList>
 
@@ -2051,6 +2528,27 @@ export default function QualityPage() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* ═══════════════════════════════════════════════ */}
+        {/* TAB: LQA (MQM) Faz 6 Reports                   */}
+        {/* ═══════════════════════════════════════════════ */}
+        <TabsContent value="lqa-v2" className="space-y-4">
+          <Faz6LqaTab />
+        </TabsContent>
+
+        {/* ═══════════════════════════════════════════════ */}
+        {/* TAB: RCA (Root Cause Analysis)                  */}
+        {/* ═══════════════════════════════════════════════ */}
+        <TabsContent value="rca" className="space-y-4">
+          <Faz6RcaTab />
+        </TabsContent>
+
+        {/* ═══════════════════════════════════════════════ */}
+        {/* TAB: Customer Feedback                          */}
+        {/* ═══════════════════════════════════════════════ */}
+        <TabsContent value="feedback" className="space-y-4">
+          <Faz6FeedbackTab />
         </TabsContent>
       </Tabs>
 

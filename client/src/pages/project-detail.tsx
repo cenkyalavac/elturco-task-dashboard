@@ -1277,7 +1277,7 @@ function JobTableRows({ job, currency, isExpanded, hasCat, onToggle, onEdit, onD
         </TableCell>
         <TableCell className="px-3 py-2">
           <div className="flex items-center gap-1">
-            {depChain?.isBlocked && <Lock className="w-3 h-3 text-red-400" title={`Blocked by: ${depChain.dependencies?.filter((d: any) => d.status !== "delivered" && d.status !== "approved").map((d: any) => d.jobName || `Job #${d.jobId}`).join(", ")}`} />}
+            {depChain?.isBlocked && <span title={`Blocked by: ${depChain.dependencies?.filter((d: any) => d.status !== "delivered" && d.status !== "approved").map((d: any) => d.jobName || `Job #${d.jobId}`).join(", ")}`}><Lock className="w-3 h-3 text-red-400" /></span>}
             <Badge className={`text-[10px] border ${JOB_STATUS_COLORS[job.status] || "bg-zinc-500/15 text-zinc-400 border-zinc-500/25"}`}>{job.status.replace(/_/g, " ")}</Badge>
           </div>
         </TableCell>
