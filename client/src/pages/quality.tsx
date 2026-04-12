@@ -218,7 +218,7 @@ function statusBadge(status: string) {
     className: "bg-white/10 text-muted-foreground border-white/10",
   };
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border ${s.className}`}>
+    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium border ${s.className}`}>
       {s.label}
     </span>
   );
@@ -881,15 +881,15 @@ export default function QualityPage() {
   return (
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto" data-testid="quality-page">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between border-b border-white/[0.06] bg-white/[0.02] -mx-6 px-6 -mt-6 pt-6 pb-4 mb-2">
         <div className="flex items-center gap-2">
           <ShieldCheck className="w-5 h-5 text-emerald-400" />
-          <h1 className="text-lg font-semibold text-foreground">Quality Management</h1>
+          <h1 className="text-lg font-semibold text-white">Quality Management</h1>
         </div>
         <div className="flex items-center gap-2">
           <Button
             size="sm"
-            className="gap-1.5 bg-purple-600 hover:bg-purple-700 text-white"
+            className="gap-1.5 bg-white text-black hover:bg-white/90 font-medium rounded-lg"
             onClick={() => setQsDialogOpen(true)}
           >
             <Zap className="w-4 h-4" />
@@ -897,7 +897,7 @@ export default function QualityPage() {
           </Button>
           <Button
             size="sm"
-            className="gap-1.5 bg-cyan-600 hover:bg-cyan-700 text-white"
+            className="gap-1.5 bg-white text-black hover:bg-white/90 font-medium rounded-lg"
             onClick={() => setLqaDialogOpen(true)}
           >
             <ClipboardList className="w-4 h-4" />
@@ -934,7 +934,7 @@ export default function QualityPage() {
           <div className="flex items-center justify-end gap-2">
             <Button
               size="sm"
-              className="gap-1.5 bg-purple-600 hover:bg-purple-700 text-white"
+              className="gap-1.5 bg-white text-black hover:bg-white/90 font-medium rounded-lg"
               onClick={() => setActiveTab("qs-entry")}
             >
               <Plus className="w-4 h-4" />
@@ -942,7 +942,7 @@ export default function QualityPage() {
             </Button>
             <Button
               size="sm"
-              className="gap-1.5 bg-cyan-600 hover:bg-cyan-700 text-white"
+              className="gap-1.5 bg-white text-black hover:bg-white/90 font-medium rounded-lg"
               onClick={() => setActiveTab("lqa-form")}
             >
               <Plus className="w-4 h-4" />
@@ -951,7 +951,7 @@ export default function QualityPage() {
           </div>
 
           {/* Filters bar */}
-          <div className="rounded-lg border border-white/[0.06] bg-card p-4 space-y-3">
+          <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg p-4 space-y-3">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Filter className="w-3.5 h-3.5" />
               Filters
@@ -1070,34 +1070,42 @@ export default function QualityPage() {
           {reportsLoading ? (
             <div className="space-y-2">
               {[...Array(5)].map((_, i) => (
-                <Skeleton key={i} className="h-10 rounded-lg" />
+                <Skeleton key={i} className="h-10 rounded-xl bg-white/[0.03]" />
               ))}
             </div>
           ) : reportsError ? (
-            <div className="rounded-lg border border-white/[0.06] bg-card p-8 text-center text-muted-foreground">
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg p-8 text-center text-white/40">
               Failed to load quality reports.
             </div>
           ) : filteredReports.length === 0 ? (
-            <div className="rounded-lg border border-white/[0.06] bg-card p-12 text-center">
-              <ShieldCheck className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-40" />
-              <p className="text-muted-foreground text-sm">No quality reports found.</p>
-              <p className="text-muted-foreground text-xs mt-1">Adjust filters or create a new report.</p>
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg p-12 text-center">
+              <ShieldCheck className="w-10 h-10 text-white/20 mx-auto mb-3" />
+              <p className="text-white/60 text-sm">No quality reports found.</p>
+              <p className="text-white/40 text-xs mt-1 mb-4">Adjust filters or create a new report.</p>
+              <Button
+                size="sm"
+                className="bg-white text-black hover:bg-white/90 font-medium rounded-lg"
+                onClick={() => setActiveTab("qs-entry")}
+              >
+                <Plus className="w-4 h-4 mr-1.5" />
+                Create Report
+              </Button>
             </div>
           ) : (
             <>
-              <div className="rounded-lg border border-white/[0.06] bg-card overflow-hidden">
+              <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg overflow-hidden">
                 <Table>
                   <TableHeader>
                     <TableRow className="border-white/[0.06] hover:bg-transparent">
-                      <TableHead className="text-xs text-muted-foreground font-medium">Vendor</TableHead>
-                      <TableHead className="text-xs text-muted-foreground font-medium">Type</TableHead>
-                      <TableHead className="text-xs text-muted-foreground font-medium">Score</TableHead>
-                      <TableHead className="text-xs text-muted-foreground font-medium">Project</TableHead>
-                      <TableHead className="text-xs text-muted-foreground font-medium">Account</TableHead>
-                      <TableHead className="text-xs text-muted-foreground font-medium">Lang Pair</TableHead>
-                      <TableHead className="text-xs text-muted-foreground font-medium">Status</TableHead>
-                      <TableHead className="text-xs text-muted-foreground font-medium">Date</TableHead>
-                      <TableHead className="text-xs text-muted-foreground font-medium">Actions</TableHead>
+                      <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Vendor</TableHead>
+                      <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Type</TableHead>
+                      <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Score</TableHead>
+                      <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Project</TableHead>
+                      <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Account</TableHead>
+                      <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Lang Pair</TableHead>
+                      <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Status</TableHead>
+                      <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Date</TableHead>
+                      <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1119,7 +1127,7 @@ export default function QualityPage() {
                       return (
                         <TableRow
                           key={report.id}
-                          className="border-white/[0.04] hover:bg-white/[0.03] transition-colors cursor-pointer"
+                          className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors cursor-pointer"
                           onClick={() => openReportDetail(report)}
                         >
                           <TableCell className="text-sm font-medium text-foreground">
@@ -1210,9 +1218,9 @@ export default function QualityPage() {
         {/* ═══════════════════════════════════════════════ */}
         <TabsContent value="qs-entry">
           <div className="max-w-2xl mx-auto">
-            <Card className="border-white/[0.06] bg-card">
+            <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
               <CardHeader>
-                <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <CardTitle className="text-base font-semibold flex items-center gap-2 text-white">
                   <Star className="w-4 h-4 text-amber-400" />
                   QS Quick Entry
                 </CardTitle>
@@ -1381,9 +1389,9 @@ export default function QualityPage() {
         {/* ═══════════════════════════════════════════════ */}
         <TabsContent value="lqa-form">
           <div className="max-w-5xl mx-auto space-y-6">
-            <Card className="border-white/[0.06] bg-card">
+            <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
               <CardHeader>
-                <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <CardTitle className="text-base font-semibold flex items-center gap-2 text-white">
                   <ClipboardCheck className="w-4 h-4 text-cyan-400" />
                   LQA Report Form
                 </CardTitle>
@@ -1522,23 +1530,23 @@ export default function QualityPage() {
                     </Button>
                   </div>
 
-                  <div className="rounded-lg border border-white/[0.06] overflow-x-auto">
+                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg overflow-x-auto">
                     <Table>
                       <TableHeader>
                         <TableRow className="border-white/[0.06] hover:bg-transparent">
-                          <TableHead className="text-[10px] text-muted-foreground font-medium w-8">#</TableHead>
-                          <TableHead className="text-[10px] text-muted-foreground font-medium min-w-[140px]">Source Text</TableHead>
-                          <TableHead className="text-[10px] text-muted-foreground font-medium min-w-[140px]">Target Text</TableHead>
-                          <TableHead className="text-[10px] text-muted-foreground font-medium min-w-[140px]">Revised Target</TableHead>
-                          <TableHead className="text-[10px] text-muted-foreground font-medium min-w-[130px]">Error Category</TableHead>
-                          <TableHead className="text-[10px] text-muted-foreground font-medium min-w-[110px]">Severity</TableHead>
-                          <TableHead className="text-[10px] text-muted-foreground font-medium min-w-[120px]">Comment</TableHead>
-                          <TableHead className="text-[10px] text-muted-foreground font-medium w-10"></TableHead>
+                          <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3 w-8">#</TableHead>
+                          <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3 min-w-[140px]">Source Text</TableHead>
+                          <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3 min-w-[140px]">Target Text</TableHead>
+                          <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3 min-w-[140px]">Revised Target</TableHead>
+                          <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3 min-w-[130px]">Error Category</TableHead>
+                          <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3 min-w-[110px]">Severity</TableHead>
+                          <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3 min-w-[120px]">Comment</TableHead>
+                          <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3 w-10"></TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {lqaEntries.map((entry, idx) => (
-                          <TableRow key={idx} className="border-white/[0.04]">
+                          <TableRow key={idx} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
                             <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
                             <TableCell>
                               <Input
@@ -1625,19 +1633,19 @@ export default function QualityPage() {
                 {lqaErrorSummary.length > 0 && (
                   <div className="space-y-2">
                     <Label className="text-sm font-medium text-foreground">Error Summary</Label>
-                    <div className="rounded-lg border border-white/[0.06] overflow-hidden">
+                    <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg overflow-hidden">
                       <Table>
                         <TableHeader>
                           <TableRow className="border-white/[0.06] hover:bg-transparent">
-                            <TableHead className="text-[10px] text-muted-foreground font-medium">Category</TableHead>
-                            <TableHead className="text-[10px] text-muted-foreground font-medium">Severity</TableHead>
-                            <TableHead className="text-[10px] text-muted-foreground font-medium">Count</TableHead>
-                            <TableHead className="text-[10px] text-muted-foreground font-medium">Penalty</TableHead>
+                            <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Category</TableHead>
+                            <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Severity</TableHead>
+                            <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Count</TableHead>
+                            <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Penalty</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {lqaErrorSummary.map((err, idx) => (
-                            <TableRow key={idx} className="border-white/[0.04]">
+                            <TableRow key={idx} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
                               <TableCell className="text-xs">{err.category}</TableCell>
                               <TableCell className="text-xs">
                                 <span className={
@@ -1726,50 +1734,50 @@ export default function QualityPage() {
         <TabsContent value="analytics" className="space-y-6">
           {/* KPI Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card className="border-white/[0.06] bg-card">
+            <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
               <CardContent className="p-5">
-                <p className="text-xs text-muted-foreground mb-1">Total Reports</p>
-                <p className="text-2xl font-bold text-foreground tabular-nums">{analytics.total}</p>
+                <p className="text-xs text-white/40 mb-1">Total Reports</p>
+                <p className="text-2xl font-bold text-white tabular-nums">{analytics.total}</p>
               </CardContent>
             </Card>
-            <Card className="border-white/[0.06] bg-card">
+            <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
               <CardContent className="p-5">
-                <p className="text-xs text-muted-foreground mb-1">Average QS Score</p>
+                <p className="text-xs text-white/40 mb-1">Average QS Score</p>
                 <p className={`text-2xl font-bold tabular-nums ${
                   analytics.avgQs >= 4.5 ? "text-emerald-400" :
                   analytics.avgQs >= 3.5 ? "text-blue-400" :
                   analytics.avgQs > 0 ? "text-amber-400" :
-                  "text-muted-foreground"
+                  "text-white/20"
                 }`}>
                   {analytics.avgQs > 0 ? analytics.avgQs.toFixed(2) : "--"}
                 </p>
               </CardContent>
             </Card>
-            <Card className="border-white/[0.06] bg-card">
+            <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
               <CardContent className="p-5">
-                <p className="text-xs text-muted-foreground mb-1">Average LQA Score</p>
+                <p className="text-xs text-white/40 mb-1">Average LQA Score</p>
                 <p className={`text-2xl font-bold tabular-nums ${
                   analytics.avgLqa >= 90 ? "text-emerald-400" :
                   analytics.avgLqa >= 70 ? "text-blue-400" :
                   analytics.avgLqa > 0 ? "text-amber-400" :
-                  "text-muted-foreground"
+                  "text-white/20"
                 }`}>
                   {analytics.avgLqa > 0 ? analytics.avgLqa.toFixed(1) : "--"}
                 </p>
               </CardContent>
             </Card>
-            <Card className="border-white/[0.06] bg-card">
+            <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
               <CardContent className="p-5">
-                <p className="text-xs text-muted-foreground mb-1">Reports This Month</p>
-                <p className="text-2xl font-bold text-foreground tabular-nums">{analytics.thisMonth}</p>
+                <p className="text-xs text-white/40 mb-1">Reports This Month</p>
+                <p className="text-2xl font-bold text-white tabular-nums">{analytics.thisMonth}</p>
               </CardContent>
             </Card>
           </div>
 
           {/* QS & LQA Score Trend Chart */}
-          <Card className="border-white/[0.06] bg-card">
+          <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
             <CardHeader>
-              <CardTitle className="text-sm font-medium">QS &amp; LQA Score Trends</CardTitle>
+              <CardTitle className="text-sm font-medium text-white">QS &amp; LQA Score Trends</CardTitle>
             </CardHeader>
             <CardContent>
               {analytics.monthlyTrend.length === 0 ? (
@@ -1849,9 +1857,9 @@ export default function QualityPage() {
 
           {/* Reports by type */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Card className="border-white/[0.06] bg-card">
+            <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
               <CardHeader>
-                <CardTitle className="text-sm font-medium">Reports by Type</CardTitle>
+                <CardTitle className="text-sm font-medium text-white">Reports by Type</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
@@ -1886,9 +1894,9 @@ export default function QualityPage() {
             </Card>
 
             {/* Top vendors */}
-            <Card className="border-white/[0.06] bg-card">
+            <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
               <CardHeader>
-                <CardTitle className="text-sm font-medium">Top Vendors by Quality</CardTitle>
+                <CardTitle className="text-sm font-medium text-white">Top Vendors by Quality</CardTitle>
               </CardHeader>
               <CardContent>
                 {analytics.topVendors.length === 0 ? (
@@ -1898,14 +1906,14 @@ export default function QualityPage() {
                     <Table>
                       <TableHeader>
                         <TableRow className="border-white/[0.06] hover:bg-transparent">
-                          <TableHead className="text-[10px] text-muted-foreground font-medium">Vendor</TableHead>
-                          <TableHead className="text-[10px] text-muted-foreground font-medium">Avg Score</TableHead>
-                          <TableHead className="text-[10px] text-muted-foreground font-medium">Reports</TableHead>
+                          <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Vendor</TableHead>
+                          <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Avg Score</TableHead>
+                          <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Reports</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {analytics.topVendors.map((v, idx) => (
-                          <TableRow key={idx} className="border-white/[0.04]">
+                          <TableRow key={idx} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
                             <TableCell className="text-sm font-medium text-foreground">{v.name}</TableCell>
                             <TableCell className="text-sm tabular-nums">
                               <span className={
@@ -1928,9 +1936,9 @@ export default function QualityPage() {
           </div>
 
           {/* Per-Account Quality Breakdown */}
-          <Card className="border-white/[0.06] bg-card">
+          <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
             <CardHeader>
-              <CardTitle className="text-sm font-medium">Quality by Account</CardTitle>
+              <CardTitle className="text-sm font-medium text-white">Quality by Account</CardTitle>
             </CardHeader>
             <CardContent>
               {analytics.accountBreakdown.length === 0 ? (
@@ -1940,15 +1948,15 @@ export default function QualityPage() {
                   <Table>
                     <TableHeader>
                       <TableRow className="border-white/[0.06] hover:bg-transparent">
-                        <TableHead className="text-[10px] text-muted-foreground font-medium">Account</TableHead>
-                        <TableHead className="text-[10px] text-muted-foreground font-medium">Avg QS</TableHead>
-                        <TableHead className="text-[10px] text-muted-foreground font-medium">Avg LQA</TableHead>
-                        <TableHead className="text-[10px] text-muted-foreground font-medium">Reports</TableHead>
+                        <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Account</TableHead>
+                        <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Avg QS</TableHead>
+                        <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Avg LQA</TableHead>
+                        <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Reports</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {analytics.accountBreakdown.map((a, idx) => (
-                        <TableRow key={idx} className="border-white/[0.04]">
+                        <TableRow key={idx} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
                           <TableCell className="text-sm font-medium text-foreground">{a.account}</TableCell>
                           <TableCell className="text-sm tabular-nums">
                             {a.avgQs != null ? (
@@ -2152,19 +2160,19 @@ export default function QualityPage() {
             {/* MQM Error Category Table */}
             <div className="space-y-2">
               <Label className="text-sm font-medium text-foreground">MQM Error Categories</Label>
-              <div className="rounded-lg border border-white/[0.06] overflow-hidden">
+              <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg overflow-hidden">
                 <Table>
                   <TableHeader>
                     <TableRow className="border-white/[0.06] hover:bg-transparent">
-                      <TableHead className="text-[10px] text-muted-foreground font-medium">Category</TableHead>
-                      <TableHead className="text-[10px] text-muted-foreground font-medium text-center">Minor (x1)</TableHead>
-                      <TableHead className="text-[10px] text-muted-foreground font-medium text-center">Major (x5)</TableHead>
-                      <TableHead className="text-[10px] text-muted-foreground font-medium text-center">Critical (x10)</TableHead>
+                      <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Category</TableHead>
+                      <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3 text-center">Minor (x1)</TableHead>
+                      <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3 text-center">Major (x5)</TableHead>
+                      <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3 text-center">Critical (x10)</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {lqaDialogMqmRows.map((row, idx) => (
-                      <TableRow key={row.category} className="border-white/[0.04]">
+                      <TableRow key={row.category} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
                         <TableCell className="text-xs font-medium text-foreground">{row.category}</TableCell>
                         <TableCell>
                           <Input
@@ -2366,22 +2374,22 @@ export default function QualityPage() {
                 {selectedReport.reportType === "LQA" && selectedReport.lqaEntries && selectedReport.lqaEntries.length > 0 && (
                   <div className="space-y-2">
                     <p className="text-sm font-medium text-foreground">LQA Entries</p>
-                    <div className="rounded-lg border border-white/[0.06] overflow-x-auto">
+                    <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg overflow-x-auto">
                       <Table>
                         <TableHeader>
                           <TableRow className="border-white/[0.06] hover:bg-transparent">
-                            <TableHead className="text-[10px] text-muted-foreground font-medium w-8">#</TableHead>
-                            <TableHead className="text-[10px] text-muted-foreground font-medium">Source</TableHead>
-                            <TableHead className="text-[10px] text-muted-foreground font-medium">Target</TableHead>
-                            <TableHead className="text-[10px] text-muted-foreground font-medium">Revised</TableHead>
-                            <TableHead className="text-[10px] text-muted-foreground font-medium">Category</TableHead>
-                            <TableHead className="text-[10px] text-muted-foreground font-medium">Severity</TableHead>
-                            <TableHead className="text-[10px] text-muted-foreground font-medium">Comment</TableHead>
+                            <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3 w-8">#</TableHead>
+                            <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Source</TableHead>
+                            <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Target</TableHead>
+                            <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Revised</TableHead>
+                            <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Category</TableHead>
+                            <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Severity</TableHead>
+                            <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Comment</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {selectedReport.lqaEntries.map((entry, idx) => (
-                            <TableRow key={idx} className="border-white/[0.04]">
+                            <TableRow key={idx} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
                               <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
                               <TableCell className="text-xs max-w-[150px]">{entry.sourceText || "--"}</TableCell>
                               <TableCell className="text-xs max-w-[150px]">{entry.targetText || "--"}</TableCell>
@@ -2410,18 +2418,18 @@ export default function QualityPage() {
                 {selectedReport.reportType === "LQA" && selectedReport.lqaErrors && selectedReport.lqaErrors.length > 0 && (
                   <div className="space-y-2">
                     <p className="text-sm font-medium text-foreground">Error Summary</p>
-                    <div className="rounded-lg border border-white/[0.06] overflow-hidden">
+                    <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg overflow-hidden">
                       <Table>
                         <TableHeader>
                           <TableRow className="border-white/[0.06] hover:bg-transparent">
-                            <TableHead className="text-[10px] text-muted-foreground font-medium">Category</TableHead>
-                            <TableHead className="text-[10px] text-muted-foreground font-medium">Severity</TableHead>
-                            <TableHead className="text-[10px] text-muted-foreground font-medium">Count</TableHead>
+                            <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Category</TableHead>
+                            <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Severity</TableHead>
+                            <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Count</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {selectedReport.lqaErrors.map((err, idx) => (
-                            <TableRow key={idx} className="border-white/[0.04]">
+                            <TableRow key={idx} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
                               <TableCell className="text-xs">{err.category}</TableCell>
                               <TableCell className="text-xs">
                                 <span className={

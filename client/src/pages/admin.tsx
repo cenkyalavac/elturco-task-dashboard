@@ -66,7 +66,9 @@ export default function AdminPage() {
   return (
     <div className="h-full overflow-auto">
       <div className="max-w-4xl mx-auto p-6 space-y-8">
-        <h1 className="text-lg font-semibold text-foreground" data-testid="text-admin-title">Admin Panel</h1>
+        <div className="border-b border-white/[0.06] bg-white/[0.02] -mx-6 -mt-6 px-6 py-5 mb-2">
+          <h1 className="text-lg font-semibold text-white" data-testid="text-admin-title">Admin Panel</h1>
+        </div>
         <EntityManagementSection />
         <StaffUsersSection />
         <SettingsSection />
@@ -216,11 +218,11 @@ function SheetConfigsSection() {
   }
 
   return (
-    <Card className="border border-border">
+    <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-semibold flex items-center gap-2">
-            <FileSpreadsheet className="w-4 h-4 text-muted-foreground" />
+          <CardTitle className="text-sm font-semibold flex items-center gap-2 text-white">
+            <FileSpreadsheet className="w-4 h-4 text-white/40" />
             Sheet Configurations
           </CardTitle>
           <Button variant="outline" size="sm" onClick={() => { setShowAdd(!showAdd); setEditingId(null); }} data-testid="button-add-config">
@@ -231,7 +233,7 @@ function SheetConfigsSection() {
       </CardHeader>
       <CardContent>
         {showAdd && (
-          <div className="mb-4 p-3 bg-muted/30 rounded-lg space-y-3">
+          <div className="mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg space-y-3">
             <div className="grid grid-cols-3 gap-2">
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">Source</label>
@@ -282,10 +284,10 @@ function SheetConfigsSection() {
         ) : (
           <div className="space-y-1" data-testid="table-configs">
             {configs.map((c) => (
-              <div key={c.id} className="border border-border rounded-lg" data-testid={`config-row-${c.id}`}>
+              <div key={c.id} className="border border-white/[0.06] rounded-lg hover:bg-white/[0.02] transition-colors" data-testid={`config-row-${c.id}`}>
                 {editingId === c.id ? (
                   /* ── Edit mode ── */
-                  <div className="p-3 space-y-3 bg-muted/20">
+                  <div className="p-3 space-y-3 bg-white/[0.03]">
                     <div className="grid grid-cols-3 gap-2">
                       <div>
                         <label className="text-xs text-muted-foreground mb-1 block">Source</label>
@@ -449,11 +451,11 @@ function PmUsersSection() {
   }
 
   return (
-    <Card className="border border-border">
+    <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-semibold flex items-center gap-2">
-            <Users className="w-4 h-4 text-muted-foreground" />
+          <CardTitle className="text-sm font-semibold flex items-center gap-2 text-white">
+            <Users className="w-4 h-4 text-white/40" />
             PM Users
           </CardTitle>
           <Button variant="outline" size="sm" onClick={() => { setShowAdd(!showAdd); setEditingUserId(null); }} data-testid="button-add-user">
@@ -464,7 +466,7 @@ function PmUsersSection() {
       </CardHeader>
       <CardContent>
         {showAdd && (
-          <div className="mb-4 p-3 bg-muted/30 rounded-lg space-y-2">
+          <div className="mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg space-y-2">
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">Email</label>
@@ -543,18 +545,18 @@ function PmUsersSection() {
         ) : (
           <table className="w-full text-sm" data-testid="table-users">
             <thead>
-              <tr className="border-b border-border">
-                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Email</th>
-                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Name</th>
-                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Initial</th>
-                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Role</th>
-                <th className="text-right font-medium text-muted-foreground px-3 py-2 text-xs w-20">Actions</th>
+              <tr className="border-b border-white/[0.06]">
+                <th className="text-left text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3">Email</th>
+                <th className="text-left text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3">Name</th>
+                <th className="text-left text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3">Initial</th>
+                <th className="text-left text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3">Role</th>
+                <th className="text-right text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3 w-20">Actions</th>
               </tr>
             </thead>
             <tbody>
               {users.map((u) =>
                 editingUserId === u.id ? (
-                  <tr key={u.id} className="border-b border-border last:border-0 bg-muted/20" data-testid={`user-row-${u.id}`}>
+                  <tr key={u.id} className="border-b border-white/[0.04] last:border-0 bg-white/[0.02]" data-testid={`user-row-${u.id}`}>
                     <td className="px-3 py-2 text-foreground text-muted-foreground">{u.email}</td>
                     <td className="px-3 py-2">
                       <Input
@@ -617,7 +619,7 @@ function PmUsersSection() {
                     </td>
                   </tr>
                 ) : (
-                  <tr key={u.id} className="border-b border-border last:border-0" data-testid={`user-row-${u.id}`}>
+                  <tr key={u.id} className="border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02] transition-colors" data-testid={`user-row-${u.id}`}>
                     <td className="px-3 py-2 text-foreground">{u.email}</td>
                     <td className="px-3 py-2 text-foreground">{u.name}</td>
                     <td className="px-3 py-2 text-foreground font-mono text-xs">{u.initial || "—"}</td>
@@ -684,10 +686,10 @@ function EmailTemplatesSection() {
   });
 
   return (
-    <Card className="border border-border">
+    <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
       <CardHeader className="pb-3 flex flex-row items-center justify-between">
-        <CardTitle className="text-sm font-semibold flex items-center gap-2">
-          <Mail className="w-4 h-4 text-muted-foreground" />
+        <CardTitle className="text-sm font-semibold flex items-center gap-2 text-white">
+          <Mail className="w-4 h-4 text-white/40" />
           Email Templates
         </CardTitle>
         <Button size="sm" className="h-7 text-xs gap-1" onClick={() => setShowCreate(true)}>
@@ -695,7 +697,7 @@ function EmailTemplatesSection() {
         </Button>
       </CardHeader>
       <CardContent>
-        <div className="mb-3 p-2 rounded bg-muted/30 flex items-start gap-2">
+        <div className="mb-3 p-2 rounded bg-white/[0.03] border border-white/[0.06] flex items-start gap-2">
           <Info className="w-3.5 h-3.5 text-muted-foreground shrink-0 mt-0.5" />
           <p className="text-[11px] text-muted-foreground">
             Available placeholders: <code className="text-foreground">{"{{freelancerName}}"}</code>, <code className="text-foreground">{"{{account}}"}</code>, <code className="text-foreground">{"{{source}}"}</code>, <code className="text-foreground">{"{{sheet}}"}</code>, <code className="text-foreground">{"{{projectId}}"}</code>, <code className="text-foreground">{"{{deadline}}"}</code>, <code className="text-foreground">{"{{total}}"}</code>, <code className="text-foreground">{"{{wwc}}"}</code>, <code className="text-foreground">{"{{role}}"}</code>, <code className="text-foreground">{"{{acceptUrl}}"}</code>
@@ -703,7 +705,7 @@ function EmailTemplatesSection() {
         </div>
 
         {showCreate && (
-          <div className="mb-4 p-3 border border-border rounded-lg bg-muted/20 space-y-3">
+          <div className="mb-4 p-3 border border-white/[0.06] rounded-lg bg-white/[0.03] space-y-3">
             <p className="text-xs font-semibold text-foreground">Create New Template</p>
             <div className="space-y-1">
               <label className="text-xs text-muted-foreground">Template Key</label>
@@ -860,7 +862,7 @@ function TemplateEditor({ template }: { template: EmailTemplate }) {
   }
 
   return (
-    <div className="p-3 border border-border rounded-lg" data-testid={`template-${template.key}`}>
+    <div className="p-3 border border-white/[0.06] rounded-lg hover:bg-white/[0.02] transition-colors" data-testid={`template-${template.key}`}>
       <div className="flex items-center justify-between mb-2">
         <Badge variant="secondary" className="text-xs">{template.key}</Badge>
         <div className="flex items-center gap-1.5">
@@ -1147,11 +1149,11 @@ function AutoAssignRulesSection() {
   }
 
   return (
-    <Card className="border border-border">
+    <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-semibold flex items-center gap-2">
-            <Zap className="w-4 h-4 text-muted-foreground" />
+          <CardTitle className="text-sm font-semibold flex items-center gap-2 text-white">
+            <Zap className="w-4 h-4 text-white/40" />
             Auto-Assign Rules
           </CardTitle>
           <div className="flex items-center gap-2">
@@ -1184,7 +1186,7 @@ function AutoAssignRulesSection() {
       </CardHeader>
       <CardContent>
         {showAdd && (
-          <div className="mb-4 p-3 bg-muted/30 rounded-lg space-y-3">
+          <div className="mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg space-y-3">
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">Rule Name</label>
@@ -1272,10 +1274,10 @@ function AutoAssignRulesSection() {
             {rules.map((rule) => {
               const codes = parseCodes(rule.freelancerCodes);
               return (
-                <div key={rule.id} className="border border-border rounded-lg" data-testid={`rule-row-${rule.id}`}>
+                <div key={rule.id} className="border border-white/[0.06] rounded-lg hover:bg-white/[0.02] transition-colors" data-testid={`rule-row-${rule.id}`}>
                   {editingRuleId === rule.id ? (
                     /* ── Edit mode ── */
-                    <div className="p-3 space-y-3 bg-muted/20">
+                    <div className="p-3 space-y-3 bg-white/[0.03]">
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <label className="text-xs text-muted-foreground mb-1 block">Rule Name</label>
@@ -1469,11 +1471,11 @@ function EntityManagementSection() {
   }
 
   return (
-    <Card className="border border-border">
+    <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-semibold flex items-center gap-2">
-            <Building2 className="w-4 h-4 text-muted-foreground" />
+          <CardTitle className="text-sm font-semibold flex items-center gap-2 text-white">
+            <Building2 className="w-4 h-4 text-white/40" />
             Entity Management
           </CardTitle>
           <Button variant="outline" size="sm" onClick={() => { setShowAdd(!showAdd); setEditingId(null); }}>
@@ -1483,7 +1485,7 @@ function EntityManagementSection() {
       </CardHeader>
       <CardContent>
         {showAdd && (
-          <div className="mb-4 p-3 bg-muted/30 rounded-lg space-y-2">
+          <div className="mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg space-y-2">
             <div className="grid grid-cols-3 gap-2">
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">Name</label>
@@ -1537,19 +1539,19 @@ function EntityManagementSection() {
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border">
-                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Name</th>
-                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Code</th>
-                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Jurisdiction</th>
-                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Currency</th>
-                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Integrations</th>
-                <th className="text-right font-medium text-muted-foreground px-3 py-2 text-xs w-16">Actions</th>
+              <tr className="border-b border-white/[0.06]">
+                <th className="text-left text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3">Name</th>
+                <th className="text-left text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3">Code</th>
+                <th className="text-left text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3">Jurisdiction</th>
+                <th className="text-left text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3">Currency</th>
+                <th className="text-left text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3">Integrations</th>
+                <th className="text-right text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3 w-16">Actions</th>
               </tr>
             </thead>
             <tbody>
               {entitiesList.map((ent) =>
                 editingId === ent.id ? (
-                  <tr key={ent.id} className="border-b border-border last:border-0 bg-muted/20">
+                  <tr key={ent.id} className="border-b border-white/[0.04] last:border-0 bg-white/[0.02]">
                     <td className="px-3 py-2"><Input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className="h-7 text-sm" /></td>
                     <td className="px-3 py-2"><Input value={editForm.code} onChange={(e) => setEditForm({ ...editForm, code: e.target.value })} className="h-7 text-sm" /></td>
                     <td className="px-3 py-2"><Input value={editForm.jurisdiction} onChange={(e) => setEditForm({ ...editForm, jurisdiction: e.target.value })} className="h-7 text-sm" /></td>
@@ -1577,7 +1579,7 @@ function EntityManagementSection() {
                     </td>
                   </tr>
                 ) : (
-                  <tr key={ent.id} className="border-b border-border last:border-0">
+                  <tr key={ent.id} className="border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02] transition-colors">
                     <td className="px-3 py-2 text-foreground font-medium">{ent.name}</td>
                     <td className="px-3 py-2 text-foreground font-mono text-xs">{ent.code}</td>
                     <td className="px-3 py-2 text-foreground">{ent.jurisdiction || "—"}</td>
@@ -1698,11 +1700,11 @@ function StaffUsersSection() {
   const entityName = (entityId: number | null) => entitiesList?.find(e => e.id === entityId)?.name || "—";
 
   return (
-    <Card className="border border-border">
+    <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-semibold flex items-center gap-2">
-            <UserCog className="w-4 h-4 text-muted-foreground" />
+          <CardTitle className="text-sm font-semibold flex items-center gap-2 text-white">
+            <UserCog className="w-4 h-4 text-white/40" />
             Staff Users
           </CardTitle>
           <Button variant="outline" size="sm" onClick={() => { setShowAdd(!showAdd); setEditingId(null); }}>
@@ -1712,7 +1714,7 @@ function StaffUsersSection() {
       </CardHeader>
       <CardContent>
         {showAdd && (
-          <div className="mb-4 p-3 bg-muted/30 rounded-lg space-y-2">
+          <div className="mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg space-y-2">
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">Name</label>
@@ -1763,20 +1765,20 @@ function StaffUsersSection() {
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border">
-                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Name</th>
-                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Email</th>
-                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Initial</th>
-                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Role</th>
-                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Entity</th>
-                <th className="text-left font-medium text-muted-foreground px-3 py-2 text-xs">Status</th>
-                <th className="text-right font-medium text-muted-foreground px-3 py-2 text-xs w-20">Actions</th>
+              <tr className="border-b border-white/[0.06]">
+                <th className="text-left text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3">Name</th>
+                <th className="text-left text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3">Email</th>
+                <th className="text-left text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3">Initial</th>
+                <th className="text-left text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3">Role</th>
+                <th className="text-left text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3">Entity</th>
+                <th className="text-left text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3">Status</th>
+                <th className="text-right text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3 w-20">Actions</th>
               </tr>
             </thead>
             <tbody>
               {staffUsers.map((u) =>
                 editingId === u.id ? (
-                  <tr key={u.id} className="border-b border-border last:border-0 bg-muted/20">
+                  <tr key={u.id} className="border-b border-white/[0.04] last:border-0 bg-white/[0.02]">
                     <td className="px-3 py-2"><Input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className="h-7 text-sm" /></td>
                     <td className="px-3 py-2 text-muted-foreground text-xs">{u.email}</td>
                     <td className="px-3 py-2"><Input value={editForm.initial} onChange={(e) => setEditForm({ ...editForm, initial: e.target.value.toUpperCase() })} className="h-7 text-sm w-16" maxLength={5} /></td>
@@ -1808,7 +1810,7 @@ function StaffUsersSection() {
                     </td>
                   </tr>
                 ) : (
-                  <tr key={u.id} className={`border-b border-border last:border-0 ${!u.isActive ? "opacity-50" : ""}`}>
+                  <tr key={u.id} className={`border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02] transition-colors ${!u.isActive ? "opacity-50" : ""}`}>
                     <td className="px-3 py-2 text-foreground font-medium">{u.name}</td>
                     <td className="px-3 py-2 text-foreground text-xs">{u.email}</td>
                     <td className="px-3 py-2 text-foreground font-mono text-xs">{u.initial || "—"}</td>
@@ -1910,11 +1912,11 @@ function SettingsSection() {
   }
 
   return (
-    <Card className="border border-border">
+    <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-semibold flex items-center gap-2">
-            <Settings className="w-4 h-4 text-muted-foreground" />
+          <CardTitle className="text-sm font-semibold flex items-center gap-2 text-white">
+            <Settings className="w-4 h-4 text-white/40" />
             Settings
           </CardTitle>
           <Button variant="outline" size="sm" onClick={() => { setShowAdd(!showAdd); setEditingKey(null); }}>
@@ -1924,7 +1926,7 @@ function SettingsSection() {
       </CardHeader>
       <CardContent>
         {showAdd && (
-          <div className="mb-4 p-3 bg-muted/30 rounded-lg space-y-2">
+          <div className="mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg space-y-2">
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">Key</label>
@@ -1958,7 +1960,7 @@ function SettingsSection() {
         ) : (
           <div className="space-y-2">
             {settingsList.map((s) => (
-              <div key={s.key} className="border border-border rounded-lg p-3">
+              <div key={s.key} className="border border-white/[0.06] rounded-lg p-3 hover:bg-white/[0.02] transition-colors">
                 <div className="flex items-start justify-between">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">

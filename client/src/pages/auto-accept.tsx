@@ -77,10 +77,10 @@ const OPERATOR_LABELS: Record<string, string> = {
 
 function actionBadge(action: string) {
   switch (action) {
-    case "approve": return <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/25">Approve</Badge>;
-    case "ignore": return <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/25">Ignore</Badge>;
-    case "manual_review": return <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/25">Manual Review</Badge>;
-    default: return <Badge variant="outline">{action}</Badge>;
+    case "approve": return <Badge className="rounded-full px-2.5 py-0.5 text-xs font-medium bg-emerald-500/20 text-emerald-400 border-emerald-500/25">Approve</Badge>;
+    case "ignore": return <Badge className="rounded-full px-2.5 py-0.5 text-xs font-medium bg-amber-500/20 text-amber-400 border-amber-500/25">Ignore</Badge>;
+    case "manual_review": return <Badge className="rounded-full px-2.5 py-0.5 text-xs font-medium bg-blue-500/20 text-blue-400 border-blue-500/25">Manual Review</Badge>;
+    default: return <Badge variant="outline" className="rounded-full px-2.5 py-0.5 text-xs font-medium">{action}</Badge>;
   }
 }
 
@@ -135,18 +135,18 @@ export default function AutoAcceptPage() {
   return (
     <div className="h-full overflow-auto">
       <div className="max-w-6xl mx-auto p-6 space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between border-b border-white/[0.06] bg-white/[0.02] -mx-6 -mt-6 px-6 py-5 mb-2">
           <div>
-            <h1 className="text-lg font-semibold text-foreground flex items-center gap-2">
+            <h1 className="text-lg font-semibold text-white flex items-center gap-2">
               <Zap className="w-5 h-5 text-amber-400" /> Auto-Accept Rules
             </h1>
-            <p className="text-sm text-muted-foreground mt-1">Manage rules that automatically accept, ignore, or flag incoming portal tasks</p>
+            <p className="text-sm text-white/50 mt-1">Manage rules that automatically accept, ignore, or flag incoming portal tasks</p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => { setTestSource("aps"); setTestResult(null); setShowTestDialog(true); }}>
+            <Button variant="outline" size="sm" className="bg-white/[0.06] text-white/80 hover:bg-white/[0.1] border-white/[0.06] rounded-lg" onClick={() => { setTestSource("aps"); setTestResult(null); setShowTestDialog(true); }}>
               <FlaskConical className="w-4 h-4 mr-1" /> Test Rules
             </Button>
-            <Button size="sm" onClick={() => { setEditingRule(null); setShowRuleDialog(true); }}>
+            <Button size="sm" className="bg-white text-black hover:bg-white/90 font-medium rounded-lg" onClick={() => { setEditingRule(null); setShowRuleDialog(true); }}>
               <Plus className="w-4 h-4 mr-1" /> New Rule
             </Button>
           </div>
@@ -159,29 +159,35 @@ export default function AutoAcceptPage() {
           </TabsList>
 
           <TabsContent value="rules" className="mt-4">
-            <Card className="border border-border">
+            <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
               <CardContent className="p-0">
                 {isLoading ? (
-                  <div className="p-8 text-center text-muted-foreground text-sm">Loading...</div>
+                  <div className="p-8 text-center text-white/40 text-sm">Loading...</div>
                 ) : rules.length === 0 ? (
-                  <div className="p-8 text-center text-muted-foreground text-sm">No rules yet. Create your first auto-accept rule.</div>
+                  <div className="p-12 text-center">
+                    <Zap className="w-8 h-8 text-white/20 mx-auto mb-3" />
+                    <p className="text-sm text-white/40 mb-3">No rules yet. Create your first auto-accept rule.</p>
+                    <Button size="sm" className="bg-white text-black hover:bg-white/90 font-medium rounded-lg" onClick={() => { setEditingRule(null); setShowRuleDialog(true); }}>
+                      <Plus className="w-4 h-4 mr-1" /> Create Rule
+                    </Button>
+                  </div>
                 ) : (
                   <Table>
                     <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-10">Priority</TableHead>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Source</TableHead>
-                        <TableHead>Conditions</TableHead>
-                        <TableHead>Action</TableHead>
-                        <TableHead className="text-right">Matches</TableHead>
-                        <TableHead>Enabled</TableHead>
-                        <TableHead className="w-20">Actions</TableHead>
+                      <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
+                        <TableHead className="w-10 text-xs text-white/40 uppercase tracking-wider font-medium py-3">Priority</TableHead>
+                        <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Name</TableHead>
+                        <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Source</TableHead>
+                        <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Conditions</TableHead>
+                        <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Action</TableHead>
+                        <TableHead className="text-right text-xs text-white/40 uppercase tracking-wider font-medium py-3">Matches</TableHead>
+                        <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium py-3">Enabled</TableHead>
+                        <TableHead className="w-20 text-xs text-white/40 uppercase tracking-wider font-medium py-3">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {rules.map((rule) => (
-                        <TableRow key={rule.id}>
+                        <TableRow key={rule.id} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
                           <TableCell className="font-mono text-xs">{rule.priority}</TableCell>
                           <TableCell className="font-medium">{rule.name}</TableCell>
                           <TableCell>
@@ -205,7 +211,7 @@ export default function AutoAcceptPage() {
                               <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditingRule(rule); setShowRuleDialog(true); }}>
                                 <Pencil className="w-3.5 h-3.5" />
                               </Button>
-                              <Button variant="ghost" size="icon" className="h-7 w-7 text-red-400 hover:text-red-300" onClick={() => { if (confirm("Delete this rule?")) deleteMutation.mutate(rule.id); }}>
+                              <Button variant="ghost" size="icon" className="h-7 w-7 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded-lg" onClick={() => { if (confirm("Delete this rule?")) deleteMutation.mutate(rule.id); }}>
                                 <Trash2 className="w-3.5 h-3.5" />
                               </Button>
                             </div>
@@ -220,13 +226,16 @@ export default function AutoAcceptPage() {
           </TabsContent>
 
           <TabsContent value="log" className="mt-4">
-            <Card className="border border-border">
+            <Card className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg">
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm">Match History</CardTitle>
+                <CardTitle className="text-sm text-white">Match History</CardTitle>
               </CardHeader>
               <CardContent className="p-0">
                 {!logData?.logs?.length ? (
-                  <div className="p-8 text-center text-muted-foreground text-sm">No matches yet</div>
+                  <div className="p-12 text-center">
+                    <History className="w-8 h-8 text-white/20 mx-auto mb-3" />
+                    <p className="text-sm text-white/40">No matches yet</p>
+                  </div>
                 ) : (
                   <Table>
                     <TableHeader>
