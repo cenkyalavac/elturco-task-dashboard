@@ -347,8 +347,8 @@ export default function FinancialDashboardPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {customerTableData.map((c, idx) => (
-                      <TableRow key={idx}>
+                    {customerTableData.map((c) => (
+                      <TableRow key={c.name}>
                         <TableCell className="px-3 py-1.5 text-xs font-medium truncate max-w-[180px]">{c.name}</TableCell>
                         <TableCell className="px-3 py-1.5 text-xs text-right tabular-nums">{formatCurrency(c.revenue)}</TableCell>
                         <TableCell className="px-3 py-1.5 text-xs text-right text-muted-foreground">{c.invoices}</TableCell>
@@ -377,8 +377,8 @@ export default function FinancialDashboardPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {vendorTableData.map((v, idx) => (
-                      <TableRow key={idx}>
+                    {vendorTableData.map((v) => (
+                      <TableRow key={v.name}>
                         <TableCell className="px-3 py-1.5 text-xs font-medium truncate max-w-[180px]">{v.name}</TableCell>
                         <TableCell className="px-3 py-1.5 text-xs text-right tabular-nums">{formatCurrency(v.cost)}</TableCell>
                         <TableCell className="px-3 py-1.5 text-xs text-right text-muted-foreground">{v.pos}</TableCell>

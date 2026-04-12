@@ -29,7 +29,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Search, Plus, ChevronLeft, ChevronRight, Loader2, Filter } from "lucide-react";
+import { Search, Plus, ChevronLeft, ChevronRight, Loader2, Filter, Building2 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface Customer {
   id: number;
@@ -266,12 +267,18 @@ export default function CustomersPage() {
         {isLoading ? (
           <div className="p-4 space-y-2">
             {[...Array(8)].map((_, i) => (
-              <div key={i} className="h-12 bg-muted/40 rounded animate-pulse" />
+              <Skeleton key={i} className="h-12 w-full rounded" />
             ))}
           </div>
         ) : customers.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-            {debouncedSearch ? "No customers match your search" : "No customers yet"}
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
+            <Building2 className="w-10 h-10 opacity-30" />
+            <p className="text-sm">{debouncedSearch ? "No customers match your search" : "No customers yet"}</p>
+            {!debouncedSearch && (
+              <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={() => setDialogOpen(true)}>
+                <Plus className="w-3.5 h-3.5" /> Add Customer
+              </Button>
+            )}
           </div>
         ) : (
           <Table>

@@ -117,14 +117,25 @@ export default function PurchaseOrdersPage() {
     },
   });
 
-  const updateStatusMutation = useMutation({
-    mutationFn: async ({ id, status }: { id: number; status: string }) => {
-      const r = await apiRequest("PATCH", `/api/purchase-orders/${id}`, { status });
+  const sendMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const r = await apiRequest("POST", `/api/purchase-orders/${id}/send`);
       return r.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
-      toast({ title: "PO status updated" });
+      toast({ title: "PO marked as sent" });
+    },
+  });
+
+  const acceptMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const r = await apiRequest("POST", `/api/purchase-orders/${id}/accept`);
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
+      toast({ title: "PO accepted" });
     },
   });
 
@@ -194,13 +205,13 @@ export default function PurchaseOrdersPage() {
           )}
           <div className="ml-auto flex gap-2">
             {po?.status === "draft" && (
-              <Button size="sm" className="h-7 text-xs gap-1" onClick={() => updateStatusMutation.mutate({ id: po.id, status: "sent" })}>
-                <Send className="w-3 h-3" /> Mark Sent
+              <Button size="sm" className="h-7 text-xs gap-1" onClick={() => sendMutation.mutate(po.id)} disabled={sendMutation.isPending}>
+                {sendMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />} Send PO
               </Button>
             )}
             {po?.status === "sent" && (
-              <Button size="sm" className="h-7 text-xs gap-1" onClick={() => updateStatusMutation.mutate({ id: po.id, status: "accepted" })}>
-                <Check className="w-3 h-3" /> Mark Accepted
+              <Button size="sm" className="h-7 text-xs gap-1" onClick={() => acceptMutation.mutate(po.id)} disabled={acceptMutation.isPending}>
+                {acceptMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Mark Accepted
               </Button>
             )}
             {(po?.status === "sent" || po?.status === "accepted" || po?.status === "completed") && (

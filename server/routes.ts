@@ -3782,6 +3782,26 @@ const freelancers = (Array.isArray(data) ? data : [])
     }
   });
 
+  app.post("/api/purchase-orders/:id/send", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const po = await storage.updatePurchaseOrder(+param(req, "id"), { status: "sent" });
+      await logAudit((req as any).pmUserId, "update", "purchase_order", +param(req, "id"), null, po, getClientIp(req));
+      res.json(po);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Internal server error", e) });
+    }
+  });
+
+  app.post("/api/purchase-orders/:id/accept", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const po = await storage.updatePurchaseOrder(+param(req, "id"), { status: "accepted" });
+      await logAudit((req as any).pmUserId, "update", "purchase_order", +param(req, "id"), null, po, getClientIp(req));
+      res.json(po);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Internal server error", e) });
+    }
+  });
+
   app.post("/api/purchase-orders/:id/mark-paid", requireAuth, async (req: Request, res: Response) => {
     try {
       const { paymentDate, paymentMethod, reference } = req.body;
@@ -3835,7 +3855,8 @@ const freelancers = (Array.isArray(data) ? data : [])
   });
 
   // ---- FINANCIAL DASHBOARD ----
-  app.get("/api/financial/summary", requireAuth, async (req: Request, res: Response) => {
+  const requireFinanceRole = requireRole("gm", "operations_manager", "pm_team_lead", "admin");
+  app.get("/api/financial/summary", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
     try {
       const filters: any = {};
       if (req.query.entityId) filters.entityId = +req.query.entityId;
@@ -3848,7 +3869,7 @@ const freelancers = (Array.isArray(data) ? data : [])
     }
   });
 
-  app.get("/api/financial/ar-aging", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/financial/ar-aging", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
     try {
       const entityId = req.query.entityId ? +req.query.entityId : undefined;
       const aging = await storage.getARAgingReport(entityId);
@@ -3858,7 +3879,7 @@ const freelancers = (Array.isArray(data) ? data : [])
     }
   });
 
-  app.get("/api/financial/revenue-by-customer", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/financial/revenue-by-customer", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
     try {
       const entityId = req.query.entityId ? +req.query.entityId : undefined;
       const limit = req.query.limit ? +req.query.limit : 10;
@@ -3869,7 +3890,7 @@ const freelancers = (Array.isArray(data) ? data : [])
     }
   });
 
-  app.get("/api/financial/cost-by-vendor", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/financial/cost-by-vendor", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
     try {
       const entityId = req.query.entityId ? +req.query.entityId : undefined;
       const limit = req.query.limit ? +req.query.limit : 10;
@@ -3880,7 +3901,7 @@ const freelancers = (Array.isArray(data) ? data : [])
     }
   });
 
-  app.get("/api/financial/monthly-trend", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/financial/monthly-trend", requireAuth, requireFinanceRole, async (req: Request, res: Response) => {
     try {
       const entityId = req.query.entityId ? +req.query.entityId : undefined;
       const months = req.query.months ? +req.query.months : 12;
@@ -3891,7 +3912,7 @@ const freelancers = (Array.isArray(data) ? data : [])
     }
   });
 
-  app.get("/api/financial/revenue-by-entity", requireAuth, async (_req: Request, res: Response) => {
+  app.get("/api/financial/revenue-by-entity", requireAuth, requireFinanceRole, async (_req: Request, res: Response) => {
     try {
       const data = await storage.getRevenueByEntity();
       res.json(data);

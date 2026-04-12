@@ -190,6 +190,7 @@ function AppLayout() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const canSeeVendorMgmt = ["gm", "admin", "operations_manager", "vm"].includes(userRole);
+  const canSeeFinances = ["gm", "operations_manager", "pm_team_lead", "admin"].includes(userRole);
   const canSeeAdmin = ["gm", "admin"].includes(userRole);
 
   return (
@@ -213,13 +214,13 @@ function AppLayout() {
 
           <div className="mb-3">
             {!sidebarCollapsed && <p className="px-3 mb-1 text-[10px] font-semibold text-white/20 uppercase tracking-wider">Management</p>}
-            <SidebarLink href="/vendors" label="Vendors" icon={<Users className="w-4 h-4 shrink-0" />} />
+            {canSeeVendorMgmt && <SidebarLink href="/vendors" label="Vendors" icon={<Users className="w-4 h-4 shrink-0" />} />}
             <SidebarLink href="/customers" label="Customers" icon={<Building2 className="w-4 h-4 shrink-0" />} />
             <SidebarLink href="/projects" label="Projects" icon={<FolderKanban className="w-4 h-4 shrink-0" />} />
             <SidebarLink href="/quality" label="Quality" icon={<Award className="w-4 h-4 shrink-0" />} />
           </div>
 
-          {(["gm", "operations_manager", "pm_team_lead", "admin"].includes(userRole)) && (
+          {canSeeFinances && (
             <div className="mb-3">
               {!sidebarCollapsed && <p className="px-3 mb-1 text-[10px] font-semibold text-white/20 uppercase tracking-wider">Finances</p>}
               <SidebarLink href="/finances" label="Dashboard" icon={<DollarSign className="w-4 h-4 shrink-0" />} />
@@ -295,14 +296,14 @@ function AppLayout() {
             <SidebarLink href="/" label="Dashboard" icon={<LayoutDashboard className="w-4 h-4" />} />
             <SidebarLink href="/history" label="Assignments" icon={<History className="w-4 h-4" />} />
             <SidebarLink href="/analytics" label="Analytics" icon={<BarChart3 className="w-4 h-4" />} />
-            <SidebarLink href="/vendors" label="Vendors" icon={<Users className="w-4 h-4" />} />
+            {canSeeVendorMgmt && <SidebarLink href="/vendors" label="Vendors" icon={<Users className="w-4 h-4" />} />}
             <SidebarLink href="/customers" label="Customers" icon={<Building2 className="w-4 h-4" />} />
             <SidebarLink href="/projects" label="Projects" icon={<FolderKanban className="w-4 h-4" />} />
             <SidebarLink href="/quality" label="Quality" icon={<Award className="w-4 h-4" />} />
-            <SidebarLink href="/finances" label="Finances" icon={<DollarSign className="w-4 h-4" />} />
-            <SidebarLink href="/invoices" label="Invoices" icon={<FileText className="w-4 h-4" />} />
-            <SidebarLink href="/purchase-orders" label="POs" icon={<ShoppingCart className="w-4 h-4" />} />
-            <SidebarLink href="/admin" label="Admin" icon={<Settings className="w-4 h-4" />} />
+            {canSeeFinances && <SidebarLink href="/finances" label="Finances" icon={<DollarSign className="w-4 h-4" />} />}
+            {canSeeFinances && <SidebarLink href="/invoices" label="Invoices" icon={<FileText className="w-4 h-4" />} />}
+            {canSeeFinances && <SidebarLink href="/purchase-orders" label="POs" icon={<ShoppingCart className="w-4 h-4" />} />}
+            {canSeeAdmin && <SidebarLink href="/admin" label="Admin" icon={<Settings className="w-4 h-4" />} />}
           </div>
         )}
 
