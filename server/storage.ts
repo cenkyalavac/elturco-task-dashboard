@@ -543,6 +543,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Quality Reports
+  async getQualityReport(id: number) {
+    const [result] = await db.select().from(qualityReports).where(eq(qualityReports.id, id));
+    return result;
+  }
   async getQualityReports(vendorId?: number) {
     if (vendorId) {
       return db.select().from(qualityReports).where(eq(qualityReports.vendorId, vendorId)).orderBy(desc(qualityReports.id));

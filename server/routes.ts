@@ -173,6 +173,38 @@ function safeError(fallback: string, e: any): string {
 }
 
 // ============================================
+// AUDIT LOGGING HELPER
+// ============================================
+async function logAudit(
+  userId: number | null,
+  action: string,
+  entityType: string,
+  entityId: number | null,
+  oldData: any,
+  newData: any,
+  ipAddress: string | null,
+): Promise<void> {
+  try {
+    await storage.createAuditEntry({
+      userId,
+      action,
+      entityType,
+      entityId,
+      oldData: oldData ? JSON.parse(JSON.stringify(oldData)) : null,
+      newData: newData ? JSON.parse(JSON.stringify(newData)) : null,
+      ipAddress,
+    });
+  } catch (e) {
+    // Never let audit logging failures break the main operation
+    console.error("Audit log error:", e);
+  }
+}
+
+function getClientIp(req: Request): string {
+  return (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip || "unknown";
+}
+
+// ============================================
 // MUTEX — prevents concurrent dispatch/sequence-advance on same task
 // ============================================
 const activeLocks = new Set<string>();
@@ -2960,6 +2992,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       if (!body) return;
       const passwordHash = body.password ? await bcrypt.hash(body.password, 10) : null;
       const user = await storage.createUser({ email: body.email.toLowerCase().trim(), name: body.name, initial: body.initial, passwordHash, role: body.role, entityId: body.entityId });
+      await logAudit((req as any).pmUserId, "create", "user", user.id, null, { ...user, passwordHash: undefined }, getClientIp(req));
       res.json({ ...user, passwordHash: undefined });
     } catch (e: any) {
       console.error("Create user error:", e);
@@ -2970,6 +3003,7 @@ const freelancers = (Array.isArray(data) ? data : [])
   app.patch("/api/users/:id", requireAuth, requireRole("admin", "gm"), async (req: Request, res: Response) => {
     try {
       const id = +param(req, "id");
+      const oldUser = await storage.getUserById(id);
       const updates: any = {};
       if (req.body.name) updates.name = req.body.name;
       if (req.body.initial) updates.initial = req.body.initial;
@@ -2978,6 +3012,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       if (req.body.isActive !== undefined) updates.isActive = req.body.isActive;
       if (req.body.password) updates.passwordHash = await bcrypt.hash(req.body.password, 10);
       const user = await storage.updateUser(id, updates);
+      await logAudit((req as any).pmUserId, "update", "user", id, oldUser ? { ...oldUser, passwordHash: undefined } : null, { ...user, passwordHash: undefined }, getClientIp(req));
       res.json({ ...user, passwordHash: undefined });
     } catch (e: any) {
       console.error("Update user error:", e);
@@ -2988,7 +3023,9 @@ const freelancers = (Array.isArray(data) ? data : [])
   app.delete("/api/users/:id", requireAuth, requireRole("admin", "gm"), async (req: Request, res: Response) => {
     try {
       const id = +param(req, "id");
+      const oldUser = await storage.getUserById(id);
       await storage.deleteUser(id);
+      await logAudit((req as any).pmUserId, "delete", "user", id, oldUser ? { ...oldUser, passwordHash: undefined } : null, null, getClientIp(req));
       res.json({ success: true });
     } catch (e: any) {
       console.error("Delete user error:", e);
@@ -3006,8 +3043,17 @@ const freelancers = (Array.isArray(data) ? data : [])
   app.get("/api/vendors", requireAuth, async (req: Request, res: Response) => {
     try {
       const { status, search, page, limit } = req.query;
+      // Look up user role for PM-scoped filtering
+      const pmUserId = (req as any).pmUserId;
+      const user = await storage.getUserById(pmUserId) || (await storage.getAllPmUsers()).find(u => u.id === pmUserId);
+      const userRole = (user as any)?.role || "pm";
+      // PM and PC users only see approved vendors
+      let effectiveStatus = status as string;
+      if (userRole === "pm" || userRole === "pc") {
+        effectiveStatus = "Approved";
+      }
       const filters = {
-        status: status as string,
+        status: effectiveStatus,
         search: search as string,
         page: page ? +page : 1,
         limit: limit ? +limit : 50,
@@ -3046,6 +3092,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       const body = validate(createVendorSchema, req.body, res);
       if (!body) return;
       const vendor = await storage.createVendor(body);
+      await logAudit((req as any).pmUserId, "create", "vendor", vendor.id, null, vendor, getClientIp(req));
       res.json(vendor);
     } catch (e: any) {
       console.error("Create vendor error:", e);
@@ -3055,7 +3102,10 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   app.patch("/api/vendors/:id", requireAuth, async (req: Request, res: Response) => {
     try {
-      const vendor = await storage.updateVendor(+param(req, "id"), req.body);
+      const id = +param(req, "id");
+      const oldVendor = await storage.getVendor(id);
+      const vendor = await storage.updateVendor(id, req.body);
+      await logAudit((req as any).pmUserId, "update", "vendor", id, oldVendor, vendor, getClientIp(req));
       res.json(vendor);
     } catch (e: any) {
       console.error("Update vendor error:", e);
@@ -3065,11 +3115,44 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   app.delete("/api/vendors/:id", requireAuth, async (req: Request, res: Response) => {
     try {
-      await storage.deleteVendor(+param(req, "id"));
+      const id = +param(req, "id");
+      const oldVendor = await storage.getVendor(id);
+      await storage.deleteVendor(id);
+      await logAudit((req as any).pmUserId, "delete", "vendor", id, oldVendor, null, getClientIp(req));
       res.json({ success: true });
     } catch (e: any) {
       console.error("Delete vendor error:", e);
       res.status(500).json({ error: "Failed to delete vendor" });
+    }
+  });
+
+  // ---- VENDOR IMPORT ----
+  app.post("/api/vendors/import", requireAuth, requireRole("vm", "gm", "admin"), async (req: Request, res: Response) => {
+    try {
+      const vendors = req.body;
+      if (!Array.isArray(vendors)) {
+        return res.status(400).json({ error: "Request body must be a JSON array of vendor objects" });
+      }
+      const imported: number[] = [];
+      const errors: { index: number; error: string }[] = [];
+      for (let i = 0; i < vendors.length; i++) {
+        const result = createVendorSchema.safeParse(vendors[i]);
+        if (!result.success) {
+          errors.push({ index: i, error: result.error.errors.map(e => e.message).join(", ") });
+          continue;
+        }
+        try {
+          const vendor = await storage.createVendor(result.data);
+          imported.push(vendor.id);
+          await logAudit((req as any).pmUserId, "import", "vendor", vendor.id, null, vendor, getClientIp(req));
+        } catch (e: any) {
+          errors.push({ index: i, error: e?.message || "Failed to insert vendor" });
+        }
+      }
+      res.json({ imported: imported.length, skipped: errors.length, errors });
+    } catch (e: any) {
+      console.error("Vendor import error:", e);
+      res.status(500).json({ error: "Failed to import vendors" });
     }
   });
 
@@ -3153,6 +3236,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       const body = validate(createCustomerSchema, req.body, res);
       if (!body) return;
       const customer = await storage.createCustomer(body);
+      await logAudit((req as any).pmUserId, "create", "customer", customer.id, null, customer, getClientIp(req));
       res.json(customer);
     } catch (e: any) {
       console.error("Create customer error:", e);
@@ -3162,7 +3246,10 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   app.patch("/api/customers/:id", requireAuth, async (req: Request, res: Response) => {
     try {
-      const customer = await storage.updateCustomer(+param(req, "id"), req.body);
+      const id = +param(req, "id");
+      const oldCustomer = await storage.getCustomer(id);
+      const customer = await storage.updateCustomer(id, req.body);
+      await logAudit((req as any).pmUserId, "update", "customer", id, oldCustomer, customer, getClientIp(req));
       res.json(customer);
     } catch (e: any) {
       console.error("Update customer error:", e);
@@ -3288,8 +3375,17 @@ const freelancers = (Array.isArray(data) ? data : [])
   app.get("/api/projects", requireAuth, async (req: Request, res: Response) => {
     try {
       const { pmId, customerId, status, page, limit } = req.query;
+      // Look up user role for PM-scoped filtering
+      const pmUserId = (req as any).pmUserId;
+      const user = await storage.getUserById(pmUserId) || (await storage.getAllPmUsers()).find(u => u.id === pmUserId);
+      const userRole = (user as any)?.role || "pm";
+      // PM and PC users only see their own projects
+      let effectivePmId = pmId ? +pmId : undefined;
+      if (userRole === "pm" || userRole === "pc") {
+        effectivePmId = pmUserId;
+      }
       const filters = {
-        pmId: pmId ? +pmId : undefined,
+        pmId: effectivePmId,
         customerId: customerId ? +customerId : undefined,
         status: status as string,
         page: page ? +page : 1,
@@ -3325,6 +3421,7 @@ const freelancers = (Array.isArray(data) ? data : [])
         (body as any).projectCode = `${prefix}-${year}-${String(seq).padStart(4, "0")}`;
       }
       const project = await storage.createProject(body);
+      await logAudit((req as any).pmUserId, "create", "project", project.id, null, project, getClientIp(req));
       res.json(project);
     } catch (e: any) {
       console.error("Create project error:", e);
@@ -3334,7 +3431,10 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   app.patch("/api/projects/:id", requireAuth, async (req: Request, res: Response) => {
     try {
-      const project = await storage.updateProject(+param(req, "id"), req.body);
+      const id = +param(req, "id");
+      const oldProject = await storage.getProject(id);
+      const project = await storage.updateProject(id, req.body);
+      await logAudit((req as any).pmUserId, "update", "project", id, oldProject, project, getClientIp(req));
       res.json(project);
     } catch (e: any) {
       console.error("Update project error:", e);
@@ -3389,6 +3489,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       const body = validate(createQualityReportSchema, req.body, res);
       if (!body) return;
       const report = await storage.createQualityReport(body);
+      await logAudit((req as any).pmUserId, "create", "quality_report", report.id, null, report, getClientIp(req));
       res.json(report);
     } catch (e: any) {
       console.error("Create quality report error:", e);
@@ -3398,7 +3499,10 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   app.patch("/api/quality-reports/:id", requireAuth, async (req: Request, res: Response) => {
     try {
-      const report = await storage.updateQualityReport(+param(req, "id"), req.body);
+      const id = +param(req, "id");
+      const oldReport = await storage.getQualityReport(id);
+      const report = await storage.updateQualityReport(id, req.body);
+      await logAudit((req as any).pmUserId, "update", "quality_report", id, oldReport, report, getClientIp(req));
       res.json(report);
     } catch (e: any) {
       console.error("Update quality report error:", e);
@@ -3420,6 +3524,7 @@ const freelancers = (Array.isArray(data) ? data : [])
         submissionDate: new Date(),
         reviewDeadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
       });
+      await logAudit((req as any).pmUserId, "submit", "quality_report", id, existing, report, getClientIp(req));
       res.json(report);
     } catch (e: any) {
       console.error("Submit quality report error:", e);
@@ -3441,6 +3546,7 @@ const freelancers = (Array.isArray(data) ? data : [])
         status: "translator_disputed",
         translatorComments: translatorComments || null,
       });
+      await logAudit((req as any).pmUserId, "dispute", "quality_report", id, existing, report, getClientIp(req));
       res.json(report);
     } catch (e: any) {
       console.error("Dispute quality report error:", e);
@@ -3481,6 +3587,7 @@ const freelancers = (Array.isArray(data) ? data : [])
         }
       }
       const order = await storage.createPurchaseOrder(data);
+      await logAudit((req as any).pmUserId, "create", "purchase_order", order.id, null, order, getClientIp(req));
       res.status(201).json(order);
     } catch (e: any) {
       console.error("Create purchase order error:", e);
@@ -3490,7 +3597,10 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   app.patch("/api/purchase-orders/:id", requireAuth, async (req: Request, res: Response) => {
     try {
-      const order = await storage.updatePurchaseOrder(+param(req, "id"), req.body);
+      const id = +param(req, "id");
+      const oldOrder = await storage.getPurchaseOrder(id);
+      const order = await storage.updatePurchaseOrder(id, req.body);
+      await logAudit((req as any).pmUserId, "update", "purchase_order", id, oldOrder, order, getClientIp(req));
       res.json(order);
     } catch (e: any) {
       res.status(500).json({ error: safeError("Internal server error", e) });
@@ -3557,6 +3667,7 @@ const freelancers = (Array.isArray(data) ? data : [])
         }
       }
       const createdLines = await storage.getInvoiceLines(invoice.id);
+      await logAudit((req as any).pmUserId, "create", "invoice", invoice.id, null, { ...invoice, lines: createdLines }, getClientIp(req));
       res.status(201).json({ ...invoice, lines: createdLines });
     } catch (e: any) {
       console.error("Create invoice error:", e);
@@ -3566,14 +3677,17 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   app.patch("/api/invoices/:id", requireAuth, async (req: Request, res: Response) => {
     try {
+      const id = +param(req, "id");
+      const oldInvoice = await storage.getInvoice(id);
       const { lines, ...updateData } = req.body;
-      const invoice = await storage.updateInvoice(+param(req, "id"), updateData);
+      const invoice = await storage.updateInvoice(id, updateData);
       if (lines) {
         await storage.deleteInvoiceLines(invoice!.id);
         for (const line of lines) {
           await storage.createInvoiceLine({ ...line, invoiceId: invoice!.id });
         }
       }
+      await logAudit((req as any).pmUserId, "update", "invoice", id, oldInvoice, invoice, getClientIp(req));
       res.json(invoice);
     } catch (e: any) {
       res.status(500).json({ error: safeError("Internal server error", e) });
