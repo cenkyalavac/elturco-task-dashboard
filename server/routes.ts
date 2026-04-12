@@ -6010,10 +6010,76 @@ const freelancers = (Array.isArray(data) ? data : [])
         entityId = newEnt.id;
       }
 
-      // Find a vendor
-      let vendorId: number | null = null;
-      const [existingVendor] = await db.select({ id: vendors.id }).from(vendors).limit(1);
-      if (existingVendor) vendorId = existingVendor.id;
+      // ── Seed 8 vendors ──
+      // Clean up previous seed vendors and related data
+      await db.delete(vendorLanguagePairs).where(
+        sql`vendor_id IN (SELECT id FROM vendors WHERE email LIKE '%@example.com')`
+      );
+      await db.delete(vendorRateCards).where(
+        sql`vendor_id IN (SELECT id FROM vendors WHERE email LIKE '%@example.com')`
+      );
+      await db.delete(qualityReports).where(
+        sql`vendor_id IN (SELECT id FROM vendors WHERE email LIKE '%@example.com')`
+      );
+      await db.delete(vendors).where(sql`email LIKE '%@example.com'`);
+
+      const vendorSeedData = [
+        { resourceCode: "VND-001", fullName: "Ayşe Kaya", email: "ayse.kaya@example.com", phone: "+90 532 111 2233", location: "Istanbul, Turkey", nativeLanguage: "Turkish", translationSpecializations: ["Technology", "Legal"], serviceTypes: ["Translation", "MTPE", "Review"], status: "Approved", combinedQualityScore: "85.00", averageQsScore: "4.20", totalReviewsCount: 12, valueIndex: "14.1667", tier: "premium", rates: [{ type: "per_word", value: 0.06, currency: "EUR", service: "Translation" }], experienceYears: 8 },
+        { resourceCode: "VND-002", fullName: "Hans Müller", email: "hans.muller@example.com", phone: "+49 170 222 3344", location: "Berlin, Germany", nativeLanguage: "German", translationSpecializations: ["Automotive", "Technology"], serviceTypes: ["Translation", "Review"], status: "Approved", combinedQualityScore: "78.00", averageQsScore: "3.80", totalReviewsCount: 8, valueIndex: "9.7500", tier: "standard", rates: [{ type: "per_word", value: 0.08, currency: "EUR", service: "Translation" }], experienceYears: 12 },
+        { resourceCode: "VND-003", fullName: "Marie Dupont", email: "marie.dupont@example.com", phone: "+33 6 33 44 55 66", location: "Paris, France", nativeLanguage: "French", translationSpecializations: ["Marketing", "Fashion"], serviceTypes: ["Translation", "MTPE"], status: "Approved", combinedQualityScore: "92.00", averageLqaScore: "92.00", averageQsScore: "4.60", totalReviewsCount: 15, valueIndex: "13.1429", tier: "premium", rates: [{ type: "per_word", value: 0.07, currency: "EUR", service: "Translation" }], experienceYears: 10 },
+        { resourceCode: "VND-004", fullName: "Carlos García", email: "carlos.garcia@example.com", phone: "+34 612 445 566", location: "Madrid, Spain", nativeLanguage: "Spanish", translationSpecializations: ["Entertainment", "Media"], serviceTypes: ["Translation", "Subtitling"], status: "Approved", combinedQualityScore: "80.00", averageQsScore: "4.00", totalReviewsCount: 10, valueIndex: "12.3077", tier: "standard", rates: [{ type: "per_word", value: 0.065, currency: "EUR", service: "Translation" }], experienceYears: 6 },
+        { resourceCode: "VND-005", fullName: "Ana Silva", email: "ana.silva@example.com", phone: "+351 912 556 677", location: "Lisbon, Portugal", nativeLanguage: "Portuguese", translationSpecializations: ["Technology", "E-commerce"], serviceTypes: ["Translation", "MTPE"], status: "Approved", combinedQualityScore: "88.00", averageQsScore: "4.50", totalReviewsCount: 11, valueIndex: "16.0000", tier: "premium", rates: [{ type: "per_word", value: 0.055, currency: "EUR", service: "Translation" }], experienceYears: 7 },
+        { resourceCode: "VND-006", fullName: "Mehmet Yılmaz", email: "mehmet.yilmaz@example.com", phone: "+90 533 667 7888", location: "Ankara, Turkey", nativeLanguage: "Turkish", translationSpecializations: ["Gaming", "Technology"], serviceTypes: ["Translation", "LQA"], status: "Test Sent", combinedQualityScore: "70.00", averageQsScore: "3.50", totalReviewsCount: 3, valueIndex: "14.0000", tier: "economy", rates: [{ type: "per_word", value: 0.05, currency: "EUR", service: "Translation" }], experienceYears: 3 },
+        { resourceCode: "VND-007", fullName: "Sophie Weber", email: "sophie.weber@example.com", phone: "+49 171 778 8999", location: "Munich, Germany", nativeLanguage: "German", translationSpecializations: ["Medical", "Pharma"], serviceTypes: ["Translation", "Review", "LQA"], status: "Price Negotiation", combinedQualityScore: null, averageQsScore: null, totalReviewsCount: 0, valueIndex: null, tier: "standard", rates: [{ type: "per_word", value: 0.10, currency: "EUR", service: "Translation" }], experienceYears: 15 },
+        { resourceCode: "VND-008", fullName: "Pierre Martin", email: "pierre.martin@example.com", phone: "+33 6 88 99 00 11", location: "Lyon, France", nativeLanguage: "French", translationSpecializations: ["Legal", "Finance"], serviceTypes: ["Translation"], status: "New Application", combinedQualityScore: null, averageQsScore: null, totalReviewsCount: 0, valueIndex: null, tier: "standard", rates: [{ type: "per_word", value: 0.09, currency: "EUR", service: "Translation" }], experienceYears: 5 },
+      ];
+
+      const vendorIds: Record<string, number> = {};
+      for (const v of vendorSeedData) {
+        const [inserted] = await db.insert(vendors).values({
+          resourceCode: v.resourceCode, fullName: v.fullName, email: v.email, phone: v.phone,
+          location: v.location, nativeLanguage: v.nativeLanguage, translationSpecializations: v.translationSpecializations,
+          serviceTypes: v.serviceTypes, status: v.status, combinedQualityScore: v.combinedQualityScore,
+          averageLqaScore: (v as any).averageLqaScore || null, averageQsScore: v.averageQsScore,
+          totalReviewsCount: v.totalReviewsCount, valueIndex: v.valueIndex, tier: v.tier,
+          currency: "EUR", rates: v.rates, experienceYears: v.experienceYears, resourceType: "Freelancer",
+        }).returning({ id: vendors.id });
+        vendorIds[v.fullName] = inserted.id;
+      }
+
+      // Vendor language pairs
+      const langPairData: { vendorName: string; pairs: { source: string; target: string; isPrimary: boolean }[] }[] = [
+        { vendorName: "Ayşe Kaya", pairs: [{ source: "EN", target: "TR", isPrimary: true }, { source: "TR", target: "EN", isPrimary: false }] },
+        { vendorName: "Hans Müller", pairs: [{ source: "EN", target: "DE", isPrimary: true }, { source: "DE", target: "EN", isPrimary: false }] },
+        { vendorName: "Marie Dupont", pairs: [{ source: "EN", target: "FR", isPrimary: true }, { source: "FR", target: "EN", isPrimary: false }] },
+        { vendorName: "Carlos García", pairs: [{ source: "EN", target: "ES", isPrimary: true }, { source: "ES", target: "EN", isPrimary: false }] },
+        { vendorName: "Ana Silva", pairs: [{ source: "EN", target: "PT", isPrimary: true }, { source: "PT", target: "EN", isPrimary: false }] },
+        { vendorName: "Mehmet Yılmaz", pairs: [{ source: "EN", target: "TR", isPrimary: true }] },
+        { vendorName: "Sophie Weber", pairs: [{ source: "EN", target: "DE", isPrimary: true }] },
+        { vendorName: "Pierre Martin", pairs: [{ source: "EN", target: "FR", isPrimary: true }] },
+      ];
+      for (const lp of langPairData) {
+        for (const pair of lp.pairs) {
+          await db.insert(vendorLanguagePairs).values({ vendorId: vendorIds[lp.vendorName], sourceLanguage: pair.source, targetLanguage: pair.target, isPrimary: pair.isPrimary });
+        }
+      }
+
+      // Vendor rate cards
+      const rateCardData: { vendorName: string; cards: { source: string; target: string; service: string; rateType: string; rateValue: string; ratePerWord: string | null }[] }[] = [
+        { vendorName: "Ayşe Kaya", cards: [{ source: "EN", target: "TR", service: "Translation", rateType: "per_word", rateValue: "0.0600", ratePerWord: "0.0600" }, { source: "EN", target: "TR", service: "MTPE", rateType: "per_word", rateValue: "0.0400", ratePerWord: "0.0400" }] },
+        { vendorName: "Hans Müller", cards: [{ source: "EN", target: "DE", service: "Translation", rateType: "per_word", rateValue: "0.0800", ratePerWord: "0.0800" }] },
+        { vendorName: "Marie Dupont", cards: [{ source: "EN", target: "FR", service: "Translation", rateType: "per_word", rateValue: "0.0700", ratePerWord: "0.0700" }, { source: "EN", target: "FR", service: "MTPE", rateType: "per_word", rateValue: "0.0500", ratePerWord: "0.0500" }] },
+        { vendorName: "Carlos García", cards: [{ source: "EN", target: "ES", service: "Translation", rateType: "per_word", rateValue: "0.0650", ratePerWord: "0.0650" }] },
+        { vendorName: "Ana Silva", cards: [{ source: "EN", target: "PT", service: "Translation", rateType: "per_word", rateValue: "0.0550", ratePerWord: "0.0550" }] },
+        { vendorName: "Mehmet Yılmaz", cards: [{ source: "EN", target: "TR", service: "Translation", rateType: "per_word", rateValue: "0.0500", ratePerWord: "0.0500" }] },
+        { vendorName: "Sophie Weber", cards: [{ source: "EN", target: "DE", service: "Translation", rateType: "per_word", rateValue: "0.1000", ratePerWord: "0.1000" }] },
+        { vendorName: "Pierre Martin", cards: [{ source: "EN", target: "FR", service: "Translation", rateType: "per_word", rateValue: "0.0900", ratePerWord: "0.0900" }] },
+      ];
+      for (const rc of rateCardData) {
+        for (const card of rc.cards) {
+          await db.insert(vendorRateCards).values({ vendorId: vendorIds[rc.vendorName], sourceLanguage: card.source, targetLanguage: card.target, serviceType: card.service, rateType: card.rateType, rateValue: card.rateValue, ratePerWord: card.ratePerWord, currency: "EUR" });
+        }
+      }
 
       // Clean up previous seed data
       await db.delete(portalTasksTable).where(
@@ -6041,27 +6107,29 @@ const freelancers = (Array.isArray(data) ? data : [])
         sql`${projects.projectName} IN ('Samsung Mobile App Localization', 'Netflix Subtitle Translation')`
       );
 
-      // Project 1
+      const ayseId = vendorIds["Ayşe Kaya"];
+
+      // Project 1 — with rates and vendor assignment
       const [p1] = await db.insert(projects).values({
         entityId, customerId, projectName: "Samsung Mobile App Localization", projectCode: "MAN-2026-0050",
         source: "manual", status: "in_progress", deadline: in5days,
       }).returning({ id: projects.id });
 
       await db.insert(jobs).values([
-        { projectId: p1.id, jobCode: "MAN-2026-0050-TR", jobName: "EN>TR Translation", sourceLanguage: "EN", targetLanguage: "TR", serviceType: "Translation", status: "assigned", wordCount: 3500, vendorId, assignedAt: now, deadline: in5days },
-        { projectId: p1.id, jobCode: "MAN-2026-0050-DE", jobName: "EN>DE Translation", sourceLanguage: "EN", targetLanguage: "DE", serviceType: "Translation", status: "unassigned", wordCount: 3500, deadline: in5days },
-        { projectId: p1.id, jobCode: "MAN-2026-0050-FR", jobName: "EN>FR Translation", sourceLanguage: "EN", targetLanguage: "FR", serviceType: "Translation", status: "unassigned", wordCount: 3500, deadline: in5days },
+        { projectId: p1.id, jobCode: "MAN-2026-0050-TR", jobName: "EN>TR Translation", sourceLanguage: "EN", targetLanguage: "TR", serviceType: "Translation", status: "assigned", wordCount: 2500, vendorId: ayseId, assignedAt: now, vendorRate: "0.0600", clientRate: "0.1000", vendorTotal: "150.00", clientTotal: "250.00", deadline: in5days },
+        { projectId: p1.id, jobCode: "MAN-2026-0050-DE", jobName: "EN>DE Translation", sourceLanguage: "EN", targetLanguage: "DE", serviceType: "Translation", status: "unassigned", wordCount: 2500, vendorRate: "0.0800", clientRate: "0.1200", vendorTotal: "200.00", clientTotal: "300.00", deadline: in5days },
+        { projectId: p1.id, jobCode: "MAN-2026-0050-FR", jobName: "EN>FR Translation", sourceLanguage: "EN", targetLanguage: "FR", serviceType: "Translation", status: "unassigned", wordCount: 2500, vendorRate: "0.0700", clientRate: "0.1100", vendorTotal: "175.00", clientTotal: "275.00", deadline: in5days },
       ]);
 
-      // Project 2
+      // Project 2 — with rates
       const [p2] = await db.insert(projects).values({
         entityId, customerId, projectName: "Netflix Subtitle Translation", projectCode: "SYM-2026-0399",
         source: "symfonie", externalId: "SYM-2026-0399", status: "confirmed", deadline: in5days,
       }).returning({ id: projects.id });
 
       await db.insert(jobs).values([
-        { projectId: p2.id, jobCode: "SYM-2026-0399-ES", jobName: "EN>ES Translation", sourceLanguage: "EN", targetLanguage: "ES", serviceType: "Translation", status: "unassigned", wordCount: 5000, deadline: in5days },
-        { projectId: p2.id, jobCode: "SYM-2026-0399-PT", jobName: "EN>PT Translation", sourceLanguage: "EN", targetLanguage: "PT", serviceType: "Translation", status: "unassigned", wordCount: 5000, deadline: in5days },
+        { projectId: p2.id, jobCode: "SYM-2026-0399-ES", jobName: "EN>ES Translation", sourceLanguage: "EN", targetLanguage: "ES", serviceType: "Translation", status: "unassigned", wordCount: 2500, vendorRate: "0.0650", clientRate: "0.1000", vendorTotal: "162.50", clientTotal: "250.00", deadline: in5days },
+        { projectId: p2.id, jobCode: "SYM-2026-0399-PT", jobName: "EN>PT Translation", sourceLanguage: "EN", targetLanguage: "PT", serviceType: "Translation", status: "unassigned", wordCount: 2500, vendorRate: "0.0550", clientRate: "0.0900", vendorTotal: "137.50", clientTotal: "225.00", deadline: in5days },
       ]);
 
       // Seed notifications
@@ -6074,12 +6142,66 @@ const freelancers = (Array.isArray(data) ? data : [])
         { pmUserId: 5, type: "deadline_warning", title: "Deadline approaching: Lionbridge Legal Review (tomorrow)", message: "The Lionbridge Legal Review DE>EN task deadline is tomorrow.", read: false },
       ]);
 
+      // ── Seed activity feed (audit_log) ──
+      let auditUserId: number | null = null;
+      const [existingUser] = await db.select({ id: users.id }).from(users).limit(1);
+      if (existingUser) auditUserId = existingUser.id;
+
+      await db.delete(auditLog).where(
+        sql`${auditLog.entityType} IN ('vendor', 'project', 'job', 'portal_task')
+        AND ${auditLog.action} IN ('vendor_created', 'vendor_approved', 'project_created', 'job_assigned', 'portal_task_received', 'vendor_stage_changed', 'quality_report_submitted')`
+      );
+
+      const auditEntries = [
+        { action: "vendor_created", entityType: "vendor", entityId: vendorIds["Pierre Martin"], newData: { fullName: "Pierre Martin", email: "pierre.martin@example.com", status: "New Application" }, createdAt: new Date(now.getTime() - 2 * 3600000) },
+        { action: "vendor_approved", entityType: "vendor", entityId: vendorIds["Ayşe Kaya"], oldData: { status: "Test Sent" }, newData: { status: "Approved", fullName: "Ayşe Kaya" }, createdAt: new Date(now.getTime() - 4 * 3600000) },
+        { action: "project_created", entityType: "project", entityId: p1.id, newData: { projectName: "Samsung Mobile App Localization", source: "manual", status: "in_progress" }, createdAt: new Date(now.getTime() - 6 * 3600000) },
+        { action: "project_created", entityType: "project", entityId: p2.id, newData: { projectName: "Netflix Subtitle Translation", source: "symfonie", status: "confirmed" }, createdAt: new Date(now.getTime() - 5 * 3600000) },
+        { action: "job_assigned", entityType: "job", entityId: null, newData: { jobCode: "MAN-2026-0050-TR", vendorName: "Ayşe Kaya", project: "Samsung Mobile App Localization" }, createdAt: new Date(now.getTime() - 3 * 3600000) },
+        { action: "portal_task_received", entityType: "portal_task", entityId: null, newData: { externalId: "SYM-2026-0412", portal: "symfonie", task: "Amazon Product Listings EN>DE" }, createdAt: new Date(now.getTime() - 1 * 3600000) },
+        { action: "vendor_stage_changed", entityType: "vendor", entityId: vendorIds["Mehmet Yılmaz"], oldData: { status: "New Application" }, newData: { status: "Test Sent", fullName: "Mehmet Yılmaz" }, createdAt: new Date(now.getTime() - 8 * 3600000) },
+        { action: "quality_report_submitted", entityType: "vendor", entityId: vendorIds["Marie Dupont"], newData: { vendorName: "Marie Dupont", reportType: "LQA", lqaScore: 92, account: "Netflix" }, createdAt: new Date(now.getTime() - 12 * 3600000) },
+      ];
+
+      for (const entry of auditEntries) {
+        await db.insert(auditLog).values({
+          userId: auditUserId, action: entry.action, entityType: entry.entityType,
+          entityId: entry.entityId, oldData: (entry as any).oldData || null,
+          newData: entry.newData, createdAt: entry.createdAt,
+        });
+      }
+
+      // ── Seed quality reports ──
+      const qrData = [
+        { vendorId: vendorIds["Ayşe Kaya"], reportType: "QS", qsScore: "4.2", lqaScore: null, projectName: "Samsung Mobile App Localization", clientAccount: "Samsung", sourceLanguage: "EN", targetLanguage: "TR", wordCount: 3500, contentType: "Technology", jobType: "Translation", status: "completed", reviewerComments: "Excellent terminology consistency.", reportDate: new Date(now.getTime() - 7 * 86400000).toISOString().split("T")[0] },
+        { vendorId: vendorIds["Hans Müller"], reportType: "QS", qsScore: "3.8", lqaScore: null, projectName: "Samsung Mobile App Localization", clientAccount: "Samsung", sourceLanguage: "EN", targetLanguage: "DE", wordCount: 3500, contentType: "Technology", jobType: "Translation", status: "completed", reviewerComments: "Good accuracy, some glossary inconsistency.", reportDate: new Date(now.getTime() - 5 * 86400000).toISOString().split("T")[0] },
+        { vendorId: vendorIds["Marie Dupont"], reportType: "LQA", qsScore: null, lqaScore: "92.00", projectName: "Netflix Subtitle Translation", clientAccount: "Netflix", sourceLanguage: "EN", targetLanguage: "FR", wordCount: 5000, contentType: "Entertainment", jobType: "Translation", status: "completed", reviewerComments: "Outstanding quality.", reportDate: new Date(now.getTime() - 3 * 86400000).toISOString().split("T")[0] },
+        { vendorId: vendorIds["Carlos García"], reportType: "QS", qsScore: "4.0", lqaScore: null, projectName: "Netflix Subtitle Translation", clientAccount: "Netflix", sourceLanguage: "EN", targetLanguage: "ES", wordCount: 5000, contentType: "Entertainment", jobType: "Translation", status: "completed", reviewerComments: "Solid subtitle work.", reportDate: new Date(now.getTime() - 2 * 86400000).toISOString().split("T")[0] },
+        { vendorId: vendorIds["Ana Silva"], reportType: "QS", qsScore: "4.5", lqaScore: null, projectName: "Netflix Subtitle Translation", clientAccount: "Netflix", sourceLanguage: "EN", targetLanguage: "PT", wordCount: 5000, contentType: "Entertainment", jobType: "Translation", status: "completed", reviewerComments: "Exceptional quality.", reportDate: new Date(now.getTime() - 1 * 86400000).toISOString().split("T")[0] },
+      ];
+
+      for (const qr of qrData) {
+        await db.insert(qualityReports).values(qr);
+      }
+
+      // Update vendor account quality scores
+      await db.update(vendors).set({ accountQualityScores: [{ account: "Samsung", qsAvg: 4.2, reportCount: 1 }] }).where(eq(vendors.id, vendorIds["Ayşe Kaya"]));
+      await db.update(vendors).set({ accountQualityScores: [{ account: "Samsung", qsAvg: 3.8, reportCount: 1 }] }).where(eq(vendors.id, vendorIds["Hans Müller"]));
+      await db.update(vendors).set({ accountQualityScores: [{ account: "Netflix", lqaAvg: 92.0, reportCount: 1 }] }).where(eq(vendors.id, vendorIds["Marie Dupont"]));
+      await db.update(vendors).set({ accountQualityScores: [{ account: "Netflix", qsAvg: 4.0, reportCount: 1 }] }).where(eq(vendors.id, vendorIds["Carlos García"]));
+      await db.update(vendors).set({ accountQualityScores: [{ account: "Netflix", qsAvg: 4.5, reportCount: 1 }] }).where(eq(vendors.id, vendorIds["Ana Silva"]));
+
       res.json({
         success: true,
         seeded: {
+          vendors: 8,
+          vendorLanguagePairs: langPairData.reduce((sum, lp) => sum + lp.pairs.length, 0),
+          vendorRateCards: rateCardData.reduce((sum, rc) => sum + rc.cards.length, 0),
           portalTasks: 3,
           projects: [{ id: p1.id, name: "Samsung Mobile App Localization", jobs: 3 }, { id: p2.id, name: "Netflix Subtitle Translation", jobs: 2 }],
           notifications: 2,
+          auditLogEntries: auditEntries.length,
+          qualityReports: qrData.length,
         },
       });
     } catch (e: any) {
