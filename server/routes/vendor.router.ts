@@ -9,7 +9,7 @@
 import { Router, Request, Response } from "express";
 import multer from "multer";
 import { z } from "zod";
-import { eq, and, sql, desc, asc } from "drizzle-orm";
+import { eq, and, sql, desc, asc, inArray, gte, lte, ilike, or } from "drizzle-orm";
 import { storage, db } from "../storage";
 import {
   vendors,
@@ -19,7 +19,16 @@ import {
   vendorDocumentSignatures,
   vendorAvailability,
   vendorFiles,
+  vendorFileUploads,
   qualityReports,
+  vendorApplications,
+  vendorStageHistory,
+  vendorFilterPresets,
+  vendorActivities,
+  quizAssignments,
+  quizAttempts,
+  quizzes,
+  jobs,
 } from "@shared/schema";
 import {
   requireAuth,
@@ -32,7 +41,12 @@ import {
   maskCredentials,
   getCached,
   setCache,
+  generateToken,
+  sendEmail,
+  FROM_EMAIL,
+  SITE_PUBLIC_URL,
 } from "./shared";
+import rateLimit from "express-rate-limit";
 
 const router = Router();
 
@@ -683,10 +697,25 @@ router.post("/vendors/recalculate-value-index", requireAuth, async (req: Request
 router.patch("/vendors/:id/stage", requireAuth, async (req: Request, res: Response) => {
   try {
     const vendorId = +param(req, "id");
-    const { status: newStatus } = req.body;
+    const { status: newStatus, notes } = req.body;
     if (!newStatus) return res.status(400).json({ error: "Status required" });
+
+    // Get current status for history
+    const [current] = await db.select({ status: vendors.status }).from(vendors).where(eq(vendors.id, vendorId));
+    const oldStatus = current?.status;
+
     await db.update(vendors).set({ status: newStatus, stageChangedDate: new Date(), updatedAt: new Date() }).where(eq(vendors.id, vendorId));
-    await logAudit((req as any).pmUserId, "stage_change", "vendor", vendorId, null, { status: newStatus }, getClientIp(req));
+
+    // Log stage history
+    await db.insert(vendorStageHistory).values({
+      vendorId,
+      fromStage: oldStatus,
+      toStage: newStatus,
+      changedBy: (req as any).pmUserId,
+      notes: notes || null,
+    });
+
+    await logAudit((req as any).pmUserId, "stage_change", "vendor", vendorId, { status: oldStatus }, { status: newStatus }, getClientIp(req));
     const updated = await storage.getVendor(vendorId);
     res.json(updated);
   } catch (e: any) {
@@ -823,6 +852,551 @@ router.get("/export/vendors", requireAuth, async (_req: Request, res: Response) 
     res.send(csv);
   } catch (e: any) {
     res.status(500).json({ error: safeError("Export failed", e) });
+  }
+});
+
+// ============================================
+// PUBLIC: VENDOR APPLICATION FORM
+// ============================================
+const applicationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: "Too many applications, please try again later" },
+});
+
+const applicationSchema = z.object({
+  fullName: z.string().min(1).max(200),
+  email: z.string().email().max(255),
+  phone: z.string().max(50).optional(),
+  location: z.string().max(200).optional(),
+  timezone: z.string().max(100).optional(),
+  website: z.string().max(500).optional(),
+  linkedin: z.string().max(500).optional(),
+  nativeLanguage: z.string().max(50).optional(),
+  languagePairs: z.array(z.object({
+    source: z.string(),
+    target: z.string(),
+    proficiency: z.string().optional(),
+  })).optional(),
+  serviceTypes: z.array(z.string()).optional(),
+  specializations: z.array(z.string()).optional(),
+  software: z.array(z.object({
+    name: z.string(),
+    proficiency: z.string().optional(),
+  })).optional(),
+  experienceYears: z.number().int().min(0).optional(),
+  education: z.string().optional(),
+  certifications: z.array(z.string()).optional(),
+  cvFileUrl: z.string().optional(),
+  ratePerWord: z.any().optional(),
+  ratePerHour: z.any().optional(),
+  minimumFee: z.any().optional(),
+  currency: z.string().max(3).optional(),
+});
+
+router.post("/vendors/apply", applicationLimiter, async (req: Request, res: Response) => {
+  try {
+    const body = validate(applicationSchema, req.body, res);
+    if (!body) return;
+
+    // Save to vendor_applications table
+    const [application] = await db.insert(vendorApplications).values({
+      fullName: body.fullName,
+      email: body.email,
+      phone: body.phone,
+      location: body.location,
+      timezone: body.timezone,
+      website: body.website,
+      linkedin: body.linkedin,
+      nativeLanguage: body.nativeLanguage,
+      languagePairs: body.languagePairs || [],
+      serviceTypes: body.serviceTypes,
+      specializations: body.specializations,
+      software: body.software || [],
+      experienceYears: body.experienceYears,
+      education: body.education,
+      certifications: body.certifications,
+      cvFileUrl: body.cvFileUrl,
+      ratePerWord: body.ratePerWord?.toString(),
+      ratePerHour: body.ratePerHour?.toString(),
+      minimumFee: body.minimumFee?.toString(),
+      currency: body.currency || "EUR",
+    }).returning();
+
+    // Create vendor with "New Application" status
+    const nameParts = body.fullName.trim().split(/\s+/);
+    const initials = nameParts.map(p => p.charAt(0).toUpperCase()).join("").slice(0, 3);
+    const allVendors = await storage.getVendors();
+    const existingCodes = (allVendors as any[]).map((v: any) => v.resourceCode).filter(Boolean);
+    let seq = 1;
+    let code = `${initials}${String(seq).padStart(3, "0")}`;
+    while (existingCodes.includes(code)) { seq++; code = `${initials}${String(seq).padStart(3, "0")}`; }
+
+    const vendor = await storage.createVendor({
+      fullName: body.fullName,
+      email: body.email,
+      phone: body.phone,
+      location: body.location,
+      website: body.website,
+      nativeLanguage: body.nativeLanguage,
+      serviceTypes: body.serviceTypes,
+      specializations: body.specializations,
+      software: body.software?.map(s => s.name),
+      experienceYears: body.experienceYears,
+      education: body.education,
+      certifications: body.certifications,
+      cvFileUrl: body.cvFileUrl,
+      currency: body.currency || "EUR",
+      minimumFee: body.minimumFee?.toString(),
+      status: "New Application",
+      resourceCode: code,
+    });
+
+    // Link application to vendor
+    await db.update(vendorApplications).set({ vendorId: vendor.id }).where(eq(vendorApplications.id, application.id));
+
+    // Send confirmation email
+    await sendEmail(
+      [body.email],
+      "Application Received — El Turco Translation Services",
+      `<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2>Thank you for your application!</h2>
+        <p>Dear ${body.fullName},</p>
+        <p>We have received your application to join El Turco Translation Services as a vendor. Our team will review your profile and get back to you shortly.</p>
+        <p>Best regards,<br/>El Turco Translation Services</p>
+      </div>`
+    ).catch(() => {});
+
+    res.status(201).json({ success: true, message: "Application submitted successfully" });
+  } catch (e: any) {
+    console.error("Vendor application error:", e);
+    res.status(500).json({ error: "Failed to submit application" });
+  }
+});
+
+// Get applications list (admin)
+router.get("/vendors/applications", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { status } = req.query;
+    let query = db.select().from(vendorApplications).orderBy(desc(vendorApplications.submittedAt));
+    const apps = status
+      ? await db.select().from(vendorApplications).where(eq(vendorApplications.status, status as string)).orderBy(desc(vendorApplications.submittedAt))
+      : await db.select().from(vendorApplications).orderBy(desc(vendorApplications.submittedAt));
+    res.json(apps);
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to fetch applications", e) });
+  }
+});
+
+// ============================================
+// AI CV PARSING
+// ============================================
+const cvUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+router.post("/vendors/parse-cv", requireAuth, cvUpload.single("file"), async (req: Request, res: Response) => {
+  try {
+    const file = (req as any).file;
+    if (!file) return res.status(400).json({ error: "No file uploaded" });
+
+    const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+    if (!OPENAI_API_KEY) return res.status(503).json({ error: "CV parsing not available — OPENAI_API_KEY not configured" });
+
+    // Convert file to base64 for OpenAI
+    const base64Content = file.buffer.toString("base64");
+    const mimeType = file.mimetype;
+
+    // Use OpenAI GPT-4o to extract structured data
+    const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: `You are a CV parser for a translation agency. Extract structured data from the CV provided. Return JSON with these fields:
+{
+  "fullName": "string",
+  "email": "string",
+  "phone": "string",
+  "location": "string",
+  "languages": [{"source": "ISO code", "target": "ISO code"}],
+  "nativeLanguage": "language name",
+  "specializations": ["Legal", "Medical", etc],
+  "software": [{"name": "SDL Trados", "proficiency": "Expert"}],
+  "experienceYears": number,
+  "education": "string",
+  "certifications": ["ATA", "DipTrans", etc],
+  "serviceTypes": ["Translation", "Proofreading", etc]
+}
+Only return valid JSON, no markdown or explanation.`
+          },
+          {
+            role: "user",
+            content: mimeType.includes("pdf") || mimeType.includes("image")
+              ? [
+                  { type: "text", text: "Parse this CV and extract structured data:" },
+                  { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Content}` } },
+                ]
+              : `Parse this CV text and extract structured data:\n\n${file.buffer.toString("utf-8")}`,
+          },
+        ],
+        max_tokens: 2000,
+        temperature: 0.1,
+      }),
+    });
+
+    if (!openaiResponse.ok) {
+      const err = await openaiResponse.text();
+      console.error("OpenAI API error:", err);
+      return res.status(502).json({ error: "Failed to parse CV with AI" });
+    }
+
+    const result = await openaiResponse.json();
+    const content = result.choices?.[0]?.message?.content || "{}";
+
+    // Try to parse the JSON response
+    let parsed;
+    try {
+      // Remove potential markdown code blocks
+      const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      parsed = JSON.parse(cleaned);
+    } catch {
+      parsed = { error: "Could not parse CV data", raw: content };
+    }
+
+    // Store original CV as data URL
+    const fileUrl = `data:${mimeType};base64,${base64Content}`;
+
+    res.json({ parsed, fileUrl, fileName: file.originalname });
+  } catch (e: any) {
+    console.error("CV parsing error:", e);
+    res.status(500).json({ error: "Failed to parse CV" });
+  }
+});
+
+// Check if CV parsing is available
+router.get("/vendors/cv-parsing-available", requireAuth, async (_req: Request, res: Response) => {
+  res.json({ available: !!process.env.OPENAI_API_KEY });
+});
+
+// ============================================
+// BULK OPERATIONS
+// ============================================
+const bulkStageSchema = z.object({
+  vendorIds: z.array(z.number().int().positive()).min(1),
+  status: z.string().min(1),
+  notes: z.string().optional(),
+});
+
+const bulkTagSchema = z.object({
+  vendorIds: z.array(z.number().int().positive()).min(1),
+  tags: z.array(z.string()),
+  mode: z.enum(["add", "replace"]).optional(),
+});
+
+const bulkDeleteSchema = z.object({
+  vendorIds: z.array(z.number().int().positive()).min(1),
+});
+
+router.post("/vendors/bulk/stage", requireAuth, requireRole("vm", "gm", "admin", "operations_manager"), async (req: Request, res: Response) => {
+  try {
+    const body = validate(bulkStageSchema, req.body, res);
+    if (!body) return;
+
+    let updated = 0;
+    for (const vendorId of body.vendorIds) {
+      const [old] = await db.select({ status: vendors.status }).from(vendors).where(eq(vendors.id, vendorId));
+      await db.update(vendors).set({ status: body.status, stageChangedDate: new Date(), updatedAt: new Date() }).where(eq(vendors.id, vendorId));
+      await db.insert(vendorStageHistory).values({
+        vendorId,
+        fromStage: old?.status || null,
+        toStage: body.status,
+        changedBy: (req as any).pmUserId,
+        notes: body.notes,
+      });
+      updated++;
+    }
+    await logAudit((req as any).pmUserId, "bulk_stage_change", "vendor", 0, null, { vendorIds: body.vendorIds, status: body.status }, getClientIp(req));
+    res.json({ updated });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Bulk stage change failed", e) });
+  }
+});
+
+router.post("/vendors/bulk/tag", requireAuth, requireRole("vm", "gm", "admin", "operations_manager"), async (req: Request, res: Response) => {
+  try {
+    const body = validate(bulkTagSchema, req.body, res);
+    if (!body) return;
+
+    let updated = 0;
+    for (const vendorId of body.vendorIds) {
+      if (body.mode === "replace") {
+        await db.update(vendors).set({ tags: body.tags, updatedAt: new Date() }).where(eq(vendors.id, vendorId));
+      } else {
+        const [v] = await db.select({ tags: vendors.tags }).from(vendors).where(eq(vendors.id, vendorId));
+        const existing = v?.tags || [];
+        const merged = [...new Set([...existing, ...body.tags])];
+        await db.update(vendors).set({ tags: merged, updatedAt: new Date() }).where(eq(vendors.id, vendorId));
+      }
+      updated++;
+    }
+    res.json({ updated });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Bulk tag failed", e) });
+  }
+});
+
+router.post("/vendors/bulk/delete", requireAuth, requireRole("vm", "gm", "admin"), async (req: Request, res: Response) => {
+  try {
+    const body = validate(bulkDeleteSchema, req.body, res);
+    if (!body) return;
+
+    let deleted = 0;
+    for (const vendorId of body.vendorIds) {
+      await storage.deleteVendor(vendorId);
+      deleted++;
+    }
+    await logAudit((req as any).pmUserId, "bulk_delete", "vendor", 0, null, { vendorIds: body.vendorIds }, getClientIp(req));
+    res.json({ deleted });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Bulk delete failed", e) });
+  }
+});
+
+router.post("/vendors/bulk/export", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { vendorIds } = req.body;
+    if (!Array.isArray(vendorIds) || vendorIds.length === 0) return res.status(400).json({ error: "vendorIds required" });
+
+    const data = await db.select().from(vendors).where(inArray(vendors.id, vendorIds));
+    const rows = data.map((v: any) => ({
+      resource_code: v.resourceCode || "",
+      full_name: v.fullName || "",
+      email: v.email || "",
+      phone: v.phone || "",
+      status: v.status || "",
+      tier: v.tier || "",
+      native_language: v.nativeLanguage || "",
+      location: v.location || "",
+      currency: v.currency || "",
+      combined_quality_score: v.combinedQualityScore || "",
+      service_types: (v.serviceTypes || []).join("; "),
+      specializations: (v.specializations || []).join("; "),
+      tags: (v.tags || []).join("; "),
+    }));
+    const headers = Object.keys(rows[0] || {});
+    const csv = [headers.join(","), ...rows.map((r: any) => headers.map(h => `"${String(r[h] || "").replace(/"/g, '""')}"`).join(","))].join("\n");
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", "attachment; filename=vendors-export.csv");
+    res.send(csv);
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Bulk export failed", e) });
+  }
+});
+
+// ============================================
+// PERFORMANCE DASHBOARD
+// ============================================
+router.get("/vendors/:id/performance-dashboard", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const vendorId = +param(req, "id");
+    const { startDate, endDate } = req.query;
+
+    // Get quality reports
+    let reportConditions: any[] = [eq(qualityReports.vendorId, vendorId)];
+    if (startDate) reportConditions.push(gte(qualityReports.reportDate, startDate as string));
+    if (endDate) reportConditions.push(lte(qualityReports.reportDate, endDate as string));
+
+    const reports = await db.select().from(qualityReports).where(and(...reportConditions)).orderBy(asc(qualityReports.reportDate));
+
+    // Quality metrics
+    const qsScores = reports.filter(r => r.qsScore).map(r => parseFloat(r.qsScore!));
+    const lqaScores = reports.filter(r => r.lqaScore).map(r => parseFloat(r.lqaScore!));
+    const avgQs = qsScores.length > 0 ? qsScores.reduce((a, b) => a + b, 0) / qsScores.length : 0;
+    const avgLqa = lqaScores.length > 0 ? lqaScores.reduce((a, b) => a + b, 0) / lqaScores.length : 0;
+
+    // On-time delivery
+    let totalDeliveries = 0;
+    let onTimeCount = 0;
+    for (const r of reports) {
+      const st = (r.status || "").toLowerCase();
+      if (st === "completed" || st === "finalized" || st === "late") {
+        totalDeliveries++;
+        if (st !== "late") onTimeCount++;
+      }
+    }
+    const onTimeRate = totalDeliveries > 0 ? Math.round((onTimeCount / totalDeliveries) * 100) : null;
+
+    // Monthly trend (last 6 months)
+    const monthlyTrend: { month: string; avgScore: number; count: number }[] = [];
+    const byMonth = new Map<string, { total: number; count: number }>();
+    for (const r of reports) {
+      if (!r.reportDate) continue;
+      const month = r.reportDate.substring(0, 7); // YYYY-MM
+      const score = parseFloat(r.lqaScore || r.qsScore || "0");
+      if (!byMonth.has(month)) byMonth.set(month, { total: 0, count: 0 });
+      const m = byMonth.get(month)!;
+      m.total += score;
+      m.count++;
+    }
+    for (const [month, data] of byMonth) {
+      monthlyTrend.push({ month, avgScore: Math.round(data.total / data.count * 100) / 100, count: data.count });
+    }
+    monthlyTrend.sort((a, b) => a.month.localeCompare(b.month));
+
+    // Quiz results
+    const quizResults = await db
+      .select({ score: quizAttempts.score, maxScore: quizAttempts.maxScore, passed: quizAttempts.passed, completedAt: quizAttempts.completedAt })
+      .from(quizAttempts)
+      .where(eq(quizAttempts.vendorId, vendorId))
+      .orderBy(desc(quizAttempts.completedAt));
+
+    res.json({
+      kpis: {
+        onTimeRate,
+        avgQualityScore: Math.round((avgLqa * 4 + avgQs * 20) / 5 * 100) / 100 || 0,
+        avgLqa: Math.round(avgLqa * 100) / 100,
+        avgQs: Math.round(avgQs * 100) / 100,
+        totalJobs: reports.length,
+        totalDeliveries,
+      },
+      monthlyTrend: monthlyTrend.slice(-6),
+      qsTrend: reports.filter(r => r.qsScore).map(r => ({ date: r.reportDate, score: parseFloat(r.qsScore!) })),
+      lqaTrend: reports.filter(r => r.lqaScore).map(r => ({ date: r.reportDate, score: parseFloat(r.lqaScore!) })),
+      quizResults,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Performance dashboard failed", e) });
+  }
+});
+
+// ============================================
+// ENHANCED STAGE UPDATE WITH HISTORY
+// ============================================
+router.post("/vendors/:id/stage-history", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const vendorId = +param(req, "id");
+    const history = await db.select().from(vendorStageHistory).where(eq(vendorStageHistory.vendorId, vendorId)).orderBy(desc(vendorStageHistory.createdAt));
+    res.json(history);
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to fetch stage history", e) });
+  }
+});
+
+// ============================================
+// DOCUMENT MANAGEMENT ENHANCEMENTS
+// ============================================
+router.patch("/vendors/:id/documents/:docId/status", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const docId = +param(req, "docId");
+    const { documentStatus, expiryDate, notes } = req.body;
+    const updates: any = {};
+    if (documentStatus) updates.documentStatus = documentStatus;
+    if (expiryDate !== undefined) updates.expiryDate = expiryDate;
+    if (notes !== undefined) updates.notes = notes;
+    const [updated] = await db.update(vendorFileUploads).set(updates).where(eq(vendorFileUploads.id, docId)).returning();
+    res.json(updated);
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to update document status", e) });
+  }
+});
+
+// Get documents expiring soon
+router.get("/vendors/documents/expiring", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const days = +(req.query.days || 30);
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + days);
+    const expiring = await db.select({
+      doc: vendorFileUploads,
+      vendorName: vendors.fullName,
+      vendorEmail: vendors.email,
+    })
+      .from(vendorFileUploads)
+      .innerJoin(vendors, eq(vendorFileUploads.vendorId, vendors.id))
+      .where(and(
+        sql`${vendorFileUploads.expiryDate} IS NOT NULL`,
+        lte(vendorFileUploads.expiryDate, futureDate.toISOString().split("T")[0]),
+        sql`${vendorFileUploads.documentStatus} != 'expired'`,
+      ))
+      .orderBy(asc(vendorFileUploads.expiryDate));
+    res.json(expiring.map(e => ({ ...e.doc, vendorName: e.vendorName, vendorEmail: e.vendorEmail })));
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to fetch expiring documents", e) });
+  }
+});
+
+// ============================================
+// FILTER PRESETS
+// ============================================
+router.get("/vendors/filter-presets", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).pmUserId;
+    const presets = await db.select().from(vendorFilterPresets).where(
+      or(eq(vendorFilterPresets.createdBy, userId), eq(vendorFilterPresets.isShared, true))
+    ).orderBy(desc(vendorFilterPresets.createdAt));
+    res.json(presets);
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to fetch filter presets", e) });
+  }
+});
+
+router.post("/vendors/filter-presets", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { name, filters, isShared } = req.body;
+    if (!name || !filters) return res.status(400).json({ error: "name and filters required" });
+    const [preset] = await db.insert(vendorFilterPresets).values({
+      name,
+      filters,
+      isShared: isShared || false,
+      createdBy: (req as any).pmUserId,
+    }).returning();
+    res.status(201).json(preset);
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to save filter preset", e) });
+  }
+});
+
+router.delete("/vendors/filter-presets/:id", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const id = +param(req, "id");
+    await db.delete(vendorFilterPresets).where(eq(vendorFilterPresets.id, id));
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to delete filter preset", e) });
+  }
+});
+
+// ============================================
+// CAT DISCOUNT TEMPLATES
+// ============================================
+const DEFAULT_CAT_DISCOUNTS = {
+  repetitions: 100,
+  match_100: 100,
+  match_95_99: 65,
+  match_85_94: 40,
+  match_75_84: 20,
+  match_50_74: 10,
+  no_match: 0,
+  machine_translation: 25,
+};
+
+router.get("/vendors/cat-discount-template", requireAuth, async (_req: Request, res: Response) => {
+  res.json({ template: DEFAULT_CAT_DISCOUNTS });
+});
+
+router.post("/vendors/:id/cat-discounts/apply-template", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const vendorId = +param(req, "id");
+    const template = req.body.template || DEFAULT_CAT_DISCOUNTS;
+    await db.update(vendors).set({ catDiscounts: template, updatedAt: new Date() }).where(eq(vendors.id, vendorId));
+    res.json({ success: true, catDiscounts: template });
+  } catch (e: any) {
+    res.status(500).json({ error: safeError("Failed to apply CAT discount template", e) });
   }
 });
 

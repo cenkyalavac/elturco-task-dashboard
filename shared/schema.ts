@@ -424,6 +424,11 @@ export const vendorFileUploads = pgTable("vendor_file_uploads", {
   fileSize: integer("file_size"),
   mimeType: varchar("mime_type", { length: 200 }),
   uploadedAt: timestamp("uploaded_at", { withTimezone: true }).defaultNow(),
+  // Faz 2 enhancements
+  documentStatus: varchar("document_status", { length: 50 }).default("pending"), // pending, approved, expired, rejected
+  expiryDate: date("expiry_date"),
+  uploadedBy: integer("uploaded_by").references(() => users.id),
+  notes: text("notes"),
 });
 
 // Document Signatures
@@ -808,6 +813,122 @@ export const vendorAvailability = pgTable("vendor_availability", {
 ]);
 
 // ============================================
+// QUIZ SYSTEM (Faz 2)
+// ============================================
+export const quizzes = pgTable("quizzes", {
+  id: serial("id").primaryKey(),
+  title: varchar("title", { length: 300 }).notNull(),
+  description: text("description"),
+  category: varchar("category", { length: 100 }),
+  timeLimit: integer("time_limit"), // minutes
+  passingScore: integer("passing_score").default(70),
+  isActive: boolean("is_active").default(true),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+export const quizQuestions = pgTable("quiz_questions", {
+  id: serial("id").primaryKey(),
+  quizId: integer("quiz_id").notNull().references(() => quizzes.id, { onDelete: "cascade" }),
+  questionText: text("question_text").notNull(),
+  questionType: varchar("question_type", { length: 50 }).notNull().default("multiple_choice"), // multiple_choice, true_false
+  options: jsonb("options").default([]), // array of {label, value}
+  correctAnswers: text("correct_answers").array(), // array of correct option values
+  points: integer("points").default(1),
+  orderIndex: integer("order_index").default(0),
+});
+
+export const quizAssignments = pgTable("quiz_assignments", {
+  id: serial("id").primaryKey(),
+  quizId: integer("quiz_id").notNull().references(() => quizzes.id, { onDelete: "cascade" }),
+  vendorId: integer("vendor_id").notNull().references(() => vendors.id, { onDelete: "cascade" }),
+  assignedBy: integer("assigned_by").references(() => users.id),
+  assignedAt: timestamp("assigned_at", { withTimezone: true }).defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  status: varchar("status", { length: 50 }).default("assigned"), // assigned, in_progress, completed, expired
+  token: varchar("token", { length: 255 }).notNull().unique(),
+});
+
+export const quizAttempts = pgTable("quiz_attempts", {
+  id: serial("id").primaryKey(),
+  assignmentId: integer("assignment_id").notNull().references(() => quizAssignments.id, { onDelete: "cascade" }),
+  vendorId: integer("vendor_id").notNull().references(() => vendors.id, { onDelete: "cascade" }),
+  quizId: integer("quiz_id").notNull().references(() => quizzes.id, { onDelete: "cascade" }),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  score: integer("score"),
+  maxScore: integer("max_score"),
+  passed: boolean("passed"),
+  answers: jsonb("answers").default([]), // array of {questionId, selectedAnswers, correct}
+});
+
+// ============================================
+// VENDOR APPLICATIONS (Faz 2)
+// ============================================
+export const vendorApplications = pgTable("vendor_applications", {
+  id: serial("id").primaryKey(),
+  // Personal Info
+  fullName: varchar("full_name", { length: 200 }).notNull(),
+  email: varchar("email", { length: 255 }).notNull(),
+  phone: varchar("phone", { length: 50 }),
+  location: varchar("location", { length: 200 }),
+  timezone: varchar("timezone", { length: 100 }),
+  website: varchar("website", { length: 500 }),
+  linkedin: varchar("linkedin", { length: 500 }),
+  // Languages
+  nativeLanguage: varchar("native_language", { length: 50 }),
+  languagePairs: jsonb("language_pairs").default([]), // [{source, target, proficiency}]
+  // Services & Skills
+  serviceTypes: text("service_types").array(),
+  specializations: text("specializations").array(),
+  software: jsonb("software").default([]), // [{name, proficiency}]
+  // Experience
+  experienceYears: integer("experience_years"),
+  education: text("education"),
+  certifications: text("certifications").array(),
+  cvFileUrl: text("cv_file_url"),
+  // Rates
+  ratePerWord: decimal("rate_per_word", { precision: 8, scale: 4 }),
+  ratePerHour: decimal("rate_per_hour", { precision: 8, scale: 2 }),
+  minimumFee: decimal("minimum_fee", { precision: 10, scale: 2 }),
+  currency: varchar("currency", { length: 3 }).default("EUR"),
+  // Status
+  status: varchar("status", { length: 50 }).default("pending"), // pending, reviewed, accepted, rejected
+  vendorId: integer("vendor_id").references(() => vendors.id), // linked vendor once created
+  reviewedBy: integer("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  notes: text("notes"),
+  submittedAt: timestamp("submitted_at", { withTimezone: true }).defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// ============================================
+// VENDOR STAGE HISTORY (Faz 2)
+// ============================================
+export const vendorStageHistory = pgTable("vendor_stage_history", {
+  id: serial("id").primaryKey(),
+  vendorId: integer("vendor_id").notNull().references(() => vendors.id, { onDelete: "cascade" }),
+  fromStage: varchar("from_stage", { length: 50 }),
+  toStage: varchar("to_stage", { length: 50 }).notNull(),
+  changedBy: integer("changed_by").references(() => users.id),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// ============================================
+// FILTER PRESETS (Faz 2)
+// ============================================
+export const vendorFilterPresets = pgTable("vendor_filter_presets", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 200 }).notNull(),
+  filters: jsonb("filters").notNull(), // serialized filter state
+  createdBy: integer("created_by").references(() => users.id),
+  isShared: boolean("is_shared").default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// ============================================
 // INSERT SCHEMAS (Zod)
 // ============================================
 export const insertPmUserSchema = createInsertSchema(pmUsers).omit({ id: true });
@@ -855,6 +976,15 @@ export const insertCustomerRateCardSchema = createInsertSchema(customerRateCards
 export const insertVendorFileSchema = createInsertSchema(vendorFiles).omit({ id: true });
 export const insertPoLineItemSchema = createInsertSchema(poLineItems).omit({ id: true });
 export const insertVendorAvailabilitySchema = createInsertSchema(vendorAvailability).omit({ id: true });
+
+// Faz 2 insert schemas
+export const insertQuizSchema = createInsertSchema(quizzes).omit({ id: true });
+export const insertQuizQuestionSchema = createInsertSchema(quizQuestions).omit({ id: true });
+export const insertQuizAssignmentSchema = createInsertSchema(quizAssignments).omit({ id: true });
+export const insertQuizAttemptSchema = createInsertSchema(quizAttempts).omit({ id: true });
+export const insertVendorApplicationSchema = createInsertSchema(vendorApplications).omit({ id: true });
+export const insertVendorStageHistorySchema = createInsertSchema(vendorStageHistory).omit({ id: true });
+export const insertVendorFilterPresetSchema = createInsertSchema(vendorFilterPresets).omit({ id: true });
 
 // ============================================
 // TYPES
@@ -917,3 +1047,17 @@ export type CustomerRateCard = typeof customerRateCards.$inferSelect;
 export type VendorFile = typeof vendorFiles.$inferSelect;
 export type PoLineItem = typeof poLineItems.$inferSelect;
 export type VendorAvailability = typeof vendorAvailability.$inferSelect;
+
+// Faz 2 types
+export type Quiz = typeof quizzes.$inferSelect;
+export type InsertQuiz = z.infer<typeof insertQuizSchema>;
+export type QuizQuestion = typeof quizQuestions.$inferSelect;
+export type InsertQuizQuestion = z.infer<typeof insertQuizQuestionSchema>;
+export type QuizAssignment = typeof quizAssignments.$inferSelect;
+export type InsertQuizAssignment = z.infer<typeof insertQuizAssignmentSchema>;
+export type QuizAttempt = typeof quizAttempts.$inferSelect;
+export type InsertQuizAttempt = z.infer<typeof insertQuizAttemptSchema>;
+export type VendorApplication = typeof vendorApplications.$inferSelect;
+export type InsertVendorApplication = z.infer<typeof insertVendorApplicationSchema>;
+export type VendorStageHistory = typeof vendorStageHistory.$inferSelect;
+export type VendorFilterPreset = typeof vendorFilterPresets.$inferSelect;

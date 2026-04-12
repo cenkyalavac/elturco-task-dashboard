@@ -12,11 +12,20 @@ import { Search, Users, LayoutGrid, List, GripVertical, ChevronRight, Clock } fr
 
 const STAGES = [
   { key: "New Application", label: "New Application", color: "bg-blue-500/20 text-blue-400 border-blue-500/30" },
+  { key: "CV Review", label: "CV Review", color: "bg-sky-500/20 text-sky-400 border-sky-500/30" },
+  { key: "Quiz Pending", label: "Quiz Pending", color: "bg-cyan-500/20 text-cyan-400 border-cyan-500/30" },
+  { key: "Quiz Passed", label: "Quiz Passed", color: "bg-teal-500/20 text-teal-400 border-teal-500/30" },
+  { key: "Test Task", label: "Test Task", color: "bg-purple-500/20 text-purple-400 border-purple-500/30" },
+  { key: "Interview", label: "Interview", color: "bg-amber-500/20 text-amber-400 border-amber-500/30" },
+  { key: "NDA Pending", label: "NDA Pending", color: "bg-orange-500/20 text-orange-400 border-orange-500/30" },
+  { key: "Active", label: "Active", color: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" },
+  { key: "Inactive", label: "Inactive", color: "bg-gray-500/20 text-gray-400 border-gray-500/30" },
+  { key: "Blacklisted", label: "Blacklisted", color: "bg-red-700/20 text-red-300 border-red-700/30" },
+  // Legacy stages for backwards compat
   { key: "Form Sent", label: "Form Sent", color: "bg-cyan-500/20 text-cyan-400 border-cyan-500/30" },
   { key: "Price Negotiation", label: "Price Negotiation", color: "bg-amber-500/20 text-amber-400 border-amber-500/30" },
   { key: "Test Sent", label: "Test Sent", color: "bg-purple-500/20 text-purple-400 border-purple-500/30" },
   { key: "Approved", label: "Approved", color: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" },
-  { key: "Inactive", label: "Inactive", color: "bg-gray-500/20 text-gray-400 border-gray-500/30" },
   { key: "Rejected", label: "Rejected", color: "bg-red-500/20 text-red-400 border-red-500/30" },
   { key: "Red Flag", label: "Red Flag", color: "bg-red-700/20 text-red-300 border-red-700/30" },
 ];

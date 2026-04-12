@@ -13,6 +13,7 @@ import { storage } from "../storage";
 // Domain routers
 import authRouter from "./auth.router";
 import vendorRouter from "./vendor.router";
+import quizRouter from "./quiz.router";
 import projectRouter from "./project.router";
 import financeRouter from "./finance.router";
 import qualityRouter from "./quality.router";
@@ -34,6 +35,7 @@ export async function registerRoutes(server: Server, app: Express) {
   // Mount all domain routers under /api
   app.use("/api", authRouter);
   app.use("/api", vendorRouter);
+  app.use("/api", quizRouter);
   app.use("/api", projectRouter);
   app.use("/api", financeRouter);
   app.use("/api", qualityRouter);
