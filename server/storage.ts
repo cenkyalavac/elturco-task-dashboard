@@ -679,6 +679,28 @@ export class DatabaseStorage implements IStorage {
     const [result] = await db.select().from(jobs).where(eq(jobs.id, id));
     return result;
   }
+  async deleteJob(id: number) {
+    await db.delete(jobs).where(eq(jobs.id, id));
+  }
+
+  // Customer Contacts - delete
+  async deleteCustomerContact(id: number) {
+    await db.delete(customerContacts).where(eq(customerContacts.id, id));
+  }
+
+  // Customer Sub-Accounts - delete
+  async deleteCustomerSubAccount(id: number) {
+    await db.delete(customerSubAccounts).where(eq(customerSubAccounts.id, id));
+  }
+
+  // PM Customer Assignments - CRUD
+  async createPmCustomerAssignment(data: any) {
+    const [result] = await db.insert(pmCustomerAssignments).values(data).returning();
+    return result;
+  }
+  async deletePmCustomerAssignment(id: number) {
+    await db.delete(pmCustomerAssignments).where(eq(pmCustomerAssignments.id, id));
+  }
 
   // Purchase Orders
   async getPurchaseOrders(filters: { vendorId?: number; entityId?: number; status?: string; page?: number; limit?: number } = {}) {

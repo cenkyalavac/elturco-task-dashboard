@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useParams, Link } from "wouter";
@@ -16,9 +16,11 @@ import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft, Save, Mail, Phone, Building2, Users, FolderKanban, Plus,
   DollarSign, Check, FileText, TrendingUp, Edit2, Tag, MapPin, Receipt,
+  Trash2, UserCheck, CreditCard,
 } from "lucide-react";
 
 const LANGUAGES = ["EN","TR","DE","FR","ES","IT","PT","NL","PL","RU","ZH","JA","KO","AR","SV","DA","FI","NO","CS","HU","RO","BG","HR","SK","SL","EL","UK","TH","VI","ID","MS","HI","BN","HE","FA"];
+const SERVICE_TYPES = ["Translation", "MTPE", "Review", "LQA", "Proofreading", "Subtitling", "DTP", "TEP", "Copywriting", "Transcreation"];
 
 function formatCurrency(amount: string | number | null, currency: string = "EUR"): string {
   if (!amount && amount !== 0) return "\u2014";
@@ -49,6 +51,14 @@ const PROJECT_STATUS_COLORS: Record<string, string> = {
   on_hold: "bg-amber-500/15 text-amber-400 border-amber-500/25",
 };
 
+const INV_STATUS_COLORS: Record<string, string> = {
+  draft: "bg-slate-500/15 text-slate-400 border-slate-500/20",
+  sent: "bg-blue-500/15 text-blue-400 border-blue-500/20",
+  paid: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20",
+  overdue: "bg-red-500/15 text-red-400 border-red-500/20",
+  cancelled: "bg-orange-500/15 text-orange-400 border-orange-500/20",
+};
+
 export default function CustomerDetailPage() {
   const params = useParams<{ id: string }>();
   const customerId = params?.id;
@@ -57,8 +67,10 @@ export default function CustomerDetailPage() {
   const [form, setForm] = useState<any>({});
   const [showAddContact, setShowAddContact] = useState(false);
   const [showAddSubAccount, setShowAddSubAccount] = useState(false);
+  const [showAddPmAssignment, setShowAddPmAssignment] = useState(false);
   const [contactForm, setContactForm] = useState({ name: "", email: "", phone: "", role: "", isPrimary: false });
   const [subAccountForm, setSubAccountForm] = useState({ name: "", code: "", notes: "" });
+  const [pmAssignForm, setPmAssignForm] = useState({ userId: "", role: "primary" });
 
   // Queries
   const { data: customer, isLoading } = useQuery({
@@ -88,11 +100,31 @@ export default function CustomerDetailPage() {
     enabled: !!customerId,
   });
 
+  const pmAssignmentsQuery = useQuery({
+    queryKey: ["/api/customers", customerId, "pm-assignments"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", `/api/customers/${customerId}/pm-assignments`);
+      return r.json().catch(() => []);
+    },
+    enabled: !!customerId,
+  });
+
   const projectsQuery = useQuery({
     queryKey: ["/api/projects", "customer", customerId],
     queryFn: async () => {
       const r = await apiRequest("GET", `/api/projects?customerId=${customerId}`);
-      return r.json();
+      const json = await r.json();
+      return json.data ?? json;
+    },
+    enabled: !!customerId,
+  });
+
+  const invoicesQuery = useQuery({
+    queryKey: ["/api/invoices", "customer", customerId],
+    queryFn: async () => {
+      const r = await apiRequest("GET", `/api/invoices?customerId=${customerId}`);
+      const json = await r.json();
+      return json.data ?? json;
     },
     enabled: !!customerId,
   });
@@ -134,6 +166,18 @@ export default function CustomerDetailPage() {
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const deleteContactMutation = useMutation({
+    mutationFn: async (contactId: number) => {
+      const r = await apiRequest("DELETE", `/api/customers/${customerId}/contacts/${contactId}`);
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "contacts"] });
+      toast({ title: "Contact removed" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
   const addSubAccountMutation = useMutation({
     mutationFn: async (body: any) => {
       const r = await apiRequest("POST", `/api/customers/${customerId}/sub-accounts`, body);
@@ -144,6 +188,44 @@ export default function CustomerDetailPage() {
       setShowAddSubAccount(false);
       setSubAccountForm({ name: "", code: "", notes: "" });
       toast({ title: "Sub-account added" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteSubAccountMutation = useMutation({
+    mutationFn: async (subId: number) => {
+      const r = await apiRequest("DELETE", `/api/customers/${customerId}/sub-accounts/${subId}`);
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "sub-accounts"] });
+      toast({ title: "Sub-account removed" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const addPmAssignmentMutation = useMutation({
+    mutationFn: async (body: any) => {
+      const r = await apiRequest("POST", `/api/customers/${customerId}/pm-assignments`, body);
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "pm-assignments"] });
+      setShowAddPmAssignment(false);
+      setPmAssignForm({ userId: "", role: "primary" });
+      toast({ title: "PM assignment added" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deletePmAssignmentMutation = useMutation({
+    mutationFn: async (assignId: number) => {
+      const r = await apiRequest("DELETE", `/api/customers/${customerId}/pm-assignments/${assignId}`);
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", customerId, "pm-assignments"] });
+      toast({ title: "PM assignment removed" });
     },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -169,7 +251,6 @@ export default function CustomerDetailPage() {
         <div className="text-center py-16 text-white/40">
           <Building2 className="w-10 h-10 mx-auto mb-3 opacity-40" />
           <p className="text-sm font-medium">Customer not found</p>
-          <p className="text-xs text-white/25 mt-1">The customer may have been deleted or the ID is invalid.</p>
         </div>
       </div>
     );
@@ -178,8 +259,21 @@ export default function CustomerDetailPage() {
   const users: any[] = usersQuery.data || [];
   const contacts: any[] = contactsQuery.data || [];
   const subAccounts: any[] = subAccountsQuery.data || [];
-  const projects: any[] = projectsQuery.data?.data || projectsQuery.data?.projects || [];
+  const pmAssignments: any[] = pmAssignmentsQuery.data || [];
+  const projects: any[] = Array.isArray(projectsQuery.data) ? projectsQuery.data : [];
+  const invoices: any[] = Array.isArray(invoicesQuery.data) ? invoicesQuery.data : [];
   const primaryPmUser = users.find((u: any) => u.id === customer.primaryPmId);
+
+  // Financial summary from invoices
+  const financialSummary = useMemo(() => {
+    const totalRevenue = invoices.reduce((s: number, inv: any) => s + (parseFloat(inv.total) || 0), 0);
+    const outstanding = invoices.filter((inv: any) => inv.status === "sent" || inv.status === "overdue")
+      .reduce((s: number, inv: any) => s + (parseFloat(inv.total) || 0), 0);
+    const paid = invoices.filter((inv: any) => inv.status === "paid")
+      .reduce((s: number, inv: any) => s + (parseFloat(inv.total) || 0), 0);
+    const overdue = invoices.filter((inv: any) => inv.status === "overdue").length;
+    return { totalRevenue, outstanding, paid, overdue };
+  }, [invoices]);
 
   const startEdit = () => { setForm({ ...customer }); setEditing(true); };
   const setFormField = (key: string, value: any) => setForm((p: any) => ({ ...p, [key]: value }));
@@ -209,6 +303,8 @@ export default function CustomerDetailPage() {
             <Badge className={`text-[10px] border ${STATUS_COLORS[customer.status] || "bg-zinc-500/20 text-zinc-400 border-zinc-500/25"}`}>
               {customer.status}
             </Badge>
+            {customer.currency && <span className="text-[10px] text-white/25">{customer.currency}</span>}
+            {primaryPmUser && <span className="text-[10px] text-white/30">PM: {primaryPmUser.name}</span>}
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -229,13 +325,14 @@ export default function CustomerDetailPage() {
 
       {/* Tabs */}
       <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList className="bg-white/[0.04] border border-white/[0.06]">
+        <TabsList className="bg-white/[0.04] border border-white/[0.06] flex-wrap">
           <TabsTrigger value="overview" className="text-xs">Overview</TabsTrigger>
-          <TabsTrigger value="contacts" className="text-xs">Contacts</TabsTrigger>
-          <TabsTrigger value="sub-accounts" className="text-xs">Sub-Accounts</TabsTrigger>
-          <TabsTrigger value="projects" className="text-xs">Projects</TabsTrigger>
-          <TabsTrigger value="invoices" className="text-xs">Invoices</TabsTrigger>
-          <TabsTrigger value="financial" className="text-xs">Financial Summary</TabsTrigger>
+          <TabsTrigger value="contacts" className="text-xs">Contacts ({contacts.length})</TabsTrigger>
+          <TabsTrigger value="sub-accounts" className="text-xs">Sub-Accounts ({subAccounts.length})</TabsTrigger>
+          <TabsTrigger value="pm-assignments" className="text-xs">PM Assignments ({pmAssignments.length})</TabsTrigger>
+          <TabsTrigger value="projects" className="text-xs">Projects ({projects.length})</TabsTrigger>
+          <TabsTrigger value="invoices" className="text-xs">Invoices ({invoices.length})</TabsTrigger>
+          <TabsTrigger value="financial" className="text-xs">Financial</TabsTrigger>
         </TabsList>
 
         {/* TAB: Overview */}
@@ -272,7 +369,6 @@ export default function CustomerDetailPage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <FieldEdit label="Entity ID" value={form.entityId != null ? String(form.entityId) : ""} onChange={(v) => setFormField("entityId", v ? parseInt(v) : null)} />
                   <div>
                     <label className="text-[11px] text-white/40 block mb-0.5">Primary PM</label>
                     <Select value={form.primaryPmId ? String(form.primaryPmId) : "none"} onValueChange={(v) => setFormField("primaryPmId", v === "none" ? null : parseInt(v))}>
@@ -290,7 +386,6 @@ export default function CustomerDetailPage() {
                   {customer.code && <InfoRow icon={<Building2 className="w-3 h-3" />} label="Code" value={customer.code} mono />}
                   <InfoRow icon={<Building2 className="w-3 h-3" />} label="Client Type" value={customer.clientType || "CLIENT"} />
                   <InfoRow icon={<Building2 className="w-3 h-3" />} label="Status" value={customer.status || "ACTIVE"} />
-                  {customer.entityId && <InfoRow icon={<Building2 className="w-3 h-3" />} label="Entity" value={String(customer.entityId)} />}
                   {primaryPmUser && <InfoRow icon={<Users className="w-3 h-3" />} label="Primary PM" value={primaryPmUser.name} />}
                 </div>
               )}
@@ -429,6 +524,7 @@ export default function CustomerDetailPage() {
                     <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Phone</TableHead>
                     <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Role</TableHead>
                     <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Primary</TableHead>
+                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3 w-12"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -440,6 +536,11 @@ export default function CustomerDetailPage() {
                       <TableCell className="text-[11px] text-white/50 px-3 py-2">{c.role || "\u2014"}</TableCell>
                       <TableCell className="px-3 py-2">
                         {c.isPrimary && <Check className="w-4 h-4 text-green-400" />}
+                      </TableCell>
+                      <TableCell className="px-3 py-2">
+                        <button onClick={() => deleteContactMutation.mutate(c.id)} className="p-1 rounded hover:bg-red-500/10">
+                          <Trash2 className="w-3.5 h-3.5 text-white/20 hover:text-red-400" />
+                        </button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -473,6 +574,7 @@ export default function CustomerDetailPage() {
                     <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Code</TableHead>
                     <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Assigned PM</TableHead>
                     <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Notes</TableHead>
+                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3 w-12"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -484,6 +586,63 @@ export default function CustomerDetailPage() {
                         <TableCell className="text-[11px] text-white/40 font-mono px-3 py-2">{sa.code || "\u2014"}</TableCell>
                         <TableCell className="text-[11px] text-white/50 px-3 py-2">{pmUser ? pmUser.name : (sa.assignedPmId ? `User #${sa.assignedPmId}` : "\u2014")}</TableCell>
                         <TableCell className="text-[11px] text-white/40 px-3 py-2 max-w-[200px] truncate">{sa.notes || "\u2014"}</TableCell>
+                        <TableCell className="px-3 py-2">
+                          <button onClick={() => deleteSubAccountMutation.mutate(sa.id)} className="p-1 rounded hover:bg-red-500/10">
+                            <Trash2 className="w-3.5 h-3.5 text-white/20 hover:text-red-400" />
+                          </button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </TabsContent>
+
+        {/* TAB: PM Assignments */}
+        <TabsContent value="pm-assignments" className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-white/70">PM Assignments</h3>
+            <Button size="sm" onClick={() => setShowAddPmAssignment(true)} className="bg-blue-600 hover:bg-blue-700 text-white text-xs">
+              <Plus className="w-3 h-3 mr-1" />Assign PM
+            </Button>
+          </div>
+          {pmAssignmentsQuery.isLoading ? (
+            <Skeleton className="h-32 bg-white/[0.04] rounded" />
+          ) : pmAssignments.length === 0 ? (
+            <div className="text-center py-12">
+              <UserCheck className="w-8 h-8 text-white/10 mx-auto mb-2" />
+              <p className="text-xs text-white/20">No PM assignments yet</p>
+            </div>
+          ) : (
+            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-white/[0.06] hover:bg-transparent">
+                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">PM</TableHead>
+                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Role</TableHead>
+                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Assigned</TableHead>
+                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3 w-12"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pmAssignments.map((pa: any) => {
+                    const pmUser = users.find((u: any) => u.id === pa.userId);
+                    return (
+                      <TableRow key={pa.id} className="border-white/[0.06] hover:bg-white/[0.02]">
+                        <TableCell className="text-xs text-white font-medium px-3 py-2">{pmUser ? pmUser.name : `User #${pa.userId}`}</TableCell>
+                        <TableCell className="px-3 py-2">
+                          <Badge className={`text-[10px] border ${pa.role === "primary" ? "bg-blue-500/15 text-blue-400 border-blue-500/25" : "bg-zinc-500/15 text-zinc-400 border-zinc-500/25"}`}>
+                            {pa.role || "primary"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-[11px] text-white/40 px-3 py-2">{formatDate(pa.createdAt)}</TableCell>
+                        <TableCell className="px-3 py-2">
+                          <button onClick={() => deletePmAssignmentMutation.mutate(pa.id)} className="p-1 rounded hover:bg-red-500/10">
+                            <Trash2 className="w-3.5 h-3.5 text-white/20 hover:text-red-400" />
+                          </button>
+                        </TableCell>
                       </TableRow>
                     );
                   })}
@@ -520,7 +679,7 @@ export default function CustomerDetailPage() {
                   {projects.map((p: any) => {
                     const pmUser = users.find((u: any) => u.id === p.pmId);
                     return (
-                      <TableRow key={p.id} className="border-white/[0.06] hover:bg-white/[0.02] cursor-pointer" onClick={() => { window.location.hash = `/projects/${p.id}`; }}>
+                      <TableRow key={p.id} className="border-white/[0.06] hover:bg-white/[0.02]">
                         <TableCell className="text-[11px] text-white/40 font-mono px-3 py-2">{p.projectCode || "\u2014"}</TableCell>
                         <TableCell className="text-xs text-white font-medium px-3 py-2">
                           <Link href={`/projects/${p.id}`}>
@@ -532,7 +691,7 @@ export default function CustomerDetailPage() {
                             {(p.status || "").replace(/_/g, " ")}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-[11px] text-white/50 px-3 py-2">{pmUser ? pmUser.name : (p.pmId ? `User #${p.pmId}` : "\u2014")}</TableCell>
+                        <TableCell className="text-[11px] text-white/50 px-3 py-2">{pmUser ? pmUser.name : "\u2014"}</TableCell>
                         <TableCell className="text-[11px] text-white/40 px-3 py-2">{formatDate(p.deadline)}</TableCell>
                         <TableCell className="text-[11px] text-emerald-400 px-3 py-2 text-right font-medium">{formatCurrency(p.totalRevenue, customer.currency || "EUR")}</TableCell>
                       </TableRow>
@@ -545,44 +704,110 @@ export default function CustomerDetailPage() {
         </TabsContent>
 
         {/* TAB: Invoices */}
-        <TabsContent value="invoices">
-          <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-8 text-center">
-            <Receipt className="w-10 h-10 text-white/10 mx-auto mb-3" />
-            <p className="text-sm text-white/30 mb-2">View invoices in the Invoices page</p>
+        <TabsContent value="invoices" className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-white/70">Invoices</h3>
             <Link href="/invoices">
-              <Button variant="outline" size="sm" className="text-xs">
-                Go to Invoices
-              </Button>
+              <Button size="sm" variant="outline" className="text-xs">View All Invoices</Button>
             </Link>
           </div>
+          {invoicesQuery.isLoading ? (
+            <Skeleton className="h-32 bg-white/[0.04] rounded" />
+          ) : invoices.length === 0 ? (
+            <div className="text-center py-12">
+              <Receipt className="w-8 h-8 text-white/10 mx-auto mb-2" />
+              <p className="text-xs text-white/20">No invoices for this customer</p>
+            </div>
+          ) : (
+            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-white/[0.06] hover:bg-transparent">
+                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Invoice #</TableHead>
+                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Date</TableHead>
+                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Due Date</TableHead>
+                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Status</TableHead>
+                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3 text-right">Total</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {invoices.map((inv: any) => (
+                    <TableRow key={inv.id} className="border-white/[0.06] hover:bg-white/[0.02]">
+                      <TableCell className="text-xs text-white font-medium px-3 py-2">{inv.invoiceNumber || `INV-${inv.id}`}</TableCell>
+                      <TableCell className="text-[11px] text-white/40 px-3 py-2">{formatDate(inv.invoiceDate)}</TableCell>
+                      <TableCell className="text-[11px] text-white/40 px-3 py-2">{formatDate(inv.dueDate)}</TableCell>
+                      <TableCell className="px-3 py-2">
+                        <Badge className={`text-[10px] border ${INV_STATUS_COLORS[inv.status] || "bg-zinc-500/15 text-zinc-400 border-zinc-500/25"}`}>
+                          {inv.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-[11px] text-emerald-400 px-3 py-2 text-right font-medium">{formatCurrency(inv.total, inv.currency)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </TabsContent>
 
         {/* TAB: Financial Summary */}
         <TabsContent value="financial" className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
             <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4 text-center">
-              <p className="text-[10px] text-white/30 mb-1">Total Revenue</p>
-              <p className="text-xl font-bold text-emerald-400">\u2014</p>
-              <p className="text-[10px] text-white/20 mt-1">Placeholder</p>
+              <p className="text-[10px] text-white/30 mb-1">Total Invoiced</p>
+              <p className="text-xl font-bold text-emerald-400">{formatCurrency(financialSummary.totalRevenue, customer.currency || "EUR")}</p>
             </div>
             <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4 text-center">
               <p className="text-[10px] text-white/30 mb-1">Outstanding</p>
-              <p className="text-xl font-bold text-amber-400">\u2014</p>
-              <p className="text-[10px] text-white/20 mt-1">Placeholder</p>
+              <p className="text-xl font-bold text-amber-400">{formatCurrency(financialSummary.outstanding, customer.currency || "EUR")}</p>
             </div>
             <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4 text-center">
-              <p className="text-[10px] text-white/30 mb-1">Payment History</p>
-              <p className="text-xl font-bold text-blue-400">\u2014</p>
-              <p className="text-[10px] text-white/20 mt-1">Placeholder</p>
+              <p className="text-[10px] text-white/30 mb-1">Paid</p>
+              <p className="text-xl font-bold text-blue-400">{formatCurrency(financialSummary.paid, customer.currency || "EUR")}</p>
+            </div>
+            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4 text-center">
+              <p className="text-[10px] text-white/30 mb-1">Overdue</p>
+              <p className="text-xl font-bold text-red-400">{financialSummary.overdue}</p>
+              <p className="text-[10px] text-white/20 mt-1">invoices</p>
             </div>
           </div>
-          <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4">
-            <p className="text-xs text-white/30 text-center">
-              Detailed financial data available in{" "}
-              <Link href="/finances">
-                <span className="text-blue-400 hover:text-blue-300 cursor-pointer">Financial Dashboard</span>
-              </Link>
-            </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4">
+              <h4 className="text-xs font-medium text-white/50 mb-3 flex items-center gap-2"><TrendingUp className="w-3 h-3" /> Projects Summary</h4>
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs">
+                  <span className="text-white/40">Total Projects</span>
+                  <span className="text-white/70 font-medium">{projects.length}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-white/40">Active</span>
+                  <span className="text-emerald-400 font-medium">{projects.filter((p: any) => p.status === "active").length}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-white/40">Completed</span>
+                  <span className="text-blue-400 font-medium">{projects.filter((p: any) => p.status === "completed").length}</span>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4">
+              <h4 className="text-xs font-medium text-white/50 mb-3 flex items-center gap-2"><CreditCard className="w-3 h-3" /> Payment Terms</h4>
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs">
+                  <span className="text-white/40">Terms</span>
+                  <span className="text-white/70 font-medium">
+                    {customer.paymentTermsDays ? `${customer.paymentTermsType || "Net"} ${customer.paymentTermsDays} days` : "\u2014"}
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-white/40">Currency</span>
+                  <span className="text-white/70 font-medium">{customer.currency || "EUR"}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-white/40">Invoice Count</span>
+                  <span className="text-white/70 font-medium">{invoices.length}</span>
+                </div>
+              </div>
+            </div>
           </div>
         </TabsContent>
       </Tabs>
@@ -644,6 +869,45 @@ export default function CustomerDetailPage() {
               className="bg-blue-600 hover:bg-blue-700 text-white text-xs"
             >
               {addSubAccountMutation.isPending ? "Adding..." : "Add"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add PM Assignment Dialog */}
+      <Dialog open={showAddPmAssignment} onOpenChange={setShowAddPmAssignment}>
+        <DialogContent className="bg-[#1a1d27] border-white/[0.08] text-white">
+          <DialogHeader><DialogTitle>Assign PM</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="text-[11px] text-white/40 block mb-0.5">Project Manager *</label>
+              <Select value={pmAssignForm.userId} onValueChange={(v) => setPmAssignForm((p) => ({ ...p, userId: v }))}>
+                <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white text-sm"><SelectValue placeholder="Select PM..." /></SelectTrigger>
+                <SelectContent>
+                  {users.map((u: any) => <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-[11px] text-white/40 block mb-0.5">Role</label>
+              <Select value={pmAssignForm.role} onValueChange={(v) => setPmAssignForm((p) => ({ ...p, role: v }))}>
+                <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="primary">Primary</SelectItem>
+                  <SelectItem value="backup">Backup</SelectItem>
+                  <SelectItem value="secondary">Secondary</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowAddPmAssignment(false)} className="text-white/50 text-xs">Cancel</Button>
+            <Button
+              onClick={() => addPmAssignmentMutation.mutate({ userId: parseInt(pmAssignForm.userId), role: pmAssignForm.role })}
+              disabled={!pmAssignForm.userId || addPmAssignmentMutation.isPending}
+              className="bg-blue-600 hover:bg-blue-700 text-white text-xs"
+            >
+              {addPmAssignmentMutation.isPending ? "Assigning..." : "Assign"}
             </Button>
           </DialogFooter>
         </DialogContent>

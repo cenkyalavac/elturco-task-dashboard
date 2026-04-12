@@ -17,7 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft, Save, Calendar, FolderKanban, Plus, Briefcase, DollarSign,
   Building2, Edit2, ChevronDown, ChevronRight, ExternalLink,
-  FileText, Upload, TrendingUp, Hash, Clock, User, Tag, Globe,
+  FileText, Upload, TrendingUp, Hash, Clock, User, Tag, Globe, Trash2,
 } from "lucide-react";
 
 interface ProjectDetail {
@@ -170,7 +170,7 @@ export default function ProjectDetailPage() {
   });
   const vendorsQuery = useQuery<Vendor[]>({
     queryKey: ["/api/vendors"],
-    queryFn: async () => { const r = await apiRequest("GET", "/api/vendors"); return r.json().catch(() => []); },
+    queryFn: async () => { const r = await apiRequest("GET", "/api/vendors"); const json = await r.json().catch(() => []); return json.data ?? json; },
   });
   const usersQuery = useQuery<UserRecord[]>({
     queryKey: ["/api/users"],
@@ -215,6 +215,15 @@ export default function ProjectDetailPage() {
       setJobForm({ ...defaultJobForm });
       setShowCatAnalysis(false);
       toast({ title: "Job added" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteJobMutation = useMutation({
+    mutationFn: async (jobId: number) => { const r = await apiRequest("DELETE", `/api/projects/${projectId}/jobs/${jobId}`); return r.json(); },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "jobs"] });
+      toast({ title: "Job deleted" });
     },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -537,6 +546,7 @@ export default function ProjectDetailPage() {
                         isExpanded={isExpanded}
                         hasCat={!!hasCat}
                         onToggle={() => hasCat && setExpandedJob(isExpanded ? null : job.id)}
+                        onDelete={() => deleteJobMutation.mutate(job.id)}
                       />
                     );
                   })}
@@ -731,8 +741,8 @@ export default function ProjectDetailPage() {
 }
 
 // Extracted to a component to avoid React key issues with fragments in table rows
-function JobTableRows({ job, currency, isExpanded, hasCat, onToggle }: {
-  job: Job; currency: string; isExpanded: boolean; hasCat: boolean; onToggle: () => void;
+function JobTableRows({ job, currency, isExpanded, hasCat, onToggle, onDelete }: {
+  job: Job; currency: string; isExpanded: boolean; hasCat: boolean; onToggle: () => void; onDelete: () => void;
 }) {
   return (
     <>
@@ -752,7 +762,12 @@ function JobTableRows({ job, currency, isExpanded, hasCat, onToggle }: {
         </TableCell>
         <TableCell className="text-[11px] text-white/40 px-3 py-2">{formatDate(job.deadline)}</TableCell>
         <TableCell className="px-3 py-2">
-          {hasCat && <ChevronRight className={`w-3.5 h-3.5 text-white/20 transition-transform ${isExpanded ? "rotate-90" : ""}`} />}
+          <div className="flex items-center gap-1">
+            {hasCat && <ChevronRight className={`w-3.5 h-3.5 text-white/20 transition-transform ${isExpanded ? "rotate-90" : ""}`} />}
+            <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="p-1 rounded hover:bg-red-500/10" title="Delete job">
+              <Trash2 className="w-3 h-3 text-white/20 hover:text-red-400" />
+            </button>
+          </div>
         </TableCell>
       </TableRow>
       {isExpanded && hasCat && (

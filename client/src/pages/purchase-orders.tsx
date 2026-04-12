@@ -92,8 +92,8 @@ export default function PurchaseOrdersPage() {
   });
 
   const { data: vendorsData } = useQuery({
-    queryKey: ["/api/vendors?status=Approved&limit=200"],
-    queryFn: async () => { const r = await apiRequest("GET", "/api/vendors?status=Approved&limit=200"); return r.json(); },
+    queryKey: ["/api/vendors?limit=500"],
+    queryFn: async () => { const r = await apiRequest("GET", "/api/vendors?limit=500"); return r.json(); },
   });
 
   const { data: entitiesData } = useQuery({
@@ -159,6 +159,12 @@ export default function PurchaseOrdersPage() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_LIMIT));
   const vendorList = Array.isArray(vendorsData) ? vendorsData : vendorsData?.data || [];
   const entityList = Array.isArray(entitiesData) ? entitiesData : [];
+
+  const getVendorName = (vendorId: number | null) => {
+    if (!vendorId) return "\u2014";
+    const v = vendorList.find((v: any) => v.id === vendorId);
+    return v ? (v.fullName || v.name || `Vendor #${vendorId}`) : `Vendor #${vendorId}`;
+  };
 
   // Detail view
   if (detailId) {
@@ -305,7 +311,7 @@ export default function PurchaseOrdersPage() {
                         {po.poNumber || `PO-${po.id}`}
                       </button>
                     </TableCell>
-                    <TableCell className="px-3 py-2 text-sm">{po.vendorId}</TableCell>
+                    <TableCell className="px-3 py-2 text-sm">{getVendorName(po.vendorId)}</TableCell>
                     <TableCell className="px-3 py-2 text-sm text-right font-medium">{formatCurrency(po.amount, po.currency)}</TableCell>
                     <TableCell className="px-3 py-2 text-xs text-muted-foreground">{po.paymentMethod || "—"}</TableCell>
                     <TableCell className="px-3 py-2 text-xs text-muted-foreground">{formatDate(po.createdAt)}</TableCell>
