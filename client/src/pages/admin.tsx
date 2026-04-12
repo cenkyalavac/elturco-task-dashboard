@@ -1425,6 +1425,7 @@ interface EntityRecord {
   code: string;
   jurisdiction: string | null;
   currency: string | null;
+  defaultCurrency: string | null;
   qboEnabled: boolean;
   wiseEnabled: boolean;
 }
@@ -1433,8 +1434,8 @@ function EntityManagementSection() {
   const { toast } = useToast();
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [form, setForm] = useState({ name: "", code: "", jurisdiction: "", currency: "GBP", qboEnabled: false, wiseEnabled: false });
-  const [editForm, setEditForm] = useState({ name: "", code: "", jurisdiction: "", currency: "GBP", qboEnabled: false, wiseEnabled: false });
+  const [form, setForm] = useState({ name: "", code: "", jurisdiction: "", currency: "GBP", defaultCurrency: "EUR", qboEnabled: false, wiseEnabled: false });
+  const [editForm, setEditForm] = useState({ name: "", code: "", jurisdiction: "", currency: "GBP", defaultCurrency: "EUR", qboEnabled: false, wiseEnabled: false });
 
   const { data: entitiesList, isLoading } = useQuery<EntityRecord[]>({
     queryKey: ["/api/entities"],
@@ -1449,7 +1450,7 @@ function EntityManagementSection() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/entities"] });
       toast({ title: "Entity created" });
-      setForm({ name: "", code: "", jurisdiction: "", currency: "GBP", qboEnabled: false, wiseEnabled: false });
+      setForm({ name: "", code: "", jurisdiction: "", currency: "GBP", defaultCurrency: "EUR", qboEnabled: false, wiseEnabled: false });
       setShowAdd(false);
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
@@ -1470,7 +1471,7 @@ function EntityManagementSection() {
 
   function startEdit(e: EntityRecord) {
     setEditingId(e.id);
-    setEditForm({ name: e.name, code: e.code, jurisdiction: e.jurisdiction || "", currency: e.currency || "GBP", qboEnabled: !!e.qboEnabled, wiseEnabled: !!e.wiseEnabled });
+    setEditForm({ name: e.name, code: e.code, jurisdiction: e.jurisdiction || "", currency: e.currency || "GBP", defaultCurrency: e.defaultCurrency || "EUR", qboEnabled: !!e.qboEnabled, wiseEnabled: !!e.wiseEnabled });
     setShowAdd(false);
   }
 
@@ -1504,7 +1505,7 @@ function EntityManagementSection() {
                 <Input value={form.jurisdiction} onChange={(e) => setForm({ ...form, jurisdiction: e.target.value })} placeholder="United Kingdom" className="h-8 text-sm" />
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-4 gap-2">
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">Currency</label>
                 <Select value={form.currency} onValueChange={(v) => setForm({ ...form, currency: v })}>
@@ -1512,6 +1513,18 @@ function EntityManagementSection() {
                   <SelectContent>
                     <SelectItem value="GBP">GBP</SelectItem>
                     <SelectItem value="EUR">EUR</SelectItem>
+                    <SelectItem value="USD">USD</SelectItem>
+                    <SelectItem value="TRY">TRY</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Default Currency</label>
+                <Select value={form.defaultCurrency} onValueChange={(v) => setForm({ ...form, defaultCurrency: v })}>
+                  <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="EUR">EUR</SelectItem>
+                    <SelectItem value="GBP">GBP</SelectItem>
                     <SelectItem value="USD">USD</SelectItem>
                     <SelectItem value="TRY">TRY</SelectItem>
                   </SelectContent>
@@ -1548,6 +1561,7 @@ function EntityManagementSection() {
                 <th className="text-left text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3">Code</th>
                 <th className="text-left text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3">Jurisdiction</th>
                 <th className="text-left text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3">Currency</th>
+                <th className="text-left text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3">Default Currency</th>
                 <th className="text-left text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3">Integrations</th>
                 <th className="text-right text-xs text-white/40 uppercase tracking-wider font-medium px-3 py-3 w-16">Actions</th>
               </tr>
@@ -1564,6 +1578,14 @@ function EntityManagementSection() {
                         <SelectTrigger className="h-7 text-sm"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="GBP">GBP</SelectItem><SelectItem value="EUR">EUR</SelectItem><SelectItem value="USD">USD</SelectItem><SelectItem value="TRY">TRY</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </td>
+                    <td className="px-3 py-2">
+                      <Select value={editForm.defaultCurrency} onValueChange={(v) => setEditForm({ ...editForm, defaultCurrency: v })}>
+                        <SelectTrigger className="h-7 text-sm"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="EUR">EUR</SelectItem><SelectItem value="GBP">GBP</SelectItem><SelectItem value="USD">USD</SelectItem><SelectItem value="TRY">TRY</SelectItem>
                         </SelectContent>
                       </Select>
                     </td>
@@ -1588,6 +1610,7 @@ function EntityManagementSection() {
                     <td className="px-3 py-2 text-foreground font-mono text-xs">{ent.code}</td>
                     <td className="px-3 py-2 text-foreground">{ent.jurisdiction || "—"}</td>
                     <td className="px-3 py-2"><Badge variant="secondary" className="text-xs">{ent.currency || "GBP"}</Badge></td>
+                    <td className="px-3 py-2"><Badge variant="secondary" className="text-xs">{ent.defaultCurrency || "EUR"}</Badge></td>
                     <td className="px-3 py-2">
                       <div className="flex gap-1">
                         {ent.qboEnabled && <Badge variant="outline" className="text-[10px]">QBO</Badge>}
