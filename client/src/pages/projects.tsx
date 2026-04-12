@@ -91,6 +91,7 @@ export default function ProjectsPage() {
 
   const [statusFilter, setStatusFilter] = useState("all");
   const [customerFilter, setCustomerFilter] = useState("all");
+  const [sourceFilter, setSourceFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(1);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -109,6 +110,7 @@ export default function ProjectsPage() {
   const queryParams = new URLSearchParams();
   if (statusFilter !== "all") queryParams.set("status", statusFilter);
   if (customerFilter !== "all") queryParams.set("customerId", customerFilter);
+  if (sourceFilter !== "all") queryParams.set("source", sourceFilter);
   if (searchQuery.trim()) queryParams.set("search", searchQuery.trim());
   queryParams.set("page", String(page));
   queryParams.set("limit", String(PAGE_LIMIT));
@@ -256,6 +258,20 @@ export default function ProjectsPage() {
             </SelectContent>
           </Select>
 
+          {/* Source filter */}
+          <Select value={sourceFilter} onValueChange={(v) => { setSourceFilter(v); setPage(1); }}>
+            <SelectTrigger className="w-36 h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Sources</SelectItem>
+              <SelectItem value="Manual">Manual</SelectItem>
+              <SelectItem value="Symfonie">Symfonie</SelectItem>
+              <SelectItem value="APS">APS</SelectItem>
+              <SelectItem value="Junction">Junction</SelectItem>
+            </SelectContent>
+          </Select>
+
           <span className="text-xs text-muted-foreground ml-auto tabular-nums">
             {total} project{total !== 1 ? "s" : ""}
           </span>
@@ -282,9 +298,10 @@ export default function ProjectsPage() {
             ))}
           </div>
         ) : projects.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
-            <FolderOpen className="w-10 h-10 opacity-30" />
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground p-12">
+            <FolderOpen className="w-10 h-10 opacity-40" />
             <p className="text-sm">No projects found</p>
+            <p className="text-xs opacity-70">Adjust filters or create a new project.</p>
           </div>
         ) : (
           <Table data-testid="table-projects">

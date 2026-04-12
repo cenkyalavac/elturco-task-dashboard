@@ -68,6 +68,7 @@ export default function InvoicesPage() {
 
   const [statusFilter, setStatusFilter] = useState("all");
   const [entityFilter, setEntityFilter] = useState("all");
+  const [customerFilter, setCustomerFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
@@ -99,6 +100,8 @@ export default function InvoicesPage() {
   const queryParams = new URLSearchParams();
   if (statusFilter !== "all") queryParams.set("status", statusFilter);
   if (entityFilter !== "all") queryParams.set("entityId", entityFilter);
+  if (customerFilter !== "all") queryParams.set("customerId", customerFilter);
+  if (searchQuery.trim()) queryParams.set("search", searchQuery.trim());
   queryParams.set("page", String(page));
   queryParams.set("limit", String(PAGE_LIMIT));
   const qs = queryParams.toString();
@@ -479,12 +482,21 @@ export default function InvoicesPage() {
               ))}
             </SelectContent>
           </Select>
+          <Select value={customerFilter} onValueChange={v => { setPage(1); setCustomerFilter(v); }}>
+            <SelectTrigger className="w-40 h-8 text-sm"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Customers</SelectItem>
+              {customerList.map((c: any) => (
+                <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <div className="relative">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
             <Input
               placeholder="Search..."
               value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
+              onChange={e => { setSearchQuery(e.target.value); setPage(1); }}
               className="h-8 text-sm pl-7 w-44"
             />
           </div>
@@ -499,9 +511,10 @@ export default function InvoicesPage() {
         {isLoading ? (
           <div className="p-4 space-y-2">{[...Array(8)].map((_, i) => <Skeleton key={i} className="h-10 w-full rounded" />)}</div>
         ) : filteredInvoices.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
-            <FileText className="w-10 h-10 opacity-30" />
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground p-12">
+            <FileText className="w-10 h-10 opacity-40" />
             <p className="text-sm">No invoices found</p>
+            <p className="text-xs opacity-70">Adjust filters or create a new invoice.</p>
           </div>
         ) : (
           <Table>

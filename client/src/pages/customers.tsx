@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Link } from "wouter";
@@ -29,7 +29,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Search, Plus, ChevronLeft, ChevronRight, Loader2, Filter, Building2 } from "lucide-react";
+import { Search, Plus, ChevronLeft, ChevronRight, Loader2, Building2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface Customer {
@@ -94,7 +94,7 @@ export default function CustomersPage() {
   const [page, setPage] = useState(1);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all");
-  const [showFilters, setShowFilters] = useState(false);
+  const [entityFilter, setEntityFilter] = useState("all");
 
   const [form, setForm] = useState<NewCustomerForm>({
     name: "", code: "", email: "", currency: "EUR", status: "active",
@@ -114,11 +114,13 @@ export default function CustomersPage() {
 
   const queryParams = new URLSearchParams();
   if (debouncedSearch) queryParams.set("search", debouncedSearch);
+  if (statusFilter !== "all") queryParams.set("status", statusFilter);
+  if (entityFilter !== "all") queryParams.set("entityId", entityFilter);
   queryParams.set("page", String(page));
   queryParams.set("limit", String(PAGE_LIMIT));
 
   const { data, isLoading } = useQuery<CustomersResponse>({
-    queryKey: ["/api/customers", debouncedSearch, page],
+    queryKey: ["/api/customers", debouncedSearch, page, statusFilter, entityFilter],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/customers?${queryParams.toString()}`);
       return res.json();
@@ -146,11 +148,7 @@ export default function CustomersPage() {
   const users: any[] = usersData || [];
   const entities: any[] = Array.isArray(entitiesData) ? entitiesData : (entitiesData as any)?.data ?? [];
 
-  // Client-side status filter
-  const customers = useMemo(() => {
-    if (statusFilter === "all") return allCustomers;
-    return allCustomers.filter((c) => c.status?.toLowerCase() === statusFilter.toLowerCase());
-  }, [allCustomers, statusFilter]);
+  const customers = allCustomers;
 
   const totalPages = Math.ceil(total / PAGE_LIMIT);
 
@@ -244,6 +242,20 @@ export default function CustomersPage() {
               <SelectItem value="active">Active</SelectItem>
               <SelectItem value="inactive">Inactive</SelectItem>
               <SelectItem value="prospect">Prospect</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={entityFilter} onValueChange={(v) => { setEntityFilter(v); setPage(1); }}>
+            <SelectTrigger className="w-40 h-8 text-sm">
+              <SelectValue placeholder="Entity" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Entities</SelectItem>
+              {entities.map((entity: any) => (
+                <SelectItem key={entity.id} value={String(entity.id)}>
+                  {entity.name}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
 

@@ -51,6 +51,8 @@ export default function PurchaseOrdersPage() {
 
   const [statusFilter, setStatusFilter] = useState("all");
   const [entityFilter, setEntityFilter] = useState("all");
+  const [vendorFilter, setVendorFilter] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [detailId, setDetailId] = useState<number | null>(null);
@@ -79,6 +81,8 @@ export default function PurchaseOrdersPage() {
   const queryParams = new URLSearchParams();
   if (statusFilter !== "all") queryParams.set("status", statusFilter);
   if (entityFilter !== "all") queryParams.set("entityId", entityFilter);
+  if (vendorFilter !== "all") queryParams.set("vendorId", vendorFilter);
+  if (searchQuery.trim()) queryParams.set("search", searchQuery.trim());
   queryParams.set("page", String(page));
   queryParams.set("limit", String(PAGE_LIMIT));
   const qs = queryParams.toString();
@@ -293,6 +297,22 @@ export default function PurchaseOrdersPage() {
               {entityList.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.name}</SelectItem>)}
             </SelectContent>
           </Select>
+          <Select value={vendorFilter} onValueChange={v => { setPage(1); setVendorFilter(v); }}>
+            <SelectTrigger className="w-40 h-8 text-sm"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Vendors</SelectItem>
+              {vendorList.slice(0, 50).map((v: any) => <SelectItem key={v.id} value={String(v.id)}>{v.fullName}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <Input
+              placeholder="Search POs..."
+              value={searchQuery}
+              onChange={e => { setSearchQuery(e.target.value); setPage(1); }}
+              className="h-8 text-sm pl-7 w-40"
+            />
+          </div>
           <span className="text-xs text-muted-foreground ml-auto tabular-nums">{total} PO{total !== 1 ? "s" : ""}</span>
           <Button size="sm" className="h-8 text-xs gap-1.5" onClick={() => setCreateOpen(true)}>
             <Plus className="w-3.5 h-3.5" /> New PO
@@ -304,9 +324,10 @@ export default function PurchaseOrdersPage() {
         {isLoading ? (
           <div className="p-4 space-y-2">{[...Array(8)].map((_, i) => <Skeleton key={i} className="h-10 w-full rounded" />)}</div>
         ) : orders.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
-            <ShoppingCart className="w-10 h-10 opacity-30" />
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground p-12">
+            <ShoppingCart className="w-10 h-10 opacity-40" />
             <p className="text-sm">No purchase orders found</p>
+            <p className="text-xs opacity-70">Adjust filters or create a new purchase order.</p>
           </div>
         ) : (
           <Table>

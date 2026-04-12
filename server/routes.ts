@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import { storage, db } from "./storage";
-import { taskNotes, pmFavorites, customerRateCards, projects, qualityReports, jobs } from "@shared/schema";
+import { taskNotes, pmFavorites, customerRateCards, projects, qualityReports, jobs, vendors } from "@shared/schema";
 import { wsBroadcast } from "./ws";
 import { gsWriteToColumn, gsIsAvailable, gsReadSheet, type SheetWriteConfig } from "./gsheets";
 import { createToken, verifyToken } from "./jwt";
@@ -870,6 +870,44 @@ async function notify(type: string, title: string, message: string, metadata?: a
     wsBroadcast("notification", { ...n, metadata: metadata || null });
   } catch (e) {
     console.error("Notification create error (non-fatal):", e);
+  }
+}
+
+// Recalculate vendor quality scores after a report is created/finalized
+async function recalculateVendorQualityScores(vendorId: number) {
+  try {
+    const reports = await db.select().from(qualityReports).where(eq(qualityReports.vendorId, vendorId));
+    const qsReports = reports.filter(r => r.reportType === "QS" && r.qsScore != null);
+    const lqaReports = reports.filter(r => r.reportType === "LQA" && r.lqaScore != null);
+
+    const avgQs = qsReports.length > 0
+      ? qsReports.reduce((sum, r) => sum + Number(r.qsScore), 0) / qsReports.length
+      : null;
+    const avgLqa = lqaReports.length > 0
+      ? lqaReports.reduce((sum, r) => sum + Number(r.lqaScore), 0) / lqaReports.length
+      : null;
+
+    // Combined score: if both exist, weighted average; otherwise use what's available
+    let combined: number | null = null;
+    if (avgQs != null && avgLqa != null) {
+      // QS is 1-5 scale, LQA is 0-100; normalize LQA to 5-point scale
+      const lqaNormalized = avgLqa / 20;
+      combined = (avgQs + lqaNormalized) / 2;
+    } else if (avgQs != null) {
+      combined = avgQs;
+    } else if (avgLqa != null) {
+      combined = avgLqa / 20;
+    }
+
+    await db.update(vendors).set({
+      averageQsScore: avgQs != null ? String(avgQs) : null,
+      averageLqaScore: avgLqa != null ? String(avgLqa) : null,
+      combinedQualityScore: combined != null ? String(combined) : null,
+      totalReviewsCount: reports.length,
+      updatedAt: new Date(),
+    }).where(eq(vendors.id, vendorId));
+  } catch (e) {
+    console.error("Quality score recalculation error (non-fatal):", e);
   }
 }
 
@@ -3531,6 +3569,9 @@ const freelancers = (Array.isArray(data) ? data : [])
       if (!body) return;
       const report = await storage.createQualityReport(body);
       await logAudit((req as any).pmUserId, "create", "quality_report", report.id, null, report, getClientIp(req));
+      if (report.vendorId && (report.qsScore != null || report.lqaScore != null)) {
+        await recalculateVendorQualityScores(report.vendorId);
+      }
       res.json(report);
     } catch (e: any) {
       console.error("Create quality report error:", e);
@@ -3544,6 +3585,9 @@ const freelancers = (Array.isArray(data) ? data : [])
       const oldReport = await storage.getQualityReport(id);
       const report = await storage.updateQualityReport(id, req.body);
       await logAudit((req as any).pmUserId, "update", "quality_report", id, oldReport, report, getClientIp(req));
+      if (report.vendorId && (req.body.qsScore !== undefined || req.body.lqaScore !== undefined)) {
+        await recalculateVendorQualityScores(report.vendorId);
+      }
       res.json(report);
     } catch (e: any) {
       console.error("Update quality report error:", e);
@@ -3566,6 +3610,9 @@ const freelancers = (Array.isArray(data) ? data : [])
         reviewDeadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
       });
       await logAudit((req as any).pmUserId, "submit", "quality_report", id, existing, report, getClientIp(req));
+      if (existing.vendorId) {
+        await recalculateVendorQualityScores(existing.vendorId);
+      }
       res.json(report);
     } catch (e: any) {
       console.error("Submit quality report error:", e);

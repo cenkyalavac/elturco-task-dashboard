@@ -16,7 +16,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft, Save, Calendar, FolderKanban, Plus, Briefcase, DollarSign,
-  Building2, Edit2, ChevronDown, ChevronRight, ExternalLink,
+  Building2, Edit2, ChevronDown, ChevronRight, ExternalLink, Check,
   FileText, Upload, TrendingUp, Hash, Clock, User, Tag, Globe, Trash2,
 } from "lucide-react";
 
@@ -385,6 +385,21 @@ export default function ProjectDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {project.status === "active" && (
+            <Button size="sm" className="text-xs bg-blue-600 hover:bg-blue-700 text-white gap-1" onClick={() => statusMutation.mutate("completed")} disabled={statusMutation.isPending}>
+              <Check className="w-3 h-3" /> Mark Complete
+            </Button>
+          )}
+          {project.status === "completed" && (
+            <Button size="sm" className="text-xs bg-purple-600 hover:bg-purple-700 text-white gap-1" onClick={() => statusMutation.mutate("invoiced")} disabled={statusMutation.isPending}>
+              <FileText className="w-3 h-3" /> Mark Invoiced
+            </Button>
+          )}
+          {(project.status === "on_hold" || project.status === "cancelled") && (
+            <Button size="sm" className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white gap-1" onClick={() => statusMutation.mutate("active")} disabled={statusMutation.isPending}>
+              Reactivate
+            </Button>
+          )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button size="sm" variant="outline" className="text-xs">Status <ChevronDown className="w-3 h-3 ml-1" /></Button>

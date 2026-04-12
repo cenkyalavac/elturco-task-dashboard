@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Link } from "wouter";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -48,6 +49,7 @@ import {
   ChevronDown,
   ChevronUp,
   X,
+  Upload,
 } from "lucide-react";
 
 // ── Constants ──
@@ -228,6 +230,7 @@ interface FilterState {
   qualityScoreMin: string;
   qualityScoreMax: string;
   tagsFilter: string;
+  availability: string;
   tested: boolean;
   certified: boolean;
   ndaSigned: boolean;
@@ -338,6 +341,7 @@ function createInitialFilters(): FilterState {
     qualityScoreMin: "",
     qualityScoreMax: "",
     tagsFilter: "",
+    availability: "",
     tested: false,
     certified: false,
     ndaSigned: false,
@@ -1487,7 +1491,7 @@ function AdvancedFilterPanel({
   const hasActiveFilters = filters.sourceLanguage || filters.targetLanguage ||
     filters.serviceType || filters.specialization || filters.account ||
     filters.qualityScoreMin || filters.qualityScoreMax || filters.tagsFilter ||
-    filters.tested || filters.certified || filters.ndaSigned;
+    filters.availability || filters.tested || filters.certified || filters.ndaSigned;
 
   function updateFilter<K extends keyof FilterState>(key: K, value: FilterState[K]) {
     onFiltersChange({ ...filters, [key]: value });
@@ -1603,6 +1607,21 @@ function AdvancedFilterPanel({
                 value={filters.tagsFilter}
                 onChange={(e) => updateFilter("tagsFilter", e.target.value)}
               />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Availability</Label>
+              <Select value={filters.availability} onValueChange={(val) => updateFilter("availability", val)}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Any" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="any">Any</SelectItem>
+                  <SelectItem value="Immediate">Immediate</SelectItem>
+                  <SelectItem value="Within 1 week">Within 1 week</SelectItem>
+                  <SelectItem value="Within 2 weeks">Within 2 weeks</SelectItem>
+                  <SelectItem value="Within 1 month">Within 1 month</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <div className="flex items-center gap-6 pt-1">
@@ -2031,6 +2050,52 @@ function PipelineVendorList({ status, count }: { status: string; count: number }
   );
 }
 
+// ── CSV Import Button ──
+
+function CsvImportButton({ onImported }: { onImported: () => void }) {
+  const [importing, setImporting] = useState(false);
+  const { toast } = useToast();
+
+  function handleFileSelect() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".csv,.xlsx,.xls";
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      setImporting(true);
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        const res = await fetch("/api/vendors/import", {
+          method: "POST",
+          body: formData,
+          credentials: "include",
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.message || "Import failed");
+        }
+        const result = await res.json();
+        toast({ title: "Import complete", description: `${result.imported ?? 0} vendor(s) imported` });
+        onImported();
+      } catch (err: any) {
+        toast({ title: "Import failed", description: err.message, variant: "destructive" });
+      } finally {
+        setImporting(false);
+      }
+    };
+    input.click();
+  }
+
+  return (
+    <Button variant="outline" size="sm" className="gap-1.5" onClick={handleFileSelect} disabled={importing}>
+      {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+      Import CSV
+    </Button>
+  );
+}
+
 // ── Main Page ──
 
 export default function VendorsPage() {
@@ -2084,6 +2149,7 @@ export default function VendorsPage() {
   if (filters.qualityScoreMin) listParams.set("qualityScoreMin", filters.qualityScoreMin);
   if (filters.qualityScoreMax) listParams.set("qualityScoreMax", filters.qualityScoreMax);
   if (filters.tagsFilter) listParams.set("tags", filters.tagsFilter);
+  if (filters.availability && filters.availability !== "any") listParams.set("availability", filters.availability);
   if (filters.tested) listParams.set("tested", "true");
   if (filters.certified) listParams.set("certified", "true");
   if (filters.ndaSigned) listParams.set("ndaSigned", "true");
@@ -2190,7 +2256,10 @@ export default function VendorsPage() {
               </Badge>
             )}
           </div>
-          <AddVendorDialog onCreated={invalidateVendors} />
+          <div className="flex items-center gap-2">
+            <CsvImportButton onImported={invalidateVendors} />
+            <AddVendorDialog onCreated={invalidateVendors} />
+          </div>
         </div>
 
         {/* Toolbar */}
