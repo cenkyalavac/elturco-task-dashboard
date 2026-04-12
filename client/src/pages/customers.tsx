@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -58,6 +59,15 @@ interface NewCustomerForm {
   status: string;
   paymentTermsType: string;
   paymentTermsDays: string;
+  clientType: string;
+  entityId: string;
+  address: string;
+  phone: string;
+  vatNumber: string;
+  taxId: string;
+  primaryPmId: string;
+  notes: string;
+  minimumFee: string;
 }
 
 const CURRENCIES = ["USD", "EUR", "GBP", "TRY", "AED", "JPY", "CAD", "AUD"];
@@ -88,6 +98,8 @@ export default function CustomersPage() {
   const [form, setForm] = useState<NewCustomerForm>({
     name: "", code: "", email: "", currency: "EUR", status: "active",
     paymentTermsType: "net", paymentTermsDays: "30",
+    clientType: "", entityId: "", address: "", phone: "",
+    vatNumber: "", taxId: "", primaryPmId: "", notes: "", minimumFee: "",
   });
 
   const handleSearchChange = (value: string) => {
@@ -120,9 +132,18 @@ export default function CustomersPage() {
     },
   });
 
+  const { data: entitiesData } = useQuery({
+    queryKey: ["/api/entities"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/entities");
+      return r.json().catch(() => []);
+    },
+  });
+
   const allCustomers = data?.data ?? [];
   const total = data?.total ?? 0;
   const users: any[] = usersData || [];
+  const entities: any[] = Array.isArray(entitiesData) ? entitiesData : (entitiesData as any)?.data ?? [];
 
   // Client-side status filter
   const customers = useMemo(() => {
@@ -149,7 +170,12 @@ export default function CustomersPage() {
   });
 
   function resetForm() {
-    setForm({ name: "", code: "", email: "", currency: "EUR", status: "active", paymentTermsType: "net", paymentTermsDays: "30" });
+    setForm({
+      name: "", code: "", email: "", currency: "EUR", status: "active",
+      paymentTermsType: "net", paymentTermsDays: "30",
+      clientType: "", entityId: "", address: "", phone: "",
+      vatNumber: "", taxId: "", primaryPmId: "", notes: "", minimumFee: "",
+    });
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -166,6 +192,15 @@ export default function CustomersPage() {
       status: form.status,
       paymentTermsType: form.paymentTermsType,
       paymentTermsDays: form.paymentTermsDays ? parseInt(form.paymentTermsDays) : null,
+      clientType: form.clientType || null,
+      entityId: form.entityId ? parseInt(form.entityId) : null,
+      address: form.address || null,
+      phone: form.phone || null,
+      vatNumber: form.vatNumber || null,
+      taxId: form.taxId || null,
+      primaryPmId: form.primaryPmId ? parseInt(form.primaryPmId) : null,
+      notes: form.notes || null,
+      minimumFee: form.minimumFee ? parseFloat(form.minimumFee) : null,
     });
   }
 
@@ -348,67 +383,57 @@ export default function CustomersPage() {
 
       {/* Add Customer Dialog */}
       <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Add Customer</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4 mt-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="customer-name" className="text-xs">
-                Name <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="customer-name"
-                placeholder="Acme Corp"
-                value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                className="h-8 text-sm"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="customer-code" className="text-xs">
-                Code <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="customer-code"
-                placeholder="ACME"
-                value={form.code}
-                onChange={(e) => setForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))}
-                className="h-8 text-sm font-mono"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="customer-email" className="text-xs">Email</Label>
-              <Input
-                id="customer-email"
-                type="email"
-                placeholder="contact@acme.com"
-                value={form.email}
-                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                className="h-8 text-sm"
-              />
-            </div>
-
+            {/* Row 1: Name, Code */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="customer-currency" className="text-xs">Currency</Label>
+                <Label htmlFor="customer-name" className="text-xs">
+                  Name <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="customer-name"
+                  placeholder="Acme Corp"
+                  value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="customer-code" className="text-xs">
+                  Code <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="customer-code"
+                  placeholder="ACME"
+                  value={form.code}
+                  onChange={(e) => setForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))}
+                  className="h-8 text-sm font-mono"
+                />
+              </div>
+            </div>
+
+            {/* Row 2: Client Type, Status */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Client Type</Label>
                 <Select
-                  value={form.currency}
-                  onValueChange={(val) => setForm((f) => ({ ...f, currency: val }))}
+                  value={form.clientType}
+                  onValueChange={(val) => setForm((f) => ({ ...f, clientType: val }))}
                 >
-                  <SelectTrigger id="customer-currency" className="h-8 text-sm">
-                    <SelectValue />
+                  <SelectTrigger className="h-8 text-sm">
+                    <SelectValue placeholder="Select type" />
                   </SelectTrigger>
                   <SelectContent>
-                    {CURRENCIES.map((c) => (
-                      <SelectItem key={c} value={c}>{c}</SelectItem>
-                    ))}
+                    <SelectItem value="client">Client</SelectItem>
+                    <SelectItem value="agency">Agency</SelectItem>
+                    <SelectItem value="direct">Direct</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-
               <div className="space-y-1.5">
                 <Label htmlFor="customer-status" className="text-xs">Status</Label>
                 <Select
@@ -427,9 +452,48 @@ export default function CustomersPage() {
               </div>
             </div>
 
+            {/* Row 3: Entity, Currency */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label className="text-xs">Payment Terms</Label>
+                <Label className="text-xs">Entity</Label>
+                <Select
+                  value={form.entityId}
+                  onValueChange={(val) => setForm((f) => ({ ...f, entityId: val }))}
+                >
+                  <SelectTrigger className="h-8 text-sm">
+                    <SelectValue placeholder="Select entity" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {entities.map((entity: any) => (
+                      <SelectItem key={entity.id} value={String(entity.id)}>
+                        {entity.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="customer-currency" className="text-xs">Currency</Label>
+                <Select
+                  value={form.currency}
+                  onValueChange={(val) => setForm((f) => ({ ...f, currency: val }))}
+                >
+                  <SelectTrigger id="customer-currency" className="h-8 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CURRENCIES.map((c) => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Row 4: Payment Terms Type, Payment Terms Days */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Payment Terms Type</Label>
                 <Select value={form.paymentTermsType} onValueChange={(val) => setForm((f) => ({ ...f, paymentTermsType: val }))}>
                   <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -440,7 +504,7 @@ export default function CustomersPage() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs">Days</Label>
+                <Label className="text-xs">Payment Terms Days</Label>
                 <Input
                   type="number"
                   value={form.paymentTermsDays}
@@ -449,6 +513,115 @@ export default function CustomersPage() {
                   placeholder="30"
                 />
               </div>
+            </div>
+
+            {/* Row 5: Email, Phone */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="customer-email" className="text-xs">Email</Label>
+                <Input
+                  id="customer-email"
+                  type="email"
+                  placeholder="contact@acme.com"
+                  value={form.email}
+                  onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="customer-phone" className="text-xs">Phone</Label>
+                <Input
+                  id="customer-phone"
+                  type="tel"
+                  placeholder="+1 555 123 4567"
+                  value={form.phone}
+                  onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                  className="h-8 text-sm"
+                />
+              </div>
+            </div>
+
+            {/* Row 6: Address (full width) */}
+            <div className="space-y-1.5">
+              <Label htmlFor="customer-address" className="text-xs">Address</Label>
+              <Input
+                id="customer-address"
+                placeholder="123 Main St, City, Country"
+                value={form.address}
+                onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+                className="h-8 text-sm"
+              />
+            </div>
+
+            {/* Row 7: VAT Number, Tax ID */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="customer-vat" className="text-xs">VAT Number</Label>
+                <Input
+                  id="customer-vat"
+                  placeholder="VAT123456789"
+                  value={form.vatNumber}
+                  onChange={(e) => setForm((f) => ({ ...f, vatNumber: e.target.value }))}
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="customer-taxid" className="text-xs">Tax ID</Label>
+                <Input
+                  id="customer-taxid"
+                  placeholder="TAX-123456"
+                  value={form.taxId}
+                  onChange={(e) => setForm((f) => ({ ...f, taxId: e.target.value }))}
+                  className="h-8 text-sm"
+                />
+              </div>
+            </div>
+
+            {/* Row 8: Primary PM, Minimum Fee */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Primary PM</Label>
+                <Select
+                  value={form.primaryPmId}
+                  onValueChange={(val) => setForm((f) => ({ ...f, primaryPmId: val }))}
+                >
+                  <SelectTrigger className="h-8 text-sm">
+                    <SelectValue placeholder="Select PM" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {users.map((user: any) => (
+                      <SelectItem key={user.id} value={String(user.id)}>
+                        {user.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="customer-minfee" className="text-xs">Minimum Fee</Label>
+                <Input
+                  id="customer-minfee"
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={form.minimumFee}
+                  onChange={(e) => setForm((f) => ({ ...f, minimumFee: e.target.value }))}
+                  className="h-8 text-sm"
+                />
+              </div>
+            </div>
+
+            {/* Row 9: Notes (full width) */}
+            <div className="space-y-1.5">
+              <Label htmlFor="customer-notes" className="text-xs">Notes</Label>
+              <Textarea
+                id="customer-notes"
+                placeholder="Additional notes about this customer..."
+                value={form.notes}
+                onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+                className="text-sm min-h-[60px] resize-none"
+                rows={3}
+              />
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
