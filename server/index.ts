@@ -69,13 +69,17 @@ setupWebSocket(httpServer);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
 
     console.error("Internal Server Error:", err);
 
     if (res.headersSent) {
       return next(err);
     }
+
+    // In production, never leak error details to the client
+    const message = process.env.NODE_ENV === "production" && status >= 500
+      ? "Internal Server Error"
+      : err.message || "Internal Server Error";
 
     return res.status(status).json({ message });
   });

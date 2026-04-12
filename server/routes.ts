@@ -1,11 +1,11 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import { storage, db } from "./storage";
-import { taskNotes, pmFavorites, customerRateCards } from "@shared/schema";
+import { taskNotes, pmFavorites, customerRateCards, projects, qualityReports, jobs } from "@shared/schema";
 import { wsBroadcast } from "./ws";
 import { gsWriteToColumn, gsIsAvailable, gsReadSheet, type SheetWriteConfig } from "./gsheets";
 import { createToken, verifyToken } from "./jwt";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
@@ -28,6 +28,110 @@ const selfAssignSchema = z.object({
   reviewType: z.string().max(100).optional().nullable(),
   customDeadline: z.string().max(100).optional(),
 });
+
+// ---- Dispatch 2.0 Zod Schemas ----
+const createVendorSchema = z.object({
+  fullName: z.string().min(1).max(200),
+  email: z.string().email().max(255),
+  resourceCode: z.string().max(50).optional(),
+  phone: z.string().max(50).optional(),
+  status: z.string().max(50).optional(),
+  resourceType: z.string().max(50).optional(),
+  nativeLanguage: z.string().max(50).optional(),
+  currency: z.string().max(3).optional(),
+}).passthrough(); // Allow additional vendor fields
+
+const createCustomerSchema = z.object({
+  name: z.string().min(1).max(200),
+  code: z.string().max(50).optional(),
+  email: z.string().email().max(255).optional().nullable(),
+  phone: z.string().max(50).optional().nullable(),
+  currency: z.string().max(3).optional(),
+  status: z.string().max(50).optional(),
+  clientType: z.string().max(50).optional(),
+}).passthrough();
+
+const createProjectSchema = z.object({
+  projectName: z.string().min(1).max(500),
+  customerId: z.number().int().positive(),
+  source: z.string().max(100).optional(),
+  status: z.string().max(50).optional(),
+  currency: z.string().max(3).optional(),
+}).passthrough();
+
+const createInvoiceSchema = z.object({
+  customerId: z.number().int().positive(),
+  invoiceDate: z.string().min(1),
+  lines: z.array(z.object({
+    description: z.string().optional(),
+    quantity: z.any().optional(),
+    unitPrice: z.any().optional(),
+    amount: z.any().optional(),
+  })).optional(),
+}).passthrough();
+
+const createPurchaseOrderSchema = z.object({
+  vendorId: z.number().int().positive(),
+  amount: z.any(),
+}).passthrough();
+
+const createQualityReportSchema = z.object({
+  vendorId: z.number().int().positive(),
+  reportType: z.enum(["LQA", "QS", "Random_QA"]),
+}).passthrough();
+
+const createUserSchema = z.object({
+  email: z.string().email().max(255),
+  name: z.string().min(1).max(200),
+  role: z.string().min(1).max(50),
+  password: z.string().min(8).max(200).optional(),
+  initial: z.string().max(10).optional().nullable(),
+  entityId: z.number().int().positive().optional().nullable(),
+});
+
+const createVendorNoteSchema = z.object({
+  content: z.string().min(1).max(10000),
+  noteType: z.enum(["info", "warning", "note"]).optional(),
+  visibility: z.enum(["team", "private"]).optional(),
+});
+
+const createCustomerContactSchema = z.object({
+  name: z.string().min(1).max(200),
+  email: z.string().email().max(255).optional().nullable(),
+  phone: z.string().max(50).optional().nullable(),
+  role: z.string().max(100).optional().nullable(),
+  isPrimary: z.boolean().optional(),
+});
+
+const createSubAccountSchema = z.object({
+  name: z.string().min(1).max(200),
+  code: z.string().max(100).optional().nullable(),
+  assignedPmId: z.number().int().positive().optional().nullable(),
+  notes: z.string().max(5000).optional().nullable(),
+});
+
+const createJobSchema = z.object({
+  jobName: z.string().max(500).optional(),
+  sourceLanguage: z.string().max(10).optional(),
+  targetLanguage: z.string().max(10).optional(),
+  serviceType: z.string().max(100).optional(),
+  unitType: z.string().max(50).optional(),
+}).passthrough();
+
+const createRateCardSchema = z.object({
+  rateValue: z.any(),
+  sourceLanguage: z.string().max(10).optional().nullable(),
+  targetLanguage: z.string().max(10).optional().nullable(),
+  serviceType: z.string().max(100).optional().nullable(),
+  rateType: z.string().max(50).optional().nullable(),
+  currency: z.string().max(3).optional(),
+});
+
+const createPaymentSchema = z.object({
+  type: z.enum(["receivable", "payable"]),
+  amount: z.any(),
+  paymentDate: z.string().min(1),
+}).passthrough();
 const assignmentSchema = z.object({
   source: z.string().min(1).max(100),
   sheet: z.string().max(100).optional(),
@@ -58,6 +162,14 @@ function validate<T>(schema: z.ZodType<T>, data: unknown, res: Response): T | nu
     return null;
   }
   return result.data;
+}
+
+// Safe error message — never leak internal DB details to the client
+function safeError(fallback: string, e: any): string {
+  // In production, always return a generic message
+  if (process.env.NODE_ENV === "production") return fallback;
+  // In dev, return the actual error for debugging
+  return e?.message || fallback;
 }
 
 // ============================================
@@ -864,7 +976,8 @@ const freelancers = (Array.isArray(data) ? data : [])
       setCache("freelancers", freelancers);
       res.json(freelancers);
     } catch (e: any) {
-      res.status(500).json({ error: "Failed to fetch freelancer data: " + e.message });
+      console.error("Freelancer fetch error:", e);
+      res.status(500).json({ error: "Failed to fetch freelancer data" });
     }
   });
 
@@ -948,7 +1061,8 @@ const freelancers = (Array.isArray(data) ? data : [])
       });
       res.json(overlaid);
     } catch (e: any) {
-      res.status(500).json({ error: "Failed to fetch task data: " + e.message });
+      console.error("Task fetch error:", e);
+      res.status(500).json({ error: "Failed to fetch task data" });
     }
   });
 
@@ -1758,7 +1872,7 @@ const freelancers = (Array.isArray(data) ? data : [])
         res.json({ success: true, action: "created", id: created.id });
       }
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -1787,7 +1901,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       });
       res.json({ success: true });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -2286,7 +2400,7 @@ const freelancers = (Array.isArray(data) ? data : [])
 
       res.json({ dispatched, rules: results });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     } finally {
       releaseLock("auto-dispatch");
     }
@@ -2352,7 +2466,7 @@ const freelancers = (Array.isArray(data) ? data : [])
 
       res.json({ advanced, checked: assignments.length });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     } finally {
       releaseLock("sequence-advance");
     }
@@ -2787,7 +2901,7 @@ const freelancers = (Array.isArray(data) ? data : [])
         pendingOffers,
       });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -2834,25 +2948,26 @@ const freelancers = (Array.isArray(data) ? data : [])
   // NEW DISPATCH 2.0 API ROUTES
   // ============================================
 
-  // ---- USERS CRUD (admin only) ----
-  app.get("/api/users", requireAuth, async (req: Request, res: Response) => {
+  // ---- USERS CRUD (admin/gm only) ----
+  app.get("/api/users", requireAuth, requireRole("admin", "gm", "operations_manager"), async (req: Request, res: Response) => {
     const allUsers = await storage.getAllUsers();
     res.json(allUsers.map((u: any) => ({ ...u, passwordHash: undefined })));
   });
 
-  app.post("/api/users", requireAuth, async (req: Request, res: Response) => {
+  app.post("/api/users", requireAuth, requireRole("admin", "gm"), async (req: Request, res: Response) => {
     try {
-      const { email, name, initial, password, role, entityId } = req.body;
-      if (!email || !name || !role) return res.status(400).json({ error: "Missing required fields" });
-      const passwordHash = password ? await bcrypt.hash(password, 10) : null;
-      const user = await storage.createUser({ email: email.toLowerCase().trim(), name, initial, passwordHash, role, entityId });
+      const body = validate(createUserSchema, req.body, res);
+      if (!body) return;
+      const passwordHash = body.password ? await bcrypt.hash(body.password, 10) : null;
+      const user = await storage.createUser({ email: body.email.toLowerCase().trim(), name: body.name, initial: body.initial, passwordHash, role: body.role, entityId: body.entityId });
       res.json({ ...user, passwordHash: undefined });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      console.error("Create user error:", e);
+      res.status(500).json({ error: "Failed to create user" });
     }
   });
 
-  app.patch("/api/users/:id", requireAuth, async (req: Request, res: Response) => {
+  app.patch("/api/users/:id", requireAuth, requireRole("admin", "gm"), async (req: Request, res: Response) => {
     try {
       const id = +param(req, "id");
       const updates: any = {};
@@ -2865,7 +2980,19 @@ const freelancers = (Array.isArray(data) ? data : [])
       const user = await storage.updateUser(id, updates);
       res.json({ ...user, passwordHash: undefined });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      console.error("Update user error:", e);
+      res.status(500).json({ error: "Failed to update user" });
+    }
+  });
+
+  app.delete("/api/users/:id", requireAuth, requireRole("admin", "gm"), async (req: Request, res: Response) => {
+    try {
+      const id = +param(req, "id");
+      await storage.deleteUser(id);
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error("Delete user error:", e);
+      res.status(500).json({ error: "Failed to delete user" });
     }
   });
 
@@ -2891,7 +3018,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       ]);
       res.json({ data: vendorList, total, page: filters.page, limit: filters.limit });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -2900,7 +3027,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       const pipeline = await storage.getVendorsPipeline();
       res.json(pipeline);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -2910,16 +3037,19 @@ const freelancers = (Array.isArray(data) ? data : [])
       if (!vendor) return res.status(404).json({ error: "Vendor not found" });
       res.json(vendor);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
   app.post("/api/vendors", requireAuth, async (req: Request, res: Response) => {
     try {
-      const vendor = await storage.createVendor(req.body);
+      const body = validate(createVendorSchema, req.body, res);
+      if (!body) return;
+      const vendor = await storage.createVendor(body);
       res.json(vendor);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      console.error("Create vendor error:", e);
+      res.status(500).json({ error: "Failed to create vendor" });
     }
   });
 
@@ -2928,7 +3058,8 @@ const freelancers = (Array.isArray(data) ? data : [])
       const vendor = await storage.updateVendor(+param(req, "id"), req.body);
       res.json(vendor);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      console.error("Update vendor error:", e);
+      res.status(500).json({ error: "Failed to update vendor" });
     }
   });
 
@@ -2937,7 +3068,8 @@ const freelancers = (Array.isArray(data) ? data : [])
       await storage.deleteVendor(+param(req, "id"));
       res.json({ success: true });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      console.error("Delete vendor error:", e);
+      res.status(500).json({ error: "Failed to delete vendor" });
     }
   });
 
@@ -2959,17 +3091,20 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   app.post("/api/vendors/:id/notes", requireAuth, async (req: Request, res: Response) => {
     try {
+      const body = validate(createVendorNoteSchema, req.body, res);
+      if (!body) return;
       const pmUserId = (req as any).pmUserId;
       const note = await storage.createVendorNote({
         vendorId: +param(req, "id"),
-        content: req.body.content,
-        noteType: req.body.noteType || "note",
-        visibility: req.body.visibility || "team",
+        content: body.content,
+        noteType: body.noteType || "note",
+        visibility: body.visibility || "team",
         createdBy: pmUserId,
       });
       res.json(note);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      console.error("Create vendor note error:", e);
+      res.status(500).json({ error: "Failed to create vendor note" });
     }
   });
 
@@ -3003,7 +3138,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       ]);
       res.json({ data: customerList, total, page: filters.page, limit: filters.limit });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -3015,10 +3150,13 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   app.post("/api/customers", requireAuth, async (req: Request, res: Response) => {
     try {
-      const customer = await storage.createCustomer(req.body);
+      const body = validate(createCustomerSchema, req.body, res);
+      if (!body) return;
+      const customer = await storage.createCustomer(body);
       res.json(customer);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      console.error("Create customer error:", e);
+      res.status(500).json({ error: "Failed to create customer" });
     }
   });
 
@@ -3027,7 +3165,8 @@ const freelancers = (Array.isArray(data) ? data : [])
       const customer = await storage.updateCustomer(+param(req, "id"), req.body);
       res.json(customer);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      console.error("Update customer error:", e);
+      res.status(500).json({ error: "Failed to update customer" });
     }
   });
 
@@ -3038,10 +3177,13 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   app.post("/api/customers/:id/contacts", requireAuth, async (req: Request, res: Response) => {
     try {
-      const contact = await storage.createCustomerContact({ customerId: +param(req, "id"), ...req.body });
+      const body = validate(createCustomerContactSchema, req.body, res);
+      if (!body) return;
+      const contact = await storage.createCustomerContact({ customerId: +param(req, "id"), ...body });
       res.json(contact);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      console.error("Create customer contact error:", e);
+      res.status(500).json({ error: "Failed to create customer contact" });
     }
   });
 
@@ -3052,10 +3194,13 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   app.post("/api/customers/:id/sub-accounts", requireAuth, async (req: Request, res: Response) => {
     try {
-      const subAccount = await storage.createCustomerSubAccount({ customerId: +param(req, "id"), ...req.body });
+      const body = validate(createSubAccountSchema, req.body, res);
+      if (!body) return;
+      const subAccount = await storage.createCustomerSubAccount({ customerId: +param(req, "id"), ...body });
       res.json(subAccount);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      console.error("Create sub-account error:", e);
+      res.status(500).json({ error: "Failed to create sub-account" });
     }
   });
 
@@ -3064,7 +3209,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       await storage.deleteCustomerContact(+param(req, "contactId"));
       res.json({ success: true });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -3073,7 +3218,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       await storage.deleteCustomerSubAccount(+param(req, "subId"));
       res.json({ success: true });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -3087,7 +3232,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       const assignment = await storage.createPmCustomerAssignment({ customerId: +param(req, "id"), ...req.body });
       res.json(assignment);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -3096,7 +3241,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       await storage.deletePmCustomerAssignment(+param(req, "assignId"));
       res.json({ success: true });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -3106,24 +3251,27 @@ const freelancers = (Array.isArray(data) ? data : [])
       const rows = await db.select().from(customerRateCards).where(eq(customerRateCards.customerId, +param(req, "id")));
       res.json(rows);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
   app.post("/api/customers/:id/rate-card", requireAuth, async (req: Request, res: Response) => {
     try {
+      const body = validate(createRateCardSchema, req.body, res);
+      if (!body) return;
       const [row] = await db.insert(customerRateCards).values({
         customerId: +param(req, "id"),
-        sourceLanguage: req.body.sourceLanguage || null,
-        targetLanguage: req.body.targetLanguage || null,
-        serviceType: req.body.serviceType || null,
-        rateType: req.body.rateType || null,
-        rateValue: req.body.rateValue,
-        currency: req.body.currency || "EUR",
+        sourceLanguage: body.sourceLanguage || null,
+        targetLanguage: body.targetLanguage || null,
+        serviceType: body.serviceType || null,
+        rateType: body.rateType || null,
+        rateValue: body.rateValue,
+        currency: body.currency || "EUR",
       }).returning();
       res.json(row);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      console.error("Create rate card error:", e);
+      res.status(500).json({ error: "Failed to create rate card" });
     }
   });
 
@@ -3132,7 +3280,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       await db.delete(customerRateCards).where(eq(customerRateCards.id, +param(req, "rateId")));
       res.json({ success: true });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -3153,7 +3301,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       ]);
       res.json({ data: projectList, total, page: filters.page, limit: filters.limit });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -3165,10 +3313,22 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   app.post("/api/projects", requireAuth, async (req: Request, res: Response) => {
     try {
-      const project = await storage.createProject(req.body);
+      const body = validate(createProjectSchema, req.body, res);
+      if (!body) return;
+      // Auto-generate project_code if not provided
+      if (!body.projectCode) {
+        const year = new Date().getFullYear();
+        const customer = await storage.getCustomer(body.customerId);
+        const prefix = customer?.code || "PRJ";
+        const [countResult] = await db.select({ cnt: sql<number>`count(*)::int` }).from(projects).where(sql`extract(year from ${projects.createdAt}) = ${year}`);
+        const seq = (countResult?.cnt || 0) + 1;
+        (body as any).projectCode = `${prefix}-${year}-${String(seq).padStart(4, "0")}`;
+      }
+      const project = await storage.createProject(body);
       res.json(project);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      console.error("Create project error:", e);
+      res.status(500).json({ error: "Failed to create project" });
     }
   });
 
@@ -3177,7 +3337,8 @@ const freelancers = (Array.isArray(data) ? data : [])
       const project = await storage.updateProject(+param(req, "id"), req.body);
       res.json(project);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      console.error("Update project error:", e);
+      res.status(500).json({ error: "Failed to update project" });
     }
   });
 
@@ -3188,10 +3349,13 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   app.post("/api/projects/:id/jobs", requireAuth, async (req: Request, res: Response) => {
     try {
-      const job = await storage.createJob({ projectId: +param(req, "id"), ...req.body });
+      const body = validate(createJobSchema, req.body, res);
+      if (!body) return;
+      const job = await storage.createJob({ projectId: +param(req, "id"), ...body });
       res.json(job);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      console.error("Create job error:", e);
+      res.status(500).json({ error: "Failed to create job" });
     }
   });
 
@@ -3200,7 +3364,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       const job = await storage.updateJob(+param(req, "jobId"), req.body);
       res.json(job);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -3209,7 +3373,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       await storage.deleteJob(+param(req, "jobId"));
       res.json({ success: true });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -3222,10 +3386,13 @@ const freelancers = (Array.isArray(data) ? data : [])
 
   app.post("/api/quality-reports", requireAuth, async (req: Request, res: Response) => {
     try {
-      const report = await storage.createQualityReport(req.body);
+      const body = validate(createQualityReportSchema, req.body, res);
+      if (!body) return;
+      const report = await storage.createQualityReport(body);
       res.json(report);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      console.error("Create quality report error:", e);
+      res.status(500).json({ error: "Failed to create quality report" });
     }
   });
 
@@ -3234,7 +3401,50 @@ const freelancers = (Array.isArray(data) ? data : [])
       const report = await storage.updateQualityReport(+param(req, "id"), req.body);
       res.json(report);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      console.error("Update quality report error:", e);
+      res.status(500).json({ error: "Failed to update quality report" });
+    }
+  });
+
+  // Submit quality report for translator review
+  app.post("/api/quality-reports/:id/submit", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const id = +param(req, "id");
+      const [existing] = await db.select().from(qualityReports).where(eq(qualityReports.id, id));
+      if (!existing) return res.status(404).json({ error: "Quality report not found" });
+      if (existing.status !== "draft") {
+        return res.status(400).json({ error: `Cannot submit a report with status '${existing.status}'. Only draft reports can be submitted.` });
+      }
+      const report = await storage.updateQualityReport(id, {
+        status: "submitted",
+        submissionDate: new Date(),
+        reviewDeadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+      });
+      res.json(report);
+    } catch (e: any) {
+      console.error("Submit quality report error:", e);
+      res.status(500).json({ error: "Failed to submit quality report" });
+    }
+  });
+
+  // Dispute quality report (vendor/translator action)
+  app.post("/api/quality-reports/:id/dispute", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const id = +param(req, "id");
+      const [existing] = await db.select().from(qualityReports).where(eq(qualityReports.id, id));
+      if (!existing) return res.status(404).json({ error: "Quality report not found" });
+      if (existing.status !== "submitted" && existing.status !== "pending_translator_review") {
+        return res.status(400).json({ error: `Cannot dispute a report with status '${existing.status}'.` });
+      }
+      const { translatorComments } = req.body;
+      const report = await storage.updateQualityReport(id, {
+        status: "translator_disputed",
+        translatorComments: translatorComments || null,
+      });
+      res.json(report);
+    } catch (e: any) {
+      console.error("Dispute quality report error:", e);
+      res.status(500).json({ error: "Failed to dispute quality report" });
     }
   });
 
@@ -3253,13 +3463,15 @@ const freelancers = (Array.isArray(data) ? data : [])
       ]);
       res.json({ data, total, page: filters.page || 1, limit: filters.limit || 50 });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
   app.post("/api/purchase-orders", requireAuth, async (req: Request, res: Response) => {
     try {
-      const data = req.body;
+      const body = validate(createPurchaseOrderSchema, req.body, res);
+      if (!body) return;
+      const data: any = { ...body };
       // Auto-generate PO number if not provided
       if (!data.poNumber && data.entityId) {
         const entity = await storage.getEntity(data.entityId);
@@ -3271,7 +3483,8 @@ const freelancers = (Array.isArray(data) ? data : [])
       const order = await storage.createPurchaseOrder(data);
       res.status(201).json(order);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      console.error("Create purchase order error:", e);
+      res.status(500).json({ error: "Failed to create purchase order" });
     }
   });
 
@@ -3280,7 +3493,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       const order = await storage.updatePurchaseOrder(+param(req, "id"), req.body);
       res.json(order);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -3299,7 +3512,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       ]);
       res.json({ data, total, page: filters.page || 1, limit: filters.limit || 50 });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -3312,13 +3525,15 @@ const freelancers = (Array.isArray(data) ? data : [])
       const entity = invoice.entityId ? await storage.getEntity(invoice.entityId) : null;
       res.json({ ...invoice, lines, customer, entity });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
   app.post("/api/invoices", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { lines, ...invoiceData } = req.body;
+      const body = validate(createInvoiceSchema, req.body, res);
+      if (!body) return;
+      const { lines, ...invoiceData } = body as any;
       // Auto-generate invoice number if not provided
       if (!invoiceData.invoiceNumber && invoiceData.entityId) {
         const entity = await storage.getEntity(invoiceData.entityId);
@@ -3344,7 +3559,8 @@ const freelancers = (Array.isArray(data) ? data : [])
       const createdLines = await storage.getInvoiceLines(invoice.id);
       res.status(201).json({ ...invoice, lines: createdLines });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      console.error("Create invoice error:", e);
+      res.status(500).json({ error: "Failed to create invoice" });
     }
   });
 
@@ -3360,7 +3576,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       }
       res.json(invoice);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -3369,7 +3585,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       const invoice = await storage.updateInvoice(+param(req, "id"), { status: "sent" });
       res.json(invoice);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -3394,7 +3610,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       }
       res.json(invoice);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -3407,7 +3623,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       const entity = po.entityId ? await storage.getEntity(po.entityId) : null;
       res.json({ ...po, vendor, entity });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -3433,7 +3649,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       }
       res.json(po);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -3447,16 +3663,19 @@ const freelancers = (Array.isArray(data) ? data : [])
       const data = await storage.getPayments(filters);
       res.json(data);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
   app.post("/api/payments", requireAuth, async (req: Request, res: Response) => {
     try {
-      const payment = await storage.createPayment(req.body);
+      const body = validate(createPaymentSchema, req.body, res);
+      if (!body) return;
+      const payment = await storage.createPayment(body);
       res.status(201).json(payment);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      console.error("Create payment error:", e);
+      res.status(500).json({ error: "Failed to create payment" });
     }
   });
 
@@ -3470,7 +3689,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       const summary = await storage.getFinancialSummary(filters);
       res.json(summary);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -3480,7 +3699,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       const aging = await storage.getARAgingReport(entityId);
       res.json(aging);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -3491,7 +3710,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       const data = await storage.getRevenueByCustomer(limit, entityId);
       res.json(data);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -3502,7 +3721,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       const data = await storage.getCostByVendor(limit, entityId);
       res.json(data);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -3513,7 +3732,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       const data = await storage.getMonthlyTrend(months, entityId);
       res.json(data);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -3522,7 +3741,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       const data = await storage.getRevenueByEntity();
       res.json(data);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -3531,7 +3750,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       const financials = await storage.getProjectFinancials(+param(req, "id"));
       res.json(financials);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -3541,7 +3760,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       const data = await storage.getUninvoicedJobs(customerId);
       res.json(data);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -3556,7 +3775,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       const setting = await storage.upsertSetting(param(req, "key"), req.body.value, req.body.category, req.body.description);
       res.json(setting);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
@@ -3592,13 +3811,18 @@ const freelancers = (Array.isArray(data) ? data : [])
       const vendor = await storage.updateVendor((req as any).vendorId, updates);
       res.json(vendor);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 
   app.get("/api/portal/jobs", requireVendorAuth, async (req: Request, res: Response) => {
-    // Return jobs assigned to this vendor
-    res.json([]);
+    try {
+      const vendorJobs = await storage.getVendorJobs((req as any).vendorId);
+      res.json(vendorJobs);
+    } catch (e: any) {
+      console.error("Portal jobs error:", e);
+      res.json([]);
+    }
   });
 
   app.get("/api/portal/payments", requireVendorAuth, async (req: Request, res: Response) => {
@@ -3634,7 +3858,7 @@ const freelancers = (Array.isArray(data) ? data : [])
       await sendEmail([vendor.email], "Sign in to ElTurco Portal", buildMagicLinkEmailHtml(vendor.fullName, magicUrl));
       res.json({ success: true });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeError("Internal server error", e) });
     }
   });
 

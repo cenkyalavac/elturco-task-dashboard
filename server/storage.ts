@@ -462,6 +462,15 @@ export class DatabaseStorage implements IStorage {
     const [result] = await db.select().from(users).where(eq(users.id, id));
     return result;
   }
+  async deleteUser(id: number) {
+    // Soft-delete by setting isActive = false
+    await db.update(users).set({ isActive: false, updatedAt: new Date() }).where(eq(users.id, id));
+  }
+
+  // Vendor jobs (jobs assigned to a specific vendor)
+  async getVendorJobs(vendorId: number) {
+    return db.select().from(jobs).where(eq(jobs.vendorId, vendorId)).orderBy(desc(jobs.id));
+  }
 
   // Entities
   async getAllEntities() {
