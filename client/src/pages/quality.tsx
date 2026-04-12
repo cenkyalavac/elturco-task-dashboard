@@ -436,30 +436,42 @@ export default function QualityPage() {
     return result;
   }, [reports, filterDateStart, filterDateEnd, filterAccount, filterScoreMin, filterScoreMax]);
 
-  const { data: vendors } = useQuery<Vendor[]>({
+  const { data: vendors, isLoading: vendorsLoading } = useQuery<Vendor[]>({
     queryKey: ["/api/vendors"],
     queryFn: async () => {
-      const res = await apiRequest("GET", "/api/vendors?limit=500");
-      const json = await res.json();
-      return json.data ?? json;
+      try {
+        const res = await apiRequest("GET", "/api/vendors?limit=500");
+        const json = await res.json();
+        return json.data ?? json ?? [];
+      } catch {
+        return [];
+      }
     },
   });
 
   const { data: approvedVendors } = useQuery<Vendor[]>({
     queryKey: ["/api/vendors", "approved"],
     queryFn: async () => {
-      const res = await apiRequest("GET", "/api/vendors?status=Approved&limit=500");
-      const json = await res.json();
-      return json.data ?? json;
+      try {
+        const res = await apiRequest("GET", "/api/vendors?status=Approved&limit=500");
+        const json = await res.json();
+        return json.data ?? json ?? [];
+      } catch {
+        return [];
+      }
     },
   });
 
-  const { data: projects } = useQuery<Project[]>({
+  const { data: projects, isLoading: projectsLoading } = useQuery<Project[]>({
     queryKey: ["/api/projects", "all"],
     queryFn: async () => {
-      const res = await apiRequest("GET", "/api/projects?limit=500");
-      const json = await res.json();
-      return json.data ?? json;
+      try {
+        const res = await apiRequest("GET", "/api/projects?limit=500");
+        const json = await res.json();
+        return json.data ?? json ?? [];
+      } catch {
+        return [];
+      }
     },
   });
 
@@ -877,6 +889,52 @@ export default function QualityPage() {
 
   const inputCls = "bg-white/[0.04] border-white/[0.08] text-foreground placeholder:text-muted-foreground focus:border-white/[0.2]";
   const selectTriggerCls = "bg-white/[0.04] border-white/[0.08] text-foreground focus:ring-0";
+
+  // Top-level loading state: show skeleton UI while initial data loads
+  const isInitialLoad = reportsLoading && vendorsLoading && projectsLoading;
+
+  if (isInitialLoad) {
+    return (
+      <div className="p-6 space-y-6 max-w-[1400px] mx-auto" data-testid="quality-page-loading">
+        <div className="flex items-center gap-2 border-b border-white/[0.06] bg-white/[0.02] -mx-6 px-6 -mt-6 pt-6 pb-4 mb-2">
+          <ShieldCheck className="w-5 h-5 text-emerald-400" />
+          <h1 className="text-lg font-semibold text-white">Quality Management</h1>
+        </div>
+        <div className="space-y-4">
+          <Skeleton className="h-10 w-64 rounded-lg bg-white/[0.03]" />
+          <div className="space-y-2">
+            {[...Array(6)].map((_, i) => (
+              <Skeleton key={i} className="h-12 rounded-xl bg-white/[0.03]" />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Top-level error state: if the main reports query failed
+  if (reportsError && !reportsData) {
+    return (
+      <div className="p-6 space-y-6 max-w-[1400px] mx-auto" data-testid="quality-page-error">
+        <div className="flex items-center gap-2 border-b border-white/[0.06] bg-white/[0.02] -mx-6 px-6 -mt-6 pt-6 pb-4 mb-2">
+          <ShieldCheck className="w-5 h-5 text-emerald-400" />
+          <h1 className="text-lg font-semibold text-white">Quality Management</h1>
+        </div>
+        <div className="bg-white/[0.03] border border-red-500/20 rounded-xl shadow-lg p-8 text-center">
+          <p className="text-sm text-red-400 mb-4">Failed to load quality data. Please try again.</p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => qc.invalidateQueries({ queryKey: ["/api/quality-reports"] })}
+            className="gap-1.5"
+          >
+            <Loader2 className="w-3.5 h-3.5" />
+            Retry
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto" data-testid="quality-page">

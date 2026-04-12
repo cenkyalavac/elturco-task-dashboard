@@ -42,12 +42,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const token = getAuthToken();
     const savedUser = getCurrentUser();
     if (token && savedUser) {
-      // Validate the session is still active by making a lightweight call
+      // Validate the session is still active using the dedicated auth endpoint
       setIsLoading(true);
-      apiRequest("GET", "/api/assignments")
-        .then(() => {
-          // Session still valid
-          setUser(savedUser as User);
+      apiRequest("GET", "/api/auth/me")
+        .then(async (res) => {
+          const userData = await res.json();
+          // Update stored user with fresh data from the server
+          if (userData && userData.id) {
+            setCurrentUser(userData);
+            setUser(userData as User);
+          } else {
+            setUser(savedUser as User);
+          }
           setIsLoading(false);
         })
         .catch(() => {
