@@ -16,6 +16,7 @@ import {
   Ban, Clock, XCircle, UserCheck, CheckSquare,
   FileSpreadsheet, ArrowUpDown, StickyNote, GripVertical, Mail, Filter,
   Star, Volume2, VolumeX, CalendarClock, Undo2, UserX, ExternalLink,
+  Plus, UserPlus,
 } from "lucide-react";
 import VisualEmailEditor from "@/components/VisualEmailEditor";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -1960,6 +1961,34 @@ export default function DashboardPage() {
               Updated {lastUpdatedText}
             </span>
           )}
+        </div>
+      </div>
+
+      {/* Quick Actions */}
+      <div className="border-b border-white/[0.06] bg-card/30 px-4 py-2">
+        <div className="flex items-center gap-2 overflow-x-auto">
+          <span className="text-[10px] text-muted-foreground/50 uppercase tracking-wider mr-1">Quick Actions</span>
+          <button
+            onClick={() => { window.location.hash = "#/projects?create=true"; }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-400 bg-blue-500/10 border border-blue-500/20 rounded-md hover:bg-blue-500/20 transition-colors min-w-fit"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Create Project
+          </button>
+          <button
+            onClick={() => { window.location.hash = "#/vendors?add=true"; }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-md hover:bg-emerald-500/20 transition-colors min-w-fit"
+          >
+            <UserPlus className="w-3.5 h-3.5" />
+            Add Vendor
+          </button>
+          <button
+            onClick={() => { window.location.hash = "#/quality?tab=qs-entry"; }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-md hover:bg-amber-500/20 transition-colors min-w-fit"
+          >
+            <Star className="w-3.5 h-3.5" />
+            Quick QS Entry
+          </button>
         </div>
       </div>
 
