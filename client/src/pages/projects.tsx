@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
@@ -24,7 +25,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, ChevronLeft, ChevronRight, Loader2, Search, FolderOpen } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, Loader2, Search, FolderOpen, X } from "lucide-react";
 
 // ── Types ──
 
@@ -54,11 +55,25 @@ interface Customer {
   name: string;
 }
 
+const SERVICE_TYPES = [
+  "Translation",
+  "MTPE",
+  "Review",
+  "LQA",
+  "Proofreading",
+  "TEP",
+  "DTP",
+  "Transcreation",
+];
+
+const SOURCE_OPTIONS = ["Manual", "Symfonie", "APS", "Junction"];
+
 interface QuickCreateForm {
   projectName: string;
   customerId: string;
+  serviceType: string;
   sourceLanguage: string;
-  targetLanguage: string;
+  targetLanguages: string[];
   deadline: string;
   source: string;
   notes: string;
@@ -88,6 +103,7 @@ const PAGE_LIMIT = 20;
 export default function ProjectsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
 
   const [statusFilter, setStatusFilter] = useState("all");
   const [customerFilter, setCustomerFilter] = useState("all");
@@ -99,8 +115,9 @@ export default function ProjectsPage() {
   const [form, setForm] = useState<QuickCreateForm>({
     projectName: "",
     customerId: "",
+    serviceType: "",
     sourceLanguage: "EN",
-    targetLanguage: "TR",
+    targetLanguages: ["TR"],
     deadline: "",
     source: "",
     notes: "",
@@ -139,19 +156,21 @@ export default function ProjectsPage() {
       const res = await apiRequest("POST", "/api/projects", payload);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data: { id: number }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
       toast({ title: "Project created successfully" });
       setDialogOpen(false);
       setForm({
         projectName: "",
         customerId: "",
+        serviceType: "",
         sourceLanguage: "EN",
-        targetLanguage: "TR",
+        targetLanguages: ["TR"],
         deadline: "",
         source: "",
         notes: "",
       });
+      window.location.href = '/projects/' + data.id;
     },
     onError: (err: Error) => {
       toast({ title: "Error creating project", description: err.message, variant: "destructive" });
@@ -173,8 +192,21 @@ export default function ProjectsPage() {
     setSearchQuery(value);
   }
 
-  function handleFormChange(field: keyof QuickCreateForm, value: string) {
+  function handleFormChange(field: keyof QuickCreateForm, value: string | string[]) {
     setForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  function addTargetLanguage(lang: string) {
+    if (!form.targetLanguages.includes(lang)) {
+      setForm((prev) => ({ ...prev, targetLanguages: [...prev.targetLanguages, lang] }));
+    }
+  }
+
+  function removeTargetLanguage(lang: string) {
+    setForm((prev) => ({
+      ...prev,
+      targetLanguages: prev.targetLanguages.filter((l) => l !== lang),
+    }));
   }
 
   function handleSubmit() {
@@ -185,11 +217,12 @@ export default function ProjectsPage() {
     const payload: Record<string, unknown> = {
       projectName: form.projectName.trim(),
       sourceLanguage: form.sourceLanguage,
-      targetLanguage: form.targetLanguage,
+      targetLanguage: form.targetLanguages.join(", "),
     };
     if (form.customerId) payload.customerId = Number(form.customerId);
+    if (form.serviceType) payload.serviceType = form.serviceType;
     if (form.deadline) payload.deadline = form.deadline;
-    if (form.source.trim()) payload.source = form.source.trim();
+    if (form.source) payload.source = form.source;
     if (form.notes.trim()) payload.notes = form.notes.trim();
     createProjectMutation.mutate(payload);
   }
@@ -435,7 +468,7 @@ export default function ProjectsPage() {
 
       {/* Quick Create Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-md bg-card border-border" data-testid="dialog-quick-create">
+        <DialogContent className="sm:max-w-lg bg-card border-border" data-testid="dialog-quick-create">
           <DialogHeader>
             <DialogTitle className="text-base font-semibold text-foreground">
               Quick Create Project
@@ -458,101 +491,145 @@ export default function ProjectsPage() {
               />
             </div>
 
-            {/* Customer */}
+            {/* Customer & Service Type */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="qc-customer" className="text-xs text-muted-foreground">
+                  Customer
+                </Label>
+                <Select
+                  value={form.customerId || "none"}
+                  onValueChange={(v) => handleFormChange("customerId", v === "none" ? "" : v)}
+                >
+                  <SelectTrigger id="qc-customer" className="h-8 text-sm" data-testid="select-qc-customer">
+                    <SelectValue placeholder="Select customer..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No customer</SelectItem>
+                    {(customers || []).map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="qc-service-type" className="text-xs text-muted-foreground">
+                  Service Type
+                </Label>
+                <Select
+                  value={form.serviceType || "none"}
+                  onValueChange={(v) => handleFormChange("serviceType", v === "none" ? "" : v)}
+                >
+                  <SelectTrigger id="qc-service-type" className="h-8 text-sm" data-testid="select-qc-service-type">
+                    <SelectValue placeholder="Select service type..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No service type</SelectItem>
+                    {SERVICE_TYPES.map((st) => (
+                      <SelectItem key={st} value={st}>
+                        {st}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Source Language */}
             <div className="space-y-1.5">
-              <Label htmlFor="qc-customer" className="text-xs text-muted-foreground">
-                Customer
+              <Label htmlFor="qc-source-lang" className="text-xs text-muted-foreground">
+                Source Language
               </Label>
               <Select
-                value={form.customerId || "none"}
-                onValueChange={(v) => handleFormChange("customerId", v === "none" ? "" : v)}
+                value={form.sourceLanguage}
+                onValueChange={(v) => handleFormChange("sourceLanguage", v)}
               >
-                <SelectTrigger id="qc-customer" className="h-8 text-sm" data-testid="select-qc-customer">
-                  <SelectValue placeholder="Select customer..." />
+                <SelectTrigger id="qc-source-lang" className="h-8 text-sm" data-testid="select-qc-source-lang">
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">No customer</SelectItem>
-                  {(customers || []).map((c) => (
-                    <SelectItem key={c.id} value={String(c.id)}>
-                      {c.name}
+                  {COMMON_LANGUAGES.map((lang) => (
+                    <SelectItem key={lang} value={lang}>
+                      {lang}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
 
-            {/* Language Pair */}
+            {/* Target Languages (multi-select with chips) */}
+            <div className="space-y-1.5">
+              <Label htmlFor="qc-target-lang" className="text-xs text-muted-foreground">
+                Target Languages
+              </Label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {form.targetLanguages.map((lang) => (
+                  <Badge
+                    key={lang}
+                    variant="outline"
+                    className="text-xs px-2 py-0.5 gap-1 cursor-pointer hover:bg-destructive/10"
+                    onClick={() => removeTargetLanguage(lang)}
+                  >
+                    {lang}
+                    <X className="w-3 h-3" />
+                  </Badge>
+                ))}
+              </div>
+              <Select
+                value=""
+                onValueChange={(v) => addTargetLanguage(v)}
+              >
+                <SelectTrigger id="qc-target-lang" className="h-8 text-sm" data-testid="select-qc-target-lang">
+                  <SelectValue placeholder="Add target language..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {COMMON_LANGUAGES.filter((lang) => !form.targetLanguages.includes(lang)).map((lang) => (
+                    <SelectItem key={lang} value={lang}>
+                      {lang}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Deadline & Source */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="qc-source-lang" className="text-xs text-muted-foreground">
-                  Source Language
+                <Label htmlFor="qc-deadline" className="text-xs text-muted-foreground">
+                  Deadline
                 </Label>
-                <Select
-                  value={form.sourceLanguage}
-                  onValueChange={(v) => handleFormChange("sourceLanguage", v)}
-                >
-                  <SelectTrigger id="qc-source-lang" className="h-8 text-sm" data-testid="select-qc-source-lang">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {COMMON_LANGUAGES.map((lang) => (
-                      <SelectItem key={lang} value={lang}>
-                        {lang}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Input
+                  id="qc-deadline"
+                  type="date"
+                  value={form.deadline}
+                  onChange={(e) => handleFormChange("deadline", e.target.value)}
+                  className="h-8 text-sm"
+                  data-testid="input-qc-deadline"
+                />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="qc-target-lang" className="text-xs text-muted-foreground">
-                  Target Language
+                <Label htmlFor="qc-source" className="text-xs text-muted-foreground">
+                  Source
                 </Label>
                 <Select
-                  value={form.targetLanguage}
-                  onValueChange={(v) => handleFormChange("targetLanguage", v)}
+                  value={form.source || "none"}
+                  onValueChange={(v) => handleFormChange("source", v === "none" ? "" : v)}
                 >
-                  <SelectTrigger id="qc-target-lang" className="h-8 text-sm" data-testid="select-qc-target-lang">
-                    <SelectValue />
+                  <SelectTrigger id="qc-source" className="h-8 text-sm" data-testid="select-qc-source">
+                    <SelectValue placeholder="Select source..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {COMMON_LANGUAGES.map((lang) => (
-                      <SelectItem key={lang} value={lang}>
-                        {lang}
+                    <SelectItem value="none">No source</SelectItem>
+                    {SOURCE_OPTIONS.map((src) => (
+                      <SelectItem key={src} value={src}>
+                        {src}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-            </div>
-
-            {/* Deadline */}
-            <div className="space-y-1.5">
-              <Label htmlFor="qc-deadline" className="text-xs text-muted-foreground">
-                Deadline
-              </Label>
-              <Input
-                id="qc-deadline"
-                type="date"
-                value={form.deadline}
-                onChange={(e) => handleFormChange("deadline", e.target.value)}
-                className="h-8 text-sm"
-                data-testid="input-qc-deadline"
-              />
-            </div>
-
-            {/* Source */}
-            <div className="space-y-1.5">
-              <Label htmlFor="qc-source" className="text-xs text-muted-foreground">
-                Source
-              </Label>
-              <Input
-                id="qc-source"
-                placeholder="e.g. Amazon, AppleCare..."
-                value={form.source}
-                onChange={(e) => handleFormChange("source", e.target.value)}
-                className="h-8 text-sm"
-                data-testid="input-qc-source"
-              />
             </div>
 
             {/* Notes */}
@@ -560,12 +637,12 @@ export default function ProjectsPage() {
               <Label htmlFor="qc-notes" className="text-xs text-muted-foreground">
                 Notes
               </Label>
-              <Input
+              <Textarea
                 id="qc-notes"
                 placeholder="Optional notes..."
                 value={form.notes}
                 onChange={(e) => handleFormChange("notes", e.target.value)}
-                className="h-8 text-sm"
+                className="text-sm min-h-[60px] resize-none"
                 data-testid="input-qc-notes"
               />
             </div>
