@@ -5469,4 +5469,109 @@ const freelancers = (Array.isArray(data) ? data : [])
     const vendor = await storage.getVendor(session.vendorId);
     res.json({ token: param(req, "token"), vendor: vendor ? { id: vendor.id, fullName: vendor.fullName, email: vendor.email } : null });
   });
+
+  // ── QA Seed endpoint (POST /api/seed-qa) ──
+  app.post("/api/seed-qa", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const now = new Date();
+      const in1day = new Date(now.getTime() + 1 * 24 * 60 * 60 * 1000);
+      const in2days = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
+      const in5days = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
+
+      // Ensure customer exists
+      let customerId: number;
+      const [existingCustomer] = await db.select({ id: customers.id }).from(customers).limit(1);
+      if (existingCustomer) {
+        customerId = existingCustomer.id;
+      } else {
+        const [newCust] = await db.insert(customers).values({ name: "Test Client Corp", code: "TEST-001", status: "ACTIVE", currency: "EUR" }).returning({ id: customers.id });
+        customerId = newCust.id;
+      }
+
+      // Ensure entity exists
+      let entityId: number;
+      const [existingEntity] = await db.select({ id: entities.id }).from(entities).limit(1);
+      if (existingEntity) {
+        entityId = existingEntity.id;
+      } else {
+        const [newEnt] = await db.insert(entities).values({ name: "Verbato Ltd", code: "VB", currency: "EUR" }).returning({ id: entities.id });
+        entityId = newEnt.id;
+      }
+
+      // Find a vendor
+      let vendorId: number | null = null;
+      const [existingVendor] = await db.select({ id: vendors.id }).from(vendors).limit(1);
+      if (existingVendor) vendorId = existingVendor.id;
+
+      // Clean up previous seed data
+      await db.delete(portalTasksTable).where(
+        sql`${portalTasksTable.externalId} IN ('SYM-2026-0412', 'SYM-2026-0413', 'APS-LB-4521')`
+      );
+
+      // Seed portal tasks
+      await db.insert(portalTasksTable).values([
+        {
+          portalSource: "symfonie", externalId: "SYM-2026-0412", status: "pending",
+          taskData: { projectName: "Amazon Product Listings EN>DE", name: "Amazon Product Listings EN>DE", sourceLanguage: "English", targetLanguages: ["German"], wordCount: 2500, deadline: in2days.toISOString(), client_name: "Amazon/Centific" },
+        },
+        {
+          portalSource: "symfonie", externalId: "SYM-2026-0413", status: "pending",
+          taskData: { projectName: "Microsoft Azure Docs EN>TR,FR", name: "Microsoft Azure Docs EN>TR,FR", sourceLanguage: "English", targetLanguages: ["Turkish", "French"], wordCount: 8000, deadline: in5days.toISOString(), client_name: "Microsoft/RWS" },
+        },
+        {
+          portalSource: "aps", externalId: "APS-LB-4521", status: "pending",
+          taskData: { projectName: "Lionbridge Legal Review DE>EN", name: "Lionbridge Legal Review DE>EN", sourceLanguage: "German", targetLanguages: ["English"], wordCount: 1200, deadline: in1day.toISOString(), client_name: "Lionbridge (LCX)" },
+        },
+      ]);
+
+      // Clean previous seed projects
+      await db.delete(projects).where(
+        sql`${projects.projectName} IN ('Samsung Mobile App Localization', 'Netflix Subtitle Translation')`
+      );
+
+      // Project 1
+      const [p1] = await db.insert(projects).values({
+        entityId, customerId, projectName: "Samsung Mobile App Localization", projectCode: "MAN-2026-0050",
+        source: "manual", status: "in_progress", deadline: in5days,
+      }).returning({ id: projects.id });
+
+      await db.insert(jobs).values([
+        { projectId: p1.id, jobCode: "MAN-2026-0050-TR", jobName: "EN>TR Translation", sourceLanguage: "EN", targetLanguage: "TR", serviceType: "Translation", status: "assigned", wordCount: 3500, vendorId, assignedAt: now, deadline: in5days },
+        { projectId: p1.id, jobCode: "MAN-2026-0050-DE", jobName: "EN>DE Translation", sourceLanguage: "EN", targetLanguage: "DE", serviceType: "Translation", status: "unassigned", wordCount: 3500, deadline: in5days },
+        { projectId: p1.id, jobCode: "MAN-2026-0050-FR", jobName: "EN>FR Translation", sourceLanguage: "EN", targetLanguage: "FR", serviceType: "Translation", status: "unassigned", wordCount: 3500, deadline: in5days },
+      ]);
+
+      // Project 2
+      const [p2] = await db.insert(projects).values({
+        entityId, customerId, projectName: "Netflix Subtitle Translation", projectCode: "SYM-2026-0399",
+        source: "symfonie", externalId: "SYM-2026-0399", status: "confirmed", deadline: in5days,
+      }).returning({ id: projects.id });
+
+      await db.insert(jobs).values([
+        { projectId: p2.id, jobCode: "SYM-2026-0399-ES", jobName: "EN>ES Translation", sourceLanguage: "EN", targetLanguage: "ES", serviceType: "Translation", status: "unassigned", wordCount: 5000, deadline: in5days },
+        { projectId: p2.id, jobCode: "SYM-2026-0399-PT", jobName: "EN>PT Translation", sourceLanguage: "EN", targetLanguage: "PT", serviceType: "Translation", status: "unassigned", wordCount: 5000, deadline: in5days },
+      ]);
+
+      // Seed notifications
+      await db.delete(notificationsV2).where(
+        sql`${notificationsV2.title} LIKE 'New Symfonie task: Amazon%' OR ${notificationsV2.title} LIKE 'Deadline approaching: Lionbridge%'`
+      );
+
+      await db.insert(notificationsV2).values([
+        { pmUserId: 5, type: "task_incoming", title: "New Symfonie task: Amazon Product Listings", message: "A new task from Symfonie portal is awaiting your review.", read: false },
+        { pmUserId: 5, type: "deadline_warning", title: "Deadline approaching: Lionbridge Legal Review (tomorrow)", message: "The Lionbridge Legal Review DE>EN task deadline is tomorrow.", read: false },
+      ]);
+
+      res.json({
+        success: true,
+        seeded: {
+          portalTasks: 3,
+          projects: [{ id: p1.id, name: "Samsung Mobile App Localization", jobs: 3 }, { id: p2.id, name: "Netflix Subtitle Translation", jobs: 2 }],
+          notifications: 2,
+        },
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: `Seed failed: ${e.message}` });
+    }
+  });
 }

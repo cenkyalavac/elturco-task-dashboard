@@ -96,7 +96,7 @@ const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   on_hold: { label: "On Hold", className: "bg-amber-500/15 text-amber-400 border-amber-500/20" },
 };
 
-const STATUSES = ["draft", "quoted", "confirmed", "in_progress", "delivered", "completed", "invoiced", "closed", "cancelled", "active", "on_hold"];
+const STATUSES = ["draft", "quoted", "confirmed", "in_progress", "delivered", "completed", "invoiced", "closed", "cancelled", "active", "pending", "on_hold"];
 
 const COMMON_LANGUAGES = [
   "EN", "TR", "AR", "DE", "FR", "ES", "PT", "IT", "NL", "PL",

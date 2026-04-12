@@ -2015,23 +2015,29 @@ export default function DashboardPage() {
       )}
 
       {/* Incoming Portal Tasks */}
-      {pendingPortalTasks.length > 0 && (
-        <div className="border-b border-white/[0.06] bg-card/50 px-4 py-3">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-xs font-semibold text-white/70 uppercase tracking-wider flex items-center gap-2">
-              <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
-              Incoming Portal Tasks ({pendingPortalTasks.length})
-            </h3>
+      <div className="border-b border-white/[0.06] bg-card/50 px-4 py-3">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-xs font-semibold text-white/70 uppercase tracking-wider flex items-center gap-2">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+            Incoming Portal Tasks {pendingPortalTasks.length > 0 && `(${pendingPortalTasks.length})`}
+          </h3>
+        </div>
+        {pendingPortalTasks.length === 0 ? (
+          <div className="flex items-center justify-center py-4 text-white/30">
+            <p className="text-xs">No incoming portal tasks</p>
           </div>
+        ) : (
           <div className="space-y-1.5">
             {pendingPortalTasks.slice(0, 5).map((task: any) => {
               const td = task.taskData || {};
+              const deadline = td.deadline ? new Date(td.deadline).toLocaleDateString("en-US", { day: "numeric", month: "short" }) : null;
               return (
                 <div key={task.id} className="flex items-center justify-between bg-amber-500/[0.04] border border-amber-500/10 rounded-lg px-3 py-2">
                   <div className="flex items-center gap-3 min-w-0">
                     <Badge className="text-[9px] bg-amber-500/10 text-amber-400 border-amber-500/20 shrink-0">{task.portalSource}</Badge>
                     <span className="text-xs text-white/80 truncate">{td.projectName || td.name || task.externalId}</span>
                     <span className="text-[10px] text-white/30 shrink-0">{td.sourceLanguage} &gt; {Array.isArray(td.targetLanguages) ? td.targetLanguages.join(", ") : td.targetLanguage || "?"}</span>
+                    {deadline && <span className="text-[10px] text-white/20 shrink-0">{deadline}</span>}
                     {td.wordCount && <span className="text-[10px] text-white/20">{Number(td.wordCount).toLocaleString()} words</span>}
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0 ml-2">
@@ -2043,8 +2049,8 @@ export default function DashboardPage() {
               );
             })}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Enhanced KPI Cards Row */}
       <div className="border-b border-white/[0.06] bg-card/50 px-4 py-3">
