@@ -131,6 +131,168 @@ export class DatabaseStorage implements IStorage {
     if (this.initialized) return;
     this.initialized = true;
 
+    // Run inline migrations (idempotent — uses IF NOT EXISTS / IF NOT EXISTS)
+    // These are embedded directly because the app is bundled with esbuild
+    // and filesystem access to db/migrations/ is not available at runtime.
+    const migrations = [
+      // 003: Entity default currency
+      `ALTER TABLE entities ADD COLUMN IF NOT EXISTS default_currency VARCHAR(3) DEFAULT 'EUR';`,
+
+      // 004: Quiz system
+      `CREATE TABLE IF NOT EXISTS quizzes (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(300) NOT NULL,
+        description TEXT,
+        category VARCHAR(100),
+        time_limit INTEGER,
+        passing_score INTEGER DEFAULT 70,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_by INTEGER REFERENCES users(id),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );`,
+      `CREATE TABLE IF NOT EXISTS quiz_questions (
+        id SERIAL PRIMARY KEY,
+        quiz_id INTEGER NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
+        question_text TEXT NOT NULL,
+        question_type VARCHAR(50) NOT NULL DEFAULT 'multiple_choice',
+        options JSONB DEFAULT '[]'::jsonb,
+        correct_answers TEXT[],
+        points INTEGER DEFAULT 1,
+        order_index INTEGER DEFAULT 0
+      );`,
+      `CREATE INDEX IF NOT EXISTS idx_quiz_questions_quiz_id ON quiz_questions(quiz_id);`,
+      `CREATE TABLE IF NOT EXISTS quiz_assignments (
+        id SERIAL PRIMARY KEY,
+        quiz_id INTEGER NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
+        vendor_id INTEGER NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
+        assigned_by INTEGER REFERENCES users(id),
+        assigned_at TIMESTAMPTZ DEFAULT NOW(),
+        expires_at TIMESTAMPTZ,
+        status VARCHAR(50) DEFAULT 'assigned',
+        token VARCHAR(255) NOT NULL UNIQUE
+      );`,
+      `CREATE INDEX IF NOT EXISTS idx_quiz_assignments_vendor ON quiz_assignments(vendor_id);`,
+      `CREATE INDEX IF NOT EXISTS idx_quiz_assignments_token ON quiz_assignments(token);`,
+      `CREATE TABLE IF NOT EXISTS quiz_attempts (
+        id SERIAL PRIMARY KEY,
+        assignment_id INTEGER NOT NULL REFERENCES quiz_assignments(id) ON DELETE CASCADE,
+        vendor_id INTEGER NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
+        quiz_id INTEGER NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
+        started_at TIMESTAMPTZ DEFAULT NOW(),
+        completed_at TIMESTAMPTZ,
+        score INTEGER,
+        max_score INTEGER,
+        passed BOOLEAN,
+        answers JSONB DEFAULT '[]'::jsonb
+      );`,
+      `CREATE INDEX IF NOT EXISTS idx_quiz_attempts_vendor ON quiz_attempts(vendor_id);`,
+      `CREATE INDEX IF NOT EXISTS idx_quiz_attempts_quiz ON quiz_attempts(quiz_id);`,
+
+      // 005: Vendor enhancements
+      `CREATE TABLE IF NOT EXISTS vendor_applications (
+        id SERIAL PRIMARY KEY,
+        full_name VARCHAR(200) NOT NULL,
+        email VARCHAR(255) NOT NULL,
+        phone VARCHAR(50),
+        location VARCHAR(200),
+        timezone VARCHAR(100),
+        website VARCHAR(500),
+        linkedin VARCHAR(500),
+        native_language VARCHAR(50),
+        language_pairs JSONB DEFAULT '[]'::jsonb,
+        service_types TEXT[],
+        specializations TEXT[],
+        software JSONB DEFAULT '[]'::jsonb,
+        experience_years INTEGER,
+        education TEXT,
+        certifications TEXT[],
+        cv_file_url TEXT,
+        rate_per_word DECIMAL(8,4),
+        rate_per_hour DECIMAL(8,2),
+        minimum_fee DECIMAL(10,2),
+        currency VARCHAR(3) DEFAULT 'EUR',
+        status VARCHAR(50) DEFAULT 'pending',
+        vendor_id INTEGER REFERENCES vendors(id),
+        reviewed_by INTEGER REFERENCES users(id),
+        reviewed_at TIMESTAMPTZ,
+        notes TEXT,
+        submitted_at TIMESTAMPTZ DEFAULT NOW(),
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );`,
+      `CREATE INDEX IF NOT EXISTS idx_vendor_applications_email ON vendor_applications(email);`,
+      `CREATE INDEX IF NOT EXISTS idx_vendor_applications_status ON vendor_applications(status);`,
+      `CREATE TABLE IF NOT EXISTS vendor_stage_history (
+        id SERIAL PRIMARY KEY,
+        vendor_id INTEGER NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
+        from_stage VARCHAR(50),
+        to_stage VARCHAR(50) NOT NULL,
+        changed_by INTEGER REFERENCES users(id),
+        notes TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );`,
+      `CREATE INDEX IF NOT EXISTS idx_vendor_stage_history_vendor ON vendor_stage_history(vendor_id);`,
+      `CREATE TABLE IF NOT EXISTS vendor_filter_presets (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(200) NOT NULL,
+        filters JSONB NOT NULL,
+        created_by INTEGER REFERENCES users(id),
+        is_shared BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );`,
+      `ALTER TABLE vendor_file_uploads ADD COLUMN IF NOT EXISTS document_status VARCHAR(50) DEFAULT 'pending';`,
+      `ALTER TABLE vendor_file_uploads ADD COLUMN IF NOT EXISTS expiry_date DATE;`,
+      `ALTER TABLE vendor_file_uploads ADD COLUMN IF NOT EXISTS uploaded_by INTEGER REFERENCES users(id);`,
+      `ALTER TABLE vendor_file_uploads ADD COLUMN IF NOT EXISTS notes TEXT;`,
+
+      // 006: VM Experience
+      `CREATE TABLE IF NOT EXISTS vendor_email_templates (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(200) NOT NULL,
+        subject TEXT NOT NULL,
+        body TEXT NOT NULL,
+        category VARCHAR(100),
+        is_active BOOLEAN DEFAULT TRUE,
+        created_by INTEGER REFERENCES users(id),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );`,
+      `CREATE TABLE IF NOT EXISTS vendor_emails (
+        id SERIAL PRIMARY KEY,
+        vendor_id INTEGER NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
+        template_id INTEGER REFERENCES vendor_email_templates(id),
+        subject TEXT NOT NULL,
+        body TEXT NOT NULL,
+        sent_by INTEGER REFERENCES users(id),
+        sent_at TIMESTAMPTZ DEFAULT NOW(),
+        status VARCHAR(50) DEFAULT 'sent',
+        resend_message_id VARCHAR(255)
+      );`,
+      `CREATE INDEX IF NOT EXISTS idx_vendor_emails_vendor ON vendor_emails(vendor_id);`,
+      `CREATE INDEX IF NOT EXISTS idx_vendor_emails_sent_at ON vendor_emails(sent_at);`,
+      `CREATE TABLE IF NOT EXISTS vendor_onboarding_tasks (
+        id SERIAL PRIMARY KEY,
+        vendor_id INTEGER NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
+        task_name VARCHAR(200) NOT NULL,
+        task_type VARCHAR(50) NOT NULL,
+        status VARCHAR(50) DEFAULT 'pending',
+        completed_at TIMESTAMPTZ,
+        due_date DATE,
+        notes TEXT
+      );`,
+      `CREATE INDEX IF NOT EXISTS idx_vendor_onboarding_vendor ON vendor_onboarding_tasks(vendor_id);`,
+    ];
+
+    for (const migration of migrations) {
+      try {
+        await db.execute(sql.raw(migration));
+      } catch (e: any) {
+        // Log but don't throw — IF NOT EXISTS makes these safe to retry
+        console.warn(`[migration] Warning: ${e.message?.substring(0, 100)}`);
+      }
+    }
+    console.log(`[migration] All ${migrations.length} migrations applied.`);
+
     // Seed default admin users
     const SEED_HASH = "$2b$10$luZIyoi9Gg3rW252YGmfxe4U2StasUiT54CACIcQO7rZQ3UXl6Pz.";
     const seeds = [
