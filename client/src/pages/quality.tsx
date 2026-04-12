@@ -46,6 +46,8 @@ import {
   ClipboardCheck,
   Filter,
   X,
+  Zap,
+  ClipboardList,
 } from "lucide-react";
 import {
   LineChart,
@@ -82,6 +84,28 @@ const SEVERITY_WEIGHTS: Record<string, number> = {
   Minor: 2,
   Preferential: 0.5,
 };
+
+const MQM_CATEGORIES = ["Accuracy", "Fluency", "Terminology", "Style", "Locale conventions"];
+
+const MQM_SEVERITY_WEIGHTS: Record<string, number> = {
+  minor: 1,
+  major: 5,
+  critical: 10,
+};
+
+function createEmptyMqmRows(): MqmErrorRow[] {
+  return MQM_CATEGORIES.map((cat) => ({ category: cat, minor: 0, major: 0, critical: 0 }));
+}
+
+function calcMqmLqaScore(rows: MqmErrorRow[]): number {
+  let totalPenalty = 0;
+  for (const row of rows) {
+    totalPenalty += row.minor * MQM_SEVERITY_WEIGHTS.minor
+      + row.major * MQM_SEVERITY_WEIGHTS.major
+      + row.critical * MQM_SEVERITY_WEIGHTS.critical;
+  }
+  return Math.max(0, 100 - totalPenalty);
+}
 
 const REPORT_STATUS_COLORS: Record<string, { label: string; className: string }> = {
   draft: { label: "Draft", className: "bg-slate-500/15 text-slate-400 border-slate-500/20" },
@@ -121,6 +145,20 @@ interface LqaError {
   category: string;
   severity: string;
   count: number;
+}
+
+interface Project {
+  id: number;
+  projectName: string;
+  code?: string;
+  status?: string;
+}
+
+interface MqmErrorRow {
+  category: string;
+  minor: number;
+  major: number;
+  critical: number;
 }
 
 interface QualityReport {
@@ -282,6 +320,21 @@ export default function QualityPage() {
   const [selectedReport, setSelectedReport] = useState<QualityReport | null>(null);
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
 
+  // ── Quick Score dialog state ──
+  const [qsDialogOpen, setQsDialogOpen] = useState(false);
+  const [qsDialogVendorId, setQsDialogVendorId] = useState("");
+  const [qsDialogProjectId, setQsDialogProjectId] = useState("");
+  const [qsDialogScore, setQsDialogScore] = useState(0);
+  const [qsDialogNotes, setQsDialogNotes] = useState("");
+
+  // ── LQA Form dialog state ──
+  const [lqaDialogOpen, setLqaDialogOpen] = useState(false);
+  const [lqaDialogVendorId, setLqaDialogVendorId] = useState("");
+  const [lqaDialogProjectId, setLqaDialogProjectId] = useState("");
+  const [lqaDialogWordCount, setLqaDialogWordCount] = useState("");
+  const [lqaDialogMqmRows, setLqaDialogMqmRows] = useState<MqmErrorRow[]>(createEmptyMqmRows);
+  const [lqaDialogComments, setLqaDialogComments] = useState("");
+
   // ── Filters state ──
   const [filterVendorId, setFilterVendorId] = useState("");
   const [filterReportType, setFilterReportType] = useState("");
@@ -401,8 +454,18 @@ export default function QualityPage() {
     },
   });
 
+  const { data: projects } = useQuery<Project[]>({
+    queryKey: ["/api/projects", "all"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/projects?limit=500");
+      const json = await res.json();
+      return json.data ?? json;
+    },
+  });
+
   const vendorList = vendors ?? [];
   const approvedVendorList = approvedVendors ?? [];
+  const projectList = projects ?? [];
 
   // ── Mutations ──
 
@@ -609,6 +672,115 @@ export default function QualityPage() {
     setCurrentPage(1);
   }
 
+  // ── QS Quick Entry Dialog submit ──
+
+  function handleQsDialogSubmit() {
+    if (!qsDialogVendorId) {
+      toast({ title: "Vendor is required", variant: "destructive" });
+      return;
+    }
+    if (!qsDialogProjectId) {
+      toast({ title: "Project is required", variant: "destructive" });
+      return;
+    }
+    if (qsDialogScore <= 0) {
+      toast({ title: "Score is required (click stars to rate)", variant: "destructive" });
+      return;
+    }
+
+    const project = projectList.find((p) => String(p.id) === qsDialogProjectId);
+
+    createReportMutation.mutate(
+      {
+        vendorId: parseInt(qsDialogVendorId),
+        reportType: "QS",
+        qsScore: qsDialogScore,
+        projectName: project?.projectName ?? `Project ${qsDialogProjectId}`,
+        reviewerComments: qsDialogNotes.trim() || null,
+        status: "finalized",
+        reportDate: todayISO(),
+      },
+      {
+        onSuccess: () => {
+          toast({ title: "QS Report created", description: "Quick score has been recorded." });
+          resetQsDialog();
+        },
+      }
+    );
+  }
+
+  function resetQsDialog() {
+    setQsDialogOpen(false);
+    setQsDialogVendorId("");
+    setQsDialogProjectId("");
+    setQsDialogScore(0);
+    setQsDialogNotes("");
+  }
+
+  // ── LQA Form Dialog submit ──
+
+  function handleLqaDialogSubmit() {
+    if (!lqaDialogVendorId) {
+      toast({ title: "Vendor is required", variant: "destructive" });
+      return;
+    }
+    if (!lqaDialogProjectId) {
+      toast({ title: "Project is required", variant: "destructive" });
+      return;
+    }
+    const wordCountNum = parseInt(lqaDialogWordCount);
+    if (!wordCountNum || wordCountNum <= 0) {
+      toast({ title: "Word count must be greater than 0", variant: "destructive" });
+      return;
+    }
+
+    const project = projectList.find((p) => String(p.id) === lqaDialogProjectId);
+    const lqaScore = calcMqmLqaScore(lqaDialogMqmRows);
+    const lqaErrors: LqaError[] = [];
+    for (const row of lqaDialogMqmRows) {
+      if (row.minor > 0) lqaErrors.push({ category: row.category, severity: "Minor", count: row.minor });
+      if (row.major > 0) lqaErrors.push({ category: row.category, severity: "Major", count: row.major });
+      if (row.critical > 0) lqaErrors.push({ category: row.category, severity: "Critical", count: row.critical });
+    }
+
+    createReportMutation.mutate(
+      {
+        vendorId: parseInt(lqaDialogVendorId),
+        reportType: "LQA",
+        lqaScore,
+        wordCount: wordCountNum,
+        projectName: project?.projectName ?? `Project ${lqaDialogProjectId}`,
+        lqaErrors,
+        reviewerComments: lqaDialogComments.trim() || null,
+        status: "submitted",
+        reportDate: todayISO(),
+      },
+      {
+        onSuccess: () => {
+          toast({ title: "LQA Report submitted", description: `LQA score: ${lqaScore}` });
+          resetLqaDialog();
+        },
+      }
+    );
+  }
+
+  function resetLqaDialog() {
+    setLqaDialogOpen(false);
+    setLqaDialogVendorId("");
+    setLqaDialogProjectId("");
+    setLqaDialogWordCount("");
+    setLqaDialogMqmRows(createEmptyMqmRows());
+    setLqaDialogComments("");
+  }
+
+  function updateMqmRow(index: number, field: "minor" | "major" | "critical", value: number) {
+    setLqaDialogMqmRows((prev) =>
+      prev.map((row, i) => (i === index ? { ...row, [field]: Math.max(0, value) } : row))
+    );
+  }
+
+  const lqaDialogCalculatedScore = useMemo(() => calcMqmLqaScore(lqaDialogMqmRows), [lqaDialogMqmRows]);
+
   // ── Detail view helpers ──
 
   function openReportDetail(report: QualityReport) {
@@ -709,9 +881,29 @@ export default function QualityPage() {
   return (
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto" data-testid="quality-page">
       {/* Header */}
-      <div className="flex items-center gap-2">
-        <ShieldCheck className="w-5 h-5 text-emerald-400" />
-        <h1 className="text-lg font-semibold text-foreground">Quality Management</h1>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="w-5 h-5 text-emerald-400" />
+          <h1 className="text-lg font-semibold text-foreground">Quality Management</h1>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            className="gap-1.5 bg-purple-600 hover:bg-purple-700 text-white"
+            onClick={() => setQsDialogOpen(true)}
+          >
+            <Zap className="w-4 h-4" />
+            Quick Score
+          </Button>
+          <Button
+            size="sm"
+            className="gap-1.5 bg-cyan-600 hover:bg-cyan-700 text-white"
+            onClick={() => setLqaDialogOpen(true)}
+          >
+            <ClipboardList className="w-4 h-4" />
+            LQA Report
+          </Button>
+        </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -1795,6 +1987,269 @@ export default function QualityPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* ═══════════════════════════════════════════════ */}
+      {/* QS Quick Entry Dialog                            */}
+      {/* ═══════════════════════════════════════════════ */}
+      <Dialog open={qsDialogOpen} onOpenChange={(open) => { if (!open) resetQsDialog(); else setQsDialogOpen(true); }}>
+        <DialogContent className="bg-card border border-white/[0.08] text-foreground max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold flex items-center gap-2">
+              <Zap className="w-4 h-4 text-purple-400" />
+              Quick Score Entry
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 mt-2">
+            {/* Vendor */}
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">
+                Vendor <span className="text-red-400">*</span>
+              </Label>
+              <Select value={qsDialogVendorId} onValueChange={setQsDialogVendorId}>
+                <SelectTrigger className={selectTriggerCls}>
+                  <SelectValue placeholder="Select vendor..." />
+                </SelectTrigger>
+                <SelectContent className="bg-popover border-white/[0.08] max-h-60">
+                  {vendorList.map((v) => (
+                    <SelectItem key={v.id} value={String(v.id)}>
+                      {v.name || v.companyName || `Vendor ${v.id}`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Project */}
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">
+                Project <span className="text-red-400">*</span>
+              </Label>
+              <Select value={qsDialogProjectId} onValueChange={setQsDialogProjectId}>
+                <SelectTrigger className={selectTriggerCls}>
+                  <SelectValue placeholder="Select project..." />
+                </SelectTrigger>
+                <SelectContent className="bg-popover border-white/[0.08] max-h-60">
+                  {projectList.map((p) => (
+                    <SelectItem key={p.id} value={String(p.id)}>
+                      {p.projectName || `Project ${p.id}`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Star Rating */}
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">
+                Score (1-5) <span className="text-red-400">*</span>
+              </Label>
+              <StarRating value={qsDialogScore} onChange={setQsDialogScore} />
+            </div>
+
+            {/* Notes */}
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Notes</Label>
+              <Textarea
+                placeholder="Optional notes about this score..."
+                value={qsDialogNotes}
+                onChange={(e) => setQsDialogNotes(e.target.value)}
+                className={inputCls}
+                rows={3}
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="mt-4">
+            <Button variant="outline" onClick={resetQsDialog}>
+              Cancel
+            </Button>
+            <Button
+              className="gap-1.5 bg-purple-600 hover:bg-purple-700 text-white"
+              onClick={handleQsDialogSubmit}
+              disabled={createReportMutation.isPending}
+            >
+              {createReportMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Zap className="w-4 h-4" />
+              )}
+              Submit Score
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ═══════════════════════════════════════════════ */}
+      {/* LQA Report Dialog                                */}
+      {/* ═══════════════════════════════════════════════ */}
+      <Dialog open={lqaDialogOpen} onOpenChange={(open) => { if (!open) resetLqaDialog(); else setLqaDialogOpen(true); }}>
+        <DialogContent className="bg-card border border-white/[0.08] text-foreground max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold flex items-center gap-2">
+              <ClipboardList className="w-4 h-4 text-cyan-400" />
+              LQA Report
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-5 mt-2">
+            {/* Top fields */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Vendor */}
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">
+                  Vendor <span className="text-red-400">*</span>
+                </Label>
+                <Select value={lqaDialogVendorId} onValueChange={setLqaDialogVendorId}>
+                  <SelectTrigger className={selectTriggerCls}>
+                    <SelectValue placeholder="Select vendor..." />
+                  </SelectTrigger>
+                  <SelectContent className="bg-popover border-white/[0.08] max-h-60">
+                    {vendorList.map((v) => (
+                      <SelectItem key={v.id} value={String(v.id)}>
+                        {v.name || v.companyName || `Vendor ${v.id}`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Project */}
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">
+                  Project <span className="text-red-400">*</span>
+                </Label>
+                <Select value={lqaDialogProjectId} onValueChange={setLqaDialogProjectId}>
+                  <SelectTrigger className={selectTriggerCls}>
+                    <SelectValue placeholder="Select project..." />
+                  </SelectTrigger>
+                  <SelectContent className="bg-popover border-white/[0.08] max-h-60">
+                    {projectList.map((p) => (
+                      <SelectItem key={p.id} value={String(p.id)}>
+                        {p.projectName || `Project ${p.id}`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Word Count */}
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">
+                Word Count <span className="text-red-400">*</span>
+              </Label>
+              <Input
+                type="number"
+                min="1"
+                placeholder="e.g. 2000"
+                value={lqaDialogWordCount}
+                onChange={(e) => setLqaDialogWordCount(e.target.value)}
+                className={inputCls}
+              />
+            </div>
+
+            {/* MQM Error Category Table */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-foreground">MQM Error Categories</Label>
+              <div className="rounded-lg border border-white/[0.06] overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-white/[0.06] hover:bg-transparent">
+                      <TableHead className="text-[10px] text-muted-foreground font-medium">Category</TableHead>
+                      <TableHead className="text-[10px] text-muted-foreground font-medium text-center">Minor (x1)</TableHead>
+                      <TableHead className="text-[10px] text-muted-foreground font-medium text-center">Major (x5)</TableHead>
+                      <TableHead className="text-[10px] text-muted-foreground font-medium text-center">Critical (x10)</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {lqaDialogMqmRows.map((row, idx) => (
+                      <TableRow key={row.category} className="border-white/[0.04]">
+                        <TableCell className="text-xs font-medium text-foreground">{row.category}</TableCell>
+                        <TableCell>
+                          <Input
+                            type="number"
+                            min="0"
+                            value={row.minor}
+                            onChange={(e) => updateMqmRow(idx, "minor", parseInt(e.target.value) || 0)}
+                            className={`${inputCls} h-8 text-xs text-center w-20 mx-auto`}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            type="number"
+                            min="0"
+                            value={row.major}
+                            onChange={(e) => updateMqmRow(idx, "major", parseInt(e.target.value) || 0)}
+                            className={`${inputCls} h-8 text-xs text-center w-20 mx-auto`}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            type="number"
+                            min="0"
+                            value={row.critical}
+                            onChange={(e) => updateMqmRow(idx, "critical", parseInt(e.target.value) || 0)}
+                            className={`${inputCls} h-8 text-xs text-center w-20 mx-auto`}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+
+            {/* Calculated LQA Score */}
+            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4 flex items-center justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Auto-calculated LQA Score</p>
+                <p className="text-xs text-muted-foreground">
+                  Formula: max(0, 100 - (minor*1 + major*5 + critical*10))
+                </p>
+              </div>
+              <div className={`text-3xl font-bold tabular-nums ${
+                lqaDialogCalculatedScore >= 90 ? "text-emerald-400" :
+                lqaDialogCalculatedScore >= 70 ? "text-blue-400" :
+                lqaDialogCalculatedScore >= 50 ? "text-amber-400" :
+                "text-red-400"
+              }`}>
+                {lqaDialogCalculatedScore}
+              </div>
+            </div>
+
+            {/* Comments */}
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Comments</Label>
+              <Textarea
+                placeholder="Additional comments about this LQA report..."
+                value={lqaDialogComments}
+                onChange={(e) => setLqaDialogComments(e.target.value)}
+                className={inputCls}
+                rows={3}
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="mt-4">
+            <Button variant="outline" onClick={resetLqaDialog}>
+              Cancel
+            </Button>
+            <Button
+              className="gap-1.5 bg-cyan-600 hover:bg-cyan-700 text-white"
+              onClick={handleLqaDialogSubmit}
+              disabled={createReportMutation.isPending}
+            >
+              {createReportMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <ClipboardList className="w-4 h-4" />
+              )}
+              Submit LQA Report
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ═══════════════════════════════════════════════ */}
       {/* Report Detail Dialog                            */}
