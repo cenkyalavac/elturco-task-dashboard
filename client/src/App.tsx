@@ -491,7 +491,10 @@ function App() {
     function connect() {
       try {
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        const wsUrl = `${protocol}//${window.location.host}/ws`;
+        const token = getAuthToken();
+        const wsUrl = token
+          ? `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`
+          : `${protocol}//${window.location.host}/ws`;
         ws = new WebSocket(wsUrl);
         ws.onmessage = (event) => {
           try {
