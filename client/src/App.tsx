@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, createContext, useContext } from "react";
-import { Switch, Route, Router, Redirect, useLocation, Link } from "wouter";
+import { Switch, Route, Router, Redirect, useLocation } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
 import { queryClient, apiRequest, getAuthToken } from "./lib/queryClient";
 import { QueryClientProvider, useQuery, useMutation } from "@tanstack/react-query";
@@ -58,11 +58,15 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
 }
 
 function SidebarLink({ href, label, icon }: { href: string; label: string; icon?: React.ReactNode }) {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
   const isActive = href === "/" ? location === "/" : location.startsWith(href);
   return (
-    <Link
-      href={href}
+    <a
+      href={`#${href}`}
+      onClick={(e) => {
+        e.preventDefault();
+        navigate(href);
+      }}
       className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${
         isActive
           ? "bg-blue-500/10 text-blue-400 border-l-2 border-blue-400"
@@ -71,7 +75,7 @@ function SidebarLink({ href, label, icon }: { href: string; label: string; icon?
     >
       {icon}
       <span className="truncate">{label}</span>
-    </Link>
+    </a>
   );
 }
 

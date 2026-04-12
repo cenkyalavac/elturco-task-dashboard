@@ -669,23 +669,25 @@ export default function DashboardPage() {
   });
 
   // KPI queries for dashboard summary
-  const { data: kpiProjects } = useQuery({
+  const { data: kpiProjects, isLoading: kpiProjectsLoading } = useQuery({
     queryKey: ["/api/projects?status=active&limit=1"],
     queryFn: async () => { const r = await apiRequest("GET", "/api/projects?status=active&limit=1"); return r.json(); },
     staleTime: 120000,
   });
-  const { data: kpiFinancial } = useQuery({
+  const { data: kpiFinancial, isLoading: kpiFinancialLoading } = useQuery({
     queryKey: ["/api/financial/summary"],
     queryFn: async () => { const r = await apiRequest("GET", "/api/financial/summary"); return r.json().catch(() => ({})); },
     staleTime: 120000,
   });
 
   // Dashboard revamp queries
-  const { data: dashboardKpis } = useQuery({
+  const { data: dashboardKpis, isLoading: kpisLoading } = useQuery({
     queryKey: ["/api/dashboard/kpis"],
     queryFn: async () => { const r = await apiRequest("GET", "/api/dashboard/kpis"); return r.json().catch(() => ({})); },
     staleTime: 120000,
   });
+
+  const kpiCardsLoading = kpisLoading && kpiProjectsLoading && kpiFinancialLoading;
 
   const { data: activityFeed } = useQuery<any[]>({
     queryKey: ["/api/dashboard/activity"],
@@ -1990,45 +1992,54 @@ export default function DashboardPage() {
       {/* Enhanced KPI Cards Row */}
       <div className="border-b border-white/[0.06] bg-card/50 px-4 py-3">
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 border-l-4 border-l-teal-500 relative overflow-hidden">
-            <Briefcase className="absolute top-3 right-3 w-8 h-8 text-teal-500 opacity-20" />
-            <p className="text-xs text-white/50 uppercase tracking-wider">Active Projects</p>
-            <p className="text-2xl font-bold text-white mt-1 tabular-nums">{dashboardKpis?.activeProjects ?? kpiProjects?.total ?? "\u2014"}</p>
-          </div>
-          <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 border-l-4 border-l-blue-500 relative overflow-hidden">
-            <ListTodo className="absolute top-3 right-3 w-8 h-8 text-blue-500 opacity-20" />
-            <p className="text-xs text-white/50 uppercase tracking-wider">Open Tasks</p>
-            <p className="text-2xl font-bold text-white mt-1 tabular-nums">{dashboardKpis?.openTasks ?? stats.ongoing}</p>
-          </div>
-          <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 border-l-4 border-l-amber-500 relative overflow-hidden">
-            <FileText className="absolute top-3 right-3 w-8 h-8 text-amber-500 opacity-20" />
-            <p className="text-xs text-white/50 uppercase tracking-wider">Pending Invoices</p>
-            <p className="text-2xl font-bold text-white mt-1 tabular-nums">{dashboardKpis?.pendingInvoices ?? "\u2014"}</p>
-            {dashboardKpis?.pendingInvoicesAmount && (
-              <p className="text-[10px] text-amber-400/60 mt-0.5">{`\u00a3${Number(dashboardKpis.pendingInvoicesAmount).toLocaleString("en-US", { minimumFractionDigits: 0 })}`}</p>
-            )}
-          </div>
-          <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 border-l-4 border-l-red-500 relative overflow-hidden">
-            <AlertTriangle className="absolute top-3 right-3 w-8 h-8 text-red-500 opacity-20" />
-            <p className="text-xs text-white/50 uppercase tracking-wider">Overdue Items</p>
-            <p className="text-2xl font-bold text-white mt-1 tabular-nums">{dashboardKpis?.overdueItems ?? stats.pastDeadline}</p>
-          </div>
-          <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 border-l-4 border-l-emerald-500 relative overflow-hidden">
-            <TrendingUp className="absolute top-3 right-3 w-8 h-8 text-emerald-500 opacity-20" />
-            <p className="text-xs text-white/50 uppercase tracking-wider">Monthly Revenue</p>
-            <p className="text-2xl font-bold text-white mt-1 tabular-nums">
-              {dashboardKpis?.monthlyRevenue
-                ? `\u00a3${Number(dashboardKpis.monthlyRevenue).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
-                : kpiFinancial?.totalRevenue
-                ? `\u20ac${Number(kpiFinancial.totalRevenue).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
-                : "\u2014"}
-            </p>
-          </div>
-          <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 border-l-4 border-l-purple-500 relative overflow-hidden">
-            <Users className="absolute top-3 right-3 w-8 h-8 text-purple-500 opacity-20" />
-            <p className="text-xs text-white/50 uppercase tracking-wider">Vendor Availability</p>
-            <p className="text-2xl font-bold text-white mt-1 tabular-nums">{dashboardKpis?.vendorAvailability ?? "\u2014"}</p>
-          </div>
+          {kpiCardsLoading ? (
+            <>
+              {[...Array(6)].map((_, i) => (
+                <div key={i} className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 space-y-2">
+                  <Skeleton className="h-3 w-24" />
+                  <Skeleton className="h-7 w-16" />
+                </div>
+              ))}
+            </>
+          ) : (
+            <>
+              <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 border-l-4 border-l-teal-500 relative overflow-hidden">
+                <Briefcase className="absolute top-3 right-3 w-8 h-8 text-teal-500 opacity-20" />
+                <p className="text-xs text-white/50 uppercase tracking-wider">Active Projects</p>
+                <p className="text-2xl font-bold text-white mt-1 tabular-nums">{dashboardKpis?.activeProjects ?? kpiProjects?.total ?? 0}</p>
+              </div>
+              <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 border-l-4 border-l-blue-500 relative overflow-hidden">
+                <ListTodo className="absolute top-3 right-3 w-8 h-8 text-blue-500 opacity-20" />
+                <p className="text-xs text-white/50 uppercase tracking-wider">Open Tasks</p>
+                <p className="text-2xl font-bold text-white mt-1 tabular-nums">{dashboardKpis?.openTasks ?? stats.ongoing}</p>
+              </div>
+              <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 border-l-4 border-l-amber-500 relative overflow-hidden">
+                <FileText className="absolute top-3 right-3 w-8 h-8 text-amber-500 opacity-20" />
+                <p className="text-xs text-white/50 uppercase tracking-wider">Pending Invoices</p>
+                <p className="text-2xl font-bold text-white mt-1 tabular-nums">{dashboardKpis?.pendingInvoices ?? 0}</p>
+                {dashboardKpis?.pendingInvoicesAmount && (
+                  <p className="text-[10px] text-amber-400/60 mt-0.5">{`\u00a3${Number(dashboardKpis.pendingInvoicesAmount).toLocaleString("en-US", { minimumFractionDigits: 0 })}`}</p>
+                )}
+              </div>
+              <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 border-l-4 border-l-red-500 relative overflow-hidden">
+                <AlertTriangle className="absolute top-3 right-3 w-8 h-8 text-red-500 opacity-20" />
+                <p className="text-xs text-white/50 uppercase tracking-wider">Overdue Items</p>
+                <p className="text-2xl font-bold text-white mt-1 tabular-nums">{dashboardKpis?.overdueItems ?? stats.pastDeadline}</p>
+              </div>
+              <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 border-l-4 border-l-emerald-500 relative overflow-hidden">
+                <TrendingUp className="absolute top-3 right-3 w-8 h-8 text-emerald-500 opacity-20" />
+                <p className="text-xs text-white/50 uppercase tracking-wider">Monthly Revenue</p>
+                <p className="text-2xl font-bold text-white mt-1 tabular-nums">
+                  {`\u00a3${Number(dashboardKpis?.monthlyRevenue ?? kpiFinancial?.totalRevenue ?? 0).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
+                </p>
+              </div>
+              <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 border-l-4 border-l-purple-500 relative overflow-hidden">
+                <Users className="absolute top-3 right-3 w-8 h-8 text-purple-500 opacity-20" />
+                <p className="text-xs text-white/50 uppercase tracking-wider">Vendor Availability</p>
+                <p className="text-2xl font-bold text-white mt-1 tabular-nums">{dashboardKpis?.vendorAvailability ?? 0}</p>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -2152,8 +2163,10 @@ export default function DashboardPage() {
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="h-[200px] flex items-center justify-center text-xs text-white/30">
-                  <TrendingUp className="w-5 h-5 mr-2 opacity-30" /> No revenue data yet
+                <div className="h-[200px] flex flex-col items-center justify-center text-white/30">
+                  <TrendingUp className="w-8 h-8 mb-2 opacity-20" />
+                  <p className="text-xs font-medium">No revenue data yet</p>
+                  <p className="text-[10px] text-white/20 mt-1">Create invoices and projects to see financial data here</p>
                 </div>
               )}
             </div>
@@ -2184,8 +2197,10 @@ export default function DashboardPage() {
                   </div>
                 </div>
               ) : (
-                <div className="h-[200px] flex items-center justify-center text-xs text-white/30">
-                  <FolderKanban className="w-5 h-5 mr-2 opacity-30" /> No pipeline data yet
+                <div className="h-[200px] flex flex-col items-center justify-center text-white/30">
+                  <FolderKanban className="w-8 h-8 mb-2 opacity-20" />
+                  <p className="text-xs font-medium">No pipeline data yet</p>
+                  <p className="text-[10px] text-white/20 mt-1">Create projects to see your pipeline breakdown here</p>
                 </div>
               )}
             </div>
@@ -2571,8 +2586,33 @@ export default function DashboardPage() {
         {/* Left: Task table */}
         <div className={`flex-1 min-w-0 overflow-auto ${isMobile && (selectedTask || bulkMode) ? 'hidden' : ''}`}>
           {tasksLoading ? (
-            <div className="p-4 space-y-2">
-              {[...Array(12)].map((_, i) => <Skeleton key={i} className="h-9 w-full rounded" />)}
+            <div className="w-full">
+              {/* Skeleton table header */}
+              <div className="flex items-center gap-3 px-4 py-2.5 border-b border-white/[0.06]">
+                <Skeleton className="h-4 w-4 rounded" />
+                <Skeleton className="h-3 w-16" />
+                <Skeleton className="h-3 w-14 hidden md:block" />
+                <Skeleton className="h-3 w-20" />
+                <Skeleton className="h-3 w-10 hidden md:block" />
+                <Skeleton className="h-3 w-10 hidden md:block" />
+                <Skeleton className="h-3 w-16" />
+                <Skeleton className="h-3 w-12 ml-auto" />
+              </div>
+              {/* Skeleton rows */}
+              <div className="p-2 space-y-1">
+                {[...Array(12)].map((_, i) => (
+                  <div key={i} className="flex items-center gap-3 px-2 py-2.5">
+                    <Skeleton className="h-4 w-4 rounded" />
+                    <Skeleton className="h-4 w-20" />
+                    <Skeleton className="h-4 w-16 hidden md:block" />
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="h-4 w-8 hidden md:block" />
+                    <Skeleton className="h-4 w-8 hidden md:block" />
+                    <Skeleton className="h-4 w-16" />
+                    <Skeleton className="h-5 w-14 rounded-full ml-auto" />
+                  </div>
+                ))}
+              </div>
             </div>
           ) : filteredTasks.length === 0 ? (
             <div className="flex items-center justify-center h-full text-muted-foreground text-sm" data-testid="text-no-tasks">
