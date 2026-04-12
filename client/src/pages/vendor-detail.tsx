@@ -74,6 +74,9 @@ import {
   Download,
   BarChart3,
   Crown,
+  Percent,
+  Calendar as CalendarIcon,
+  ChevronLeft,
 } from "lucide-react";
 
 // ── Constants ──
@@ -3151,6 +3154,299 @@ function NotesTab({ vendorId }: { vendorId: string }) {
   );
 }
 
+// ── Scorecard Tab ──
+function ScorecardTab({ vendorId }: { vendorId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: [`/api/vendors/${vendorId}/scorecard`],
+    queryFn: async () => { const r = await apiRequest("GET", `/api/vendors/${vendorId}/scorecard`); return r.json(); },
+  });
+
+  if (isLoading) return <div className="space-y-3">{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-20" />)}</div>;
+  if (!data || data.totalReviews === 0) {
+    return (
+      <div className="text-center py-12">
+        <Award className="w-10 h-10 text-white/10 mx-auto mb-3" />
+        <p className="text-sm text-white/30">No quality reviews found for this vendor</p>
+      </div>
+    );
+  }
+
+  const trendDir = data.trend > 0 ? "Improving" : data.trend < 0 ? "Declining" : "Stable";
+  const trendColor = data.trend > 0 ? "text-emerald-400" : data.trend < 0 ? "text-red-400" : "text-white/40";
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <Card className="bg-white/[0.03] border-white/[0.06] border-l-4 border-l-amber-500">
+          <CardContent className="p-4 text-center">
+            <p className="text-[10px] text-white/30 mb-1">Avg QS</p>
+            <p className="text-xl font-bold text-amber-400">{data.avgQs?.toFixed(1) || "—"}/5</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-white/[0.03] border-white/[0.06] border-l-4 border-l-blue-500">
+          <CardContent className="p-4 text-center">
+            <p className="text-[10px] text-white/30 mb-1">Avg LQA</p>
+            <p className="text-xl font-bold text-blue-400">{data.avgLqa?.toFixed(1) || "—"}/100</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-white/[0.03] border-white/[0.06] border-l-4 border-l-emerald-500">
+          <CardContent className="p-4 text-center">
+            <p className="text-[10px] text-white/30 mb-1">Combined Score</p>
+            <p className={`text-xl font-bold ${data.combined >= 80 ? "text-emerald-400" : data.combined >= 60 ? "text-amber-400" : "text-red-400"}`}>{data.combined?.toFixed(1) || "—"}</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-white/[0.03] border-white/[0.06] border-l-4 border-l-purple-500">
+          <CardContent className="p-4 text-center">
+            <p className="text-[10px] text-white/30 mb-1">Trend</p>
+            <p className={`text-xl font-bold ${trendColor}`}>{trendDir}</p>
+            <p className="text-[10px] text-white/20">{data.totalReviews} reviews</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {data.accountBreakdown?.length > 0 && (
+        <Card className="bg-white/[0.03] border-white/[0.06]">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-white/70">Per-Account Breakdown</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow className="border-white/[0.06]">
+                  <TableHead className="text-[11px] text-white/30">Account</TableHead>
+                  <TableHead className="text-[11px] text-white/30 text-right">Reports</TableHead>
+                  <TableHead className="text-[11px] text-white/30 text-right">Avg QS</TableHead>
+                  <TableHead className="text-[11px] text-white/30 text-right">Avg LQA</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.accountBreakdown.map((a: any) => (
+                  <TableRow key={a.account} className="border-white/[0.03]">
+                    <TableCell className="text-xs text-white">{a.account}</TableCell>
+                    <TableCell className="text-xs text-white/50 text-right">{a.count}</TableCell>
+                    <TableCell className="text-xs text-white/70 text-right">{a.avgQs?.toFixed(1) ?? "—"}</TableCell>
+                    <TableCell className="text-xs text-white/70 text-right">{a.avgLqa?.toFixed(1) ?? "—"}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ── CAT Discounts Tab ──
+const CAT_FIELDS = [
+  { key: "repetitions", label: "Repetitions", default: 0 },
+  { key: "match100", label: "100% Matches", default: 10 },
+  { key: "fuzzyHigh", label: "95-99% (Fuzzy High)", default: 25 },
+  { key: "fuzzyMid", label: "85-94% (Fuzzy Mid)", default: 60 },
+  { key: "fuzzyLow", label: "75-84% (Fuzzy Low)", default: 75 },
+  { key: "fuzzyLowest", label: "50-74% (Fuzzy Lowest)", default: 100 },
+  { key: "noMatch", label: "No Match (New Words)", default: 100 },
+  { key: "machineTranslated", label: "Machine Translated", default: 100 },
+];
+
+function CatDiscountsTab({ vendorId }: { vendorId: string }) {
+  const { toast } = useToast();
+  const [localValues, setLocalValues] = useState<Record<string, number>>({});
+  const [initialized, setInitialized] = useState(false);
+
+  const { data, isLoading } = useQuery({
+    queryKey: [`/api/vendors/${vendorId}/cat-discounts`],
+    queryFn: async () => { const r = await apiRequest("GET", `/api/vendors/${vendorId}/cat-discounts`); return r.json(); },
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: async (catDiscounts: Record<string, number>) => {
+      await apiRequest("PATCH", `/api/vendors/${vendorId}/cat-discounts`, { catDiscounts });
+    },
+    onSuccess: () => { toast({ title: "CAT discounts saved" }); queryClient.invalidateQueries({ queryKey: [`/api/vendors/${vendorId}/cat-discounts`] }); },
+    onError: () => { toast({ title: "Failed to save", variant: "destructive" }); },
+  });
+
+  if (!initialized && data) {
+    const disc = data.catDiscounts || {};
+    const vals: Record<string, number> = {};
+    for (const f of CAT_FIELDS) vals[f.key] = disc[f.key] ?? f.default;
+    setLocalValues(vals);
+    setInitialized(true);
+  }
+
+  if (isLoading) return <div className="space-y-3">{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-12" />)}</div>;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-white/50">Percentage of per-word rate charged for each match type</p>
+        <Button size="sm" onClick={() => saveMutation.mutate(localValues)} disabled={saveMutation.isPending} className="bg-blue-600 hover:bg-blue-700 text-xs">
+          <Save className="w-3 h-3 mr-1" /> Save
+        </Button>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        {CAT_FIELDS.map(f => (
+          <Card key={f.key} className="bg-white/[0.03] border-white/[0.06]">
+            <CardContent className="p-3">
+              <Label className="text-xs text-white/50 mb-1 block">{f.label}</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={localValues[f.key] ?? f.default}
+                  onChange={e => setLocalValues({ ...localValues, [f.key]: parseInt(e.target.value) || 0 })}
+                  className="bg-white/5 border-white/10 text-white text-sm h-8"
+                />
+                <span className="text-xs text-white/30">%</span>
+              </div>
+              {localValues[f.key] !== f.default && (
+                <Badge variant="outline" className="text-[9px] text-blue-400 border-blue-500/30 mt-1">Custom</Badge>
+              )}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Availability Tab ──
+const AVAIL_MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const AVAIL_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const AVAIL_STATUS_COLORS: Record<string, string> = {
+  available: "bg-emerald-500/30 border-emerald-500/50 text-emerald-400",
+  unavailable: "bg-red-500/30 border-red-500/50 text-red-400",
+  limited: "bg-amber-500/30 border-amber-500/50 text-amber-400",
+};
+
+function AvailabilityTab({ vendorId }: { vendorId: string }) {
+  const { toast } = useToast();
+  const now = new Date();
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth());
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [editStatus, setEditStatus] = useState("available");
+  const [editHours, setEditHours] = useState("8");
+  const [editNotes, setEditNotes] = useState("");
+
+  const { data: records = [], isLoading } = useQuery({
+    queryKey: [`/api/vendors/${vendorId}/availability`, month + 1, year],
+    queryFn: async () => {
+      const r = await apiRequest("GET", `/api/vendors/${vendorId}/availability?month=${month + 1}&year=${year}`);
+      return r.json();
+    },
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: async (data: any) => {
+      await apiRequest("POST", `/api/vendors/${vendorId}/availability`, data);
+    },
+    onSuccess: () => {
+      toast({ title: "Availability updated" });
+      queryClient.invalidateQueries({ queryKey: [`/api/vendors/${vendorId}/availability`] });
+      setSelectedDate(null);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (date: string) => {
+      await apiRequest("DELETE", `/api/vendors/${vendorId}/availability/${date}`);
+    },
+    onSuccess: () => {
+      toast({ title: "Availability removed" });
+      queryClient.invalidateQueries({ queryKey: [`/api/vendors/${vendorId}/availability`] });
+      setSelectedDate(null);
+    },
+  });
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDay = new Date(year, month, 1).getDay();
+
+  const recordMap = new Map<string, any>();
+  for (const r of records) recordMap.set(r.date, r);
+
+  const prevMonth = () => { if (month === 0) { setMonth(11); setYear(year - 1); } else setMonth(month - 1); };
+  const nextMonth = () => { if (month === 11) { setMonth(0); setYear(year + 1); } else setMonth(month + 1); };
+
+  if (isLoading) return <Skeleton className="h-[400px]" />;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <Button variant="ghost" size="sm" onClick={prevMonth} className="text-white/50 hover:text-white"><ChevronLeft className="w-4 h-4" /></Button>
+        <h3 className="text-sm font-medium text-white/70">{AVAIL_MONTHS[month]} {year}</h3>
+        <Button variant="ghost" size="sm" onClick={nextMonth} className="text-white/50 hover:text-white"><ChevronRight className="w-4 h-4" /></Button>
+      </div>
+
+      <div className="flex items-center gap-3 text-xs text-white/40">
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Available</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" /> Limited</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" /> Unavailable</span>
+      </div>
+
+      <div className="grid grid-cols-7 gap-1">
+        {AVAIL_DAYS.map(d => <div key={d} className="text-center text-[10px] text-white/30 font-medium py-1">{d}</div>)}
+        {[...Array(firstDay)].map((_, i) => <div key={`e-${i}`} className="h-14" />)}
+        {[...Array(daysInMonth)].map((_, i) => {
+          const day = i + 1;
+          const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+          const record = recordMap.get(dateStr);
+          const isToday = day === now.getDate() && month === now.getMonth() && year === now.getFullYear();
+          const statusClass = record ? AVAIL_STATUS_COLORS[record.status] || "" : "";
+          return (
+            <button
+              key={day}
+              onClick={() => { setSelectedDate(dateStr); setEditStatus(record?.status || "available"); setEditHours(record?.hoursAvailable?.toString() || "8"); setEditNotes(record?.notes || ""); }}
+              className={`h-14 rounded-lg border p-1.5 text-left transition-colors hover:bg-white/[0.06] ${isToday ? "border-blue-500/50" : "border-white/[0.04]"} ${record ? statusClass : "bg-white/[0.02]"}`}
+            >
+              <p className={`text-xs font-medium ${isToday ? "text-blue-400" : "text-white/50"}`}>{day}</p>
+              {record && <p className="text-[9px] mt-0.5">{record.hoursAvailable}h</p>}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Edit dialog */}
+      {selectedDate && (
+        <Dialog open={!!selectedDate} onOpenChange={() => setSelectedDate(null)}>
+          <DialogContent className="bg-[#1a1d27] border-white/10 text-white max-w-sm">
+            <DialogHeader><DialogTitle className="text-sm">Set Availability — {selectedDate}</DialogTitle></DialogHeader>
+            <div className="space-y-3">
+              <div>
+                <Label className="text-xs text-white/50">Status</Label>
+                <Select value={editStatus} onValueChange={setEditStatus}>
+                  <SelectTrigger className="bg-white/5 border-white/10 text-white text-sm"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="available">Available</SelectItem>
+                    <SelectItem value="limited">Limited</SelectItem>
+                    <SelectItem value="unavailable">Unavailable</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs text-white/50">Hours Available</Label>
+                <Input type="number" min={0} max={24} value={editHours} onChange={e => setEditHours(e.target.value)} className="bg-white/5 border-white/10 text-white text-sm" />
+              </div>
+              <div>
+                <Label className="text-xs text-white/50">Notes</Label>
+                <Input value={editNotes} onChange={e => setEditNotes(e.target.value)} className="bg-white/5 border-white/10 text-white text-sm" placeholder="Optional notes..." />
+              </div>
+            </div>
+            <DialogFooter className="flex gap-2">
+              {recordMap.has(selectedDate) && (
+                <Button variant="outline" size="sm" onClick={() => deleteMutation.mutate(selectedDate)} className="border-red-500/30 text-red-400 hover:bg-red-500/10">Remove</Button>
+              )}
+              <Button size="sm" onClick={() => saveMutation.mutate({ date: selectedDate, status: editStatus, hoursAvailable: parseInt(editHours) || 0, notes: editNotes })} disabled={saveMutation.isPending} className="bg-blue-600 hover:bg-blue-700">Save</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+    </div>
+  );
+}
+
 // ── Main Page ──
 
 export default function VendorDetailPage() {
@@ -3420,6 +3716,27 @@ export default function VendorDetailPage() {
               Documents
             </TabsTrigger>
             <TabsTrigger
+              value="scorecard"
+              className="text-xs text-white/50 data-[state=active]:text-white data-[state=active]:bg-white/[0.08] flex items-center gap-1.5 px-3 py-1.5"
+            >
+              <Award className="w-3 h-3" />
+              Scorecard
+            </TabsTrigger>
+            <TabsTrigger
+              value="cat-discounts"
+              className="text-xs text-white/50 data-[state=active]:text-white data-[state=active]:bg-white/[0.08] flex items-center gap-1.5 px-3 py-1.5"
+            >
+              <Percent className="w-3 h-3" />
+              CAT Discounts
+            </TabsTrigger>
+            <TabsTrigger
+              value="availability"
+              className="text-xs text-white/50 data-[state=active]:text-white data-[state=active]:bg-white/[0.08] flex items-center gap-1.5 px-3 py-1.5"
+            >
+              <CalendarIcon className="w-3 h-3" />
+              Availability
+            </TabsTrigger>
+            <TabsTrigger
               value="activity"
               className="text-xs text-white/50 data-[state=active]:text-white data-[state=active]:bg-white/[0.08] flex items-center gap-1.5 px-3 py-1.5"
             >
@@ -3465,6 +3782,18 @@ export default function VendorDetailPage() {
 
           <TabsContent value="notes" className="mt-4">
             <NotesTab vendorId={vendorId} />
+          </TabsContent>
+
+          <TabsContent value="scorecard" className="mt-4">
+            <ScorecardTab vendorId={vendorId} />
+          </TabsContent>
+
+          <TabsContent value="cat-discounts" className="mt-4">
+            <CatDiscountsTab vendorId={vendorId} />
+          </TabsContent>
+
+          <TabsContent value="availability" className="mt-4">
+            <AvailabilityTab vendorId={vendorId} />
           </TabsContent>
         </Tabs>
       </div>

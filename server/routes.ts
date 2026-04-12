@@ -6,6 +6,7 @@ import { taskNotes, pmFavorites, customerRateCards, projects, qualityReports, jo
   portalCredentials as portalCredentialsTable, portalTasks as portalTasksTable,
   vendorRateCards, vendorFiles, clientInvoices, clientInvoiceLines, poLineItems, purchaseOrders, payments, entities, customers, auditLog, users,
   notificationsV2, pmUsers, customerSubAccounts, pmCustomerAssignments, customerContacts,
+  vendorAvailability, vendorLanguagePairs, vendorDocuments, vendorDocumentSignatures,
 } from "@shared/schema";
 import { validateProjectTransition, validateJobTransition, getValidProjectActions, getValidJobActions } from "@shared/state-machines";
 import { wsBroadcast } from "./ws";
@@ -5500,6 +5501,482 @@ const freelancers = (Array.isArray(data) ? data : [])
     }
     const vendor = await storage.getVendor(session.vendorId);
     res.json({ token: param(req, "token"), vendor: vendor ? { id: vendor.id, fullName: vendor.fullName, email: vendor.email } : null });
+  });
+
+  // ============================================
+  // MEGA BUILD: NEW API ENDPOINTS
+  // ============================================
+
+  // ---- GLOBAL SEARCH (Cmd+K) ----
+  app.get("/api/search", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const q = (req.query.q as string || "").trim();
+      if (!q || q.length < 2) return res.json({ results: [] });
+      const term = `%${q}%`;
+      const [projectResults, vendorResults, customerResults, invoiceResults] = await Promise.all([
+        db.select({ id: projects.id, name: projects.projectName, code: projects.projectCode, status: projects.status }).from(projects).where(sql`${projects.projectName} ILIKE ${term} OR ${projects.projectCode} ILIKE ${term}`).limit(8),
+        db.select({ id: vendors.id, name: vendors.fullName, email: vendors.email, status: vendors.status }).from(vendors).where(sql`${vendors.fullName} ILIKE ${term} OR ${vendors.email} ILIKE ${term}`).limit(8),
+        db.select({ id: customers.id, name: customers.name, code: customers.code, status: customers.status }).from(customers).where(sql`${customers.name} ILIKE ${term} OR ${customers.code} ILIKE ${term}`).limit(8),
+        db.select({ id: clientInvoices.id, invoiceNumber: clientInvoices.invoiceNumber, total: clientInvoices.total, status: clientInvoices.status }).from(clientInvoices).where(sql`${clientInvoices.invoiceNumber} ILIKE ${term}`).limit(8),
+      ]);
+      res.json({
+        results: [
+          ...projectResults.map(p => ({ type: "project", id: p.id, label: p.name, sub: p.code, status: p.status, href: `/projects/${p.id}` })),
+          ...vendorResults.map(v => ({ type: "vendor", id: v.id, label: v.name, sub: v.email, status: v.status, href: `/vendors/${v.id}` })),
+          ...customerResults.map(c => ({ type: "customer", id: c.id, label: c.name, sub: c.code, status: c.status, href: `/customers/${c.id}` })),
+          ...invoiceResults.map(i => ({ type: "invoice", id: i.id, label: i.invoiceNumber || `INV-${i.id}`, sub: `${i.total || 0}`, status: i.status, href: `/invoices` })),
+        ],
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Search failed", e) });
+    }
+  });
+
+  // ---- SMART VENDOR MATCH ----
+  app.get("/api/vendors/smart-match", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { source_language, target_language, service_type, specialization } = req.query;
+      const allVendors = await db.select().from(vendors).where(sql`${vendors.status} IN ('Approved', 'approved', 'New Application')`);
+      const allPairs = await db.select().from(vendorLanguagePairs);
+      const allRates = await db.select().from(vendorRateCards);
+
+      // Build vendor language pair map
+      const pairMap = new Map<number, Array<{source: string; target: string}>>();
+      for (const p of allPairs) {
+        if (!pairMap.has(p.vendorId)) pairMap.set(p.vendorId, []);
+        pairMap.get(p.vendorId)!.push({ source: p.sourceLanguage, target: p.targetLanguage });
+      }
+
+      // Build vendor rate map
+      const rateMap = new Map<number, number[]>();
+      for (const r of allRates) {
+        if (!rateMap.has(r.vendorId)) rateMap.set(r.vendorId, []);
+        rateMap.get(r.vendorId)!.push(parseFloat(r.rateValue));
+      }
+
+      // Calculate average rate across all vendors
+      const allRateValues = allRates.map(r => parseFloat(r.rateValue)).filter(v => v > 0);
+      const avgRate = allRateValues.length > 0 ? allRateValues.reduce((a, b) => a + b, 0) / allRateValues.length : 0.08;
+
+      const scored = allVendors.map(v => {
+        let score = 0;
+        const breakdown: Record<string, number> = {};
+        const pairs = pairMap.get(v.id) || [];
+        const rates = rateMap.get(v.id) || [];
+        const vendorAvgRate = rates.length > 0 ? rates.reduce((a, b) => a + b, 0) / rates.length : 0;
+
+        // Language pair match (40%)
+        const srcLang = (source_language as string || "").toUpperCase();
+        const tgtLang = (target_language as string || "").toUpperCase();
+        const langMatch = pairs.some(p => p.source.toUpperCase() === srcLang && p.target.toUpperCase() === tgtLang);
+        breakdown.languagePair = langMatch ? 40 : 0;
+        score += breakdown.languagePair;
+
+        // Quality score (25%)
+        const qualScore = parseFloat(v.combinedQualityScore || "0");
+        breakdown.quality = Math.round((qualScore / 100) * 25);
+        score += breakdown.quality;
+
+        // Rate competitiveness (15%)
+        if (vendorAvgRate > 0 && avgRate > 0) {
+          const rateRatio = avgRate / vendorAvgRate;
+          breakdown.rate = Math.round(Math.min(rateRatio, 1.5) / 1.5 * 15);
+        } else {
+          breakdown.rate = 8;
+        }
+        score += breakdown.rate;
+
+        // Availability (10%)
+        const isAvailable = v.status === "Approved" || v.status === "approved";
+        breakdown.availability = isAvailable ? 10 : 0;
+        score += breakdown.availability;
+
+        // Value index (10%)
+        const vi = parseFloat(v.valueIndex || "0");
+        breakdown.valueIndex = Math.round(Math.min(vi / 2, 1) * 10);
+        score += breakdown.valueIndex;
+
+        // Service type bonus
+        const svcType = (service_type as string || "").toLowerCase();
+        if (svcType && v.serviceTypes?.some(s => s.toLowerCase() === svcType)) {
+          score += 5;
+          breakdown.serviceType = 5;
+        }
+
+        // Specialization bonus
+        const spec = (specialization as string || "").toLowerCase();
+        if (spec && (v.translationSpecializations?.some(s => s.toLowerCase().includes(spec)) || v.specializations?.some(s => s.toLowerCase().includes(spec)))) {
+          score += 5;
+          breakdown.specialization = 5;
+        }
+
+        return {
+          id: v.id,
+          fullName: v.fullName,
+          email: v.email,
+          status: v.status,
+          tier: v.tier,
+          nativeLanguage: v.nativeLanguage,
+          combinedQualityScore: v.combinedQualityScore,
+          valueIndex: v.valueIndex,
+          averageRate: vendorAvgRate.toFixed(4),
+          languagePairs: pairs,
+          serviceTypes: v.serviceTypes,
+          specializations: v.translationSpecializations || v.specializations,
+          score,
+          breakdown,
+        };
+      });
+
+      // Sort by score descending, return top 30
+      scored.sort((a, b) => b.score - a.score);
+      res.json({ vendors: scored.slice(0, 30) });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Smart match failed", e) });
+    }
+  });
+
+  // ---- PROJECT FINANCE ----
+  app.get("/api/projects/:id/finance", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const projectId = +param(req, "id");
+      const project = await storage.getProject(projectId);
+      if (!project) return res.status(404).json({ error: "Project not found" });
+      const jobList = await db.select().from(jobs).where(eq(jobs.projectId, projectId));
+      const totalReceivables = jobList.reduce((sum, j) => sum + parseFloat(j.clientTotal || "0"), 0);
+      const totalPayables = jobList.reduce((sum, j) => sum + parseFloat(j.vendorTotal || "0"), 0);
+      const margin = totalReceivables - totalPayables;
+      const marginPercent = totalReceivables > 0 ? (margin / totalReceivables) * 100 : 0;
+      res.json({
+        totalReceivables, totalPayables, margin, marginPercent,
+        jobs: jobList.map(j => ({
+          id: j.id, jobCode: j.jobCode, jobName: j.jobName,
+          sourceLanguage: j.sourceLanguage, targetLanguage: j.targetLanguage,
+          serviceType: j.serviceType, vendorId: j.vendorId,
+          clientTotal: parseFloat(j.clientTotal || "0"),
+          vendorTotal: parseFloat(j.vendorTotal || "0"),
+          margin: parseFloat(j.clientTotal || "0") - parseFloat(j.vendorTotal || "0"),
+        })),
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Finance fetch failed", e) });
+    }
+  });
+
+  // ---- VENDOR SCORECARD ----
+  app.get("/api/vendors/:id/scorecard", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const vendorId = +param(req, "id");
+      const reports = await db.select().from(qualityReports).where(eq(qualityReports.vendorId, vendorId)).orderBy(desc(qualityReports.id));
+      const qsScores = reports.filter(r => r.qsScore).map(r => parseFloat(r.qsScore!));
+      const lqaScores = reports.filter(r => r.lqaScore).map(r => parseFloat(r.lqaScore!));
+      const avgQs = qsScores.length > 0 ? qsScores.reduce((a, b) => a + b, 0) / qsScores.length : 0;
+      const avgLqa = lqaScores.length > 0 ? lqaScores.reduce((a, b) => a + b, 0) / lqaScores.length : 0;
+      const qsScaled = avgQs * 20;
+      const combined = lqaScores.length > 0 && qsScores.length > 0 ? (avgLqa * 4 + qsScaled * 1) / 5 : (avgLqa || qsScaled);
+
+      // Trend: last 3 vs previous 3
+      const last3 = reports.slice(0, 3);
+      const prev3 = reports.slice(3, 6);
+      const last3Avg = last3.length > 0 ? last3.reduce((s, r) => s + parseFloat(r.lqaScore || r.qsScore || "0"), 0) / last3.length : 0;
+      const prev3Avg = prev3.length > 0 ? prev3.reduce((s, r) => s + parseFloat(r.lqaScore || r.qsScore || "0"), 0) / prev3.length : 0;
+      const trend = last3Avg - prev3Avg;
+
+      // Per-account breakdown
+      const accountMap = new Map<string, { count: number; qsSum: number; lqaSum: number; qsCount: number; lqaCount: number }>();
+      for (const r of reports) {
+        const acct = r.clientAccount || "Unknown";
+        if (!accountMap.has(acct)) accountMap.set(acct, { count: 0, qsSum: 0, lqaSum: 0, qsCount: 0, lqaCount: 0 });
+        const a = accountMap.get(acct)!;
+        a.count++;
+        if (r.qsScore) { a.qsSum += parseFloat(r.qsScore); a.qsCount++; }
+        if (r.lqaScore) { a.lqaSum += parseFloat(r.lqaScore); a.lqaCount++; }
+      }
+      const accountBreakdown = Array.from(accountMap.entries()).map(([account, d]) => ({
+        account, count: d.count,
+        avgQs: d.qsCount > 0 ? d.qsSum / d.qsCount : null,
+        avgLqa: d.lqaCount > 0 ? d.lqaSum / d.lqaCount : null,
+      }));
+
+      res.json({ avgQs, avgLqa, combined, totalReviews: reports.length, trend, accountBreakdown, recentReports: reports.slice(0, 10) });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Scorecard fetch failed", e) });
+    }
+  });
+
+  // ---- VALUE INDEX RECALCULATION ----
+  app.post("/api/vendors/recalculate-value-index", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const allVendors = await db.select().from(vendors);
+      const allRates = await db.select().from(vendorRateCards);
+      const rateMap = new Map<number, number[]>();
+      for (const r of allRates) {
+        if (!rateMap.has(r.vendorId)) rateMap.set(r.vendorId, []);
+        rateMap.get(r.vendorId)!.push(parseFloat(r.rateValue));
+      }
+      let updated = 0;
+      for (const v of allVendors) {
+        const qualScore = parseFloat(v.combinedQualityScore || "0");
+        const rates = rateMap.get(v.id) || [];
+        const avgRate = rates.length > 0 ? rates.reduce((a, b) => a + b, 0) / rates.length : 0;
+        const valueIndex = avgRate > 0 ? (qualScore * qualScore) / (avgRate * 100) : 0;
+        await db.update(vendors).set({ valueIndex: valueIndex.toFixed(4) }).where(eq(vendors.id, v.id));
+        updated++;
+      }
+      res.json({ updated });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Value index recalculation failed", e) });
+    }
+  });
+
+  // ---- VENDOR STAGE UPDATE (Pipeline) ----
+  app.patch("/api/vendors/:id/stage", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const vendorId = +param(req, "id");
+      const { status: newStatus } = req.body;
+      if (!newStatus) return res.status(400).json({ error: "Status required" });
+      await db.update(vendors).set({ status: newStatus, stageChangedDate: new Date(), updatedAt: new Date() }).where(eq(vendors.id, vendorId));
+      await logAudit((req as any).pmUserId, "stage_change", "vendor", vendorId, null, { status: newStatus }, getClientIp(req));
+      const updated = await storage.getVendor(vendorId);
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Stage update failed", e) });
+    }
+  });
+
+  // ---- VENDOR COMPETENCIES UPDATE ----
+  app.patch("/api/vendors/:id/competencies", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const vendorId = +param(req, "id");
+      const { serviceTypes, translationSpecializations, languagePairs } = req.body;
+      const updates: any = { updatedAt: new Date() };
+      if (serviceTypes !== undefined) updates.serviceTypes = serviceTypes;
+      if (translationSpecializations !== undefined) updates.translationSpecializations = translationSpecializations;
+      await db.update(vendors).set(updates).where(eq(vendors.id, vendorId));
+      // Update language pairs if provided
+      if (languagePairs && Array.isArray(languagePairs)) {
+        await db.delete(vendorLanguagePairs).where(eq(vendorLanguagePairs.vendorId, vendorId));
+        for (const lp of languagePairs) {
+          if (lp.sourceLanguage && lp.targetLanguage) {
+            await db.insert(vendorLanguagePairs).values({ vendorId, sourceLanguage: lp.sourceLanguage, targetLanguage: lp.targetLanguage, isPrimary: lp.isPrimary || false }).onConflictDoNothing();
+          }
+        }
+      }
+      const updated = await storage.getVendor(vendorId);
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Competencies update failed", e) });
+    }
+  });
+
+  // ---- VENDOR CAT DISCOUNT GRID ----
+  app.get("/api/vendors/:id/cat-discounts", requireAuth, async (req: Request, res: Response) => {
+    const vendor = await storage.getVendor(+param(req, "id"));
+    if (!vendor) return res.status(404).json({ error: "Vendor not found" });
+    res.json({ catDiscounts: vendor.catDiscounts || null });
+  });
+
+  app.patch("/api/vendors/:id/cat-discounts", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const vendorId = +param(req, "id");
+      const { catDiscounts } = req.body;
+      await db.update(vendors).set({ catDiscounts, updatedAt: new Date() }).where(eq(vendors.id, vendorId));
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("CAT discount update failed", e) });
+    }
+  });
+
+  // ---- QUALITY ANALYTICS ----
+  app.get("/api/analytics/quality", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const reports = await db.select().from(qualityReports).orderBy(desc(qualityReports.id));
+      const totalReports = reports.length;
+      const qsScores = reports.filter(r => r.qsScore).map(r => parseFloat(r.qsScore!));
+      const lqaScores = reports.filter(r => r.lqaScore).map(r => parseFloat(r.lqaScore!));
+      const avgQs = qsScores.length > 0 ? qsScores.reduce((a, b) => a + b, 0) / qsScores.length : 0;
+      const avgLqa = lqaScores.length > 0 ? lqaScores.reduce((a, b) => a + b, 0) / lqaScores.length : 0;
+
+      // Flagged vendors (combined < 70)
+      const vendorScores = new Map<number, { lqaSum: number; lqaCount: number; qsSum: number; qsCount: number; name: string }>();
+      for (const r of reports) {
+        if (!vendorScores.has(r.vendorId)) vendorScores.set(r.vendorId, { lqaSum: 0, lqaCount: 0, qsSum: 0, qsCount: 0, name: "" });
+        const vs = vendorScores.get(r.vendorId)!;
+        if (r.lqaScore) { vs.lqaSum += parseFloat(r.lqaScore); vs.lqaCount++; }
+        if (r.qsScore) { vs.qsSum += parseFloat(r.qsScore); vs.qsCount++; }
+      }
+      const flaggedVendors = Array.from(vendorScores.entries()).filter(([, vs]) => {
+        const avgL = vs.lqaCount > 0 ? vs.lqaSum / vs.lqaCount : 0;
+        const avgQ = vs.qsCount > 0 ? (vs.qsSum / vs.qsCount) * 20 : 0;
+        const combined = vs.lqaCount > 0 && vs.qsCount > 0 ? (avgL * 4 + avgQ) / 5 : (avgL || avgQ);
+        return combined > 0 && combined < 70;
+      }).length;
+
+      // Quality trend by month
+      const trendMap = new Map<string, { lqaSum: number; lqaCount: number; qsSum: number; qsCount: number }>();
+      for (const r of reports) {
+        const month = r.reportDate ? r.reportDate.substring(0, 7) : (r.createdAt ? new Date(r.createdAt).toISOString().substring(0, 7) : "unknown");
+        if (!trendMap.has(month)) trendMap.set(month, { lqaSum: 0, lqaCount: 0, qsSum: 0, qsCount: 0 });
+        const t = trendMap.get(month)!;
+        if (r.lqaScore) { t.lqaSum += parseFloat(r.lqaScore); t.lqaCount++; }
+        if (r.qsScore) { t.qsSum += parseFloat(r.qsScore); t.qsCount++; }
+      }
+      const trend = Array.from(trendMap.entries()).map(([month, d]) => ({
+        month,
+        avgLqa: d.lqaCount > 0 ? d.lqaSum / d.lqaCount : null,
+        avgQs: d.qsCount > 0 ? d.qsSum / d.qsCount : null,
+      })).sort((a, b) => a.month.localeCompare(b.month));
+
+      // Top performers
+      const topPerformers = Array.from(vendorScores.entries()).map(([vendorId, vs]) => {
+        const avgL = vs.lqaCount > 0 ? vs.lqaSum / vs.lqaCount : 0;
+        const avgQ = vs.qsCount > 0 ? (vs.qsSum / vs.qsCount) * 20 : 0;
+        const combined = vs.lqaCount > 0 && vs.qsCount > 0 ? (avgL * 4 + avgQ) / 5 : (avgL || avgQ);
+        return { vendorId, avgLqa: avgL, avgQs: vs.qsCount > 0 ? vs.qsSum / vs.qsCount : 0, combined, reviewCount: vs.lqaCount + vs.qsCount };
+      }).sort((a, b) => b.combined - a.combined).slice(0, 20);
+
+      // Per-account breakdown
+      const accountMap = new Map<string, { count: number; lqaSum: number; lqaCount: number }>();
+      for (const r of reports) {
+        const acct = r.clientAccount || "Unknown";
+        if (!accountMap.has(acct)) accountMap.set(acct, { count: 0, lqaSum: 0, lqaCount: 0 });
+        const a = accountMap.get(acct)!;
+        a.count++;
+        if (r.lqaScore) { a.lqaSum += parseFloat(r.lqaScore); a.lqaCount++; }
+      }
+      const accountBreakdown = Array.from(accountMap.entries()).map(([account, d]) => ({
+        account, count: d.count, avgLqa: d.lqaCount > 0 ? d.lqaSum / d.lqaCount : null,
+      }));
+
+      res.json({ totalReports, avgQs, avgLqa, flaggedVendors, trend, topPerformers, accountBreakdown });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Quality analytics failed", e) });
+    }
+  });
+
+  // ---- DOCUMENT COMPLIANCE ----
+  app.get("/api/compliance", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const docs = await db.select().from(vendorDocuments).where(eq(vendorDocuments.isActive, true));
+      const sigs = await db.select().from(vendorDocumentSignatures);
+      const allVendors = await db.select({ id: vendors.id, fullName: vendors.fullName, status: vendors.status }).from(vendors).where(sql`${vendors.status} IN ('Approved', 'approved', 'New Application')`);
+      const totalVendors = allVendors.length;
+
+      const documents = docs.map(doc => {
+        const docSigs = sigs.filter(s => s.documentId === doc.id);
+        const signedCount = docSigs.filter(s => s.status === "signed").length;
+        return {
+          ...doc,
+          signedCount,
+          totalVendors,
+          compliancePercent: totalVendors > 0 ? Math.round((signedCount / totalVendors) * 100) : 0,
+        };
+      });
+
+      const overallSigned = sigs.filter(s => s.status === "signed").length;
+      const totalRequired = docs.length * totalVendors;
+      const overallCompliance = totalRequired > 0 ? Math.round((overallSigned / totalRequired) * 100) : 0;
+
+      res.json({ documents, overallCompliance, totalVendors, signatures: sigs });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Compliance fetch failed", e) });
+    }
+  });
+
+  // Document CRUD
+  app.post("/api/compliance/documents", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { title, docType, description, requiresSignature, requiredForApproval } = req.body;
+      const [doc] = await db.insert(vendorDocuments).values({ title, docType, description, requiresSignature, requiredForApproval }).returning();
+      res.json(doc);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Document create failed", e) });
+    }
+  });
+
+  // Sign document for vendor
+  app.post("/api/compliance/signatures", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { documentId, vendorId, status } = req.body;
+      const [sig] = await db.insert(vendorDocumentSignatures).values({
+        documentId, vendorId, status: status || "signed", signedDate: new Date(),
+      }).onConflictDoUpdate({
+        target: [vendorDocumentSignatures.documentId, vendorDocumentSignatures.vendorId],
+        set: { status: status || "signed", signedDate: new Date() },
+      }).returning();
+      res.json(sig);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Signature update failed", e) });
+    }
+  });
+
+  // ---- VENDOR AVAILABILITY CALENDAR ----
+  app.get("/api/vendors/:id/availability", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const vendorId = +param(req, "id");
+      const { month, year } = req.query;
+      let conditions: any[] = [eq(vendorAvailability.vendorId, vendorId)];
+      if (month && year) {
+        const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
+        const endMonth = +month === 12 ? 1 : +month + 1;
+        const endYear = +month === 12 ? +year + 1 : +year;
+        const endDate = `${endYear}-${String(endMonth).padStart(2, "0")}-01`;
+        conditions.push(sql`${vendorAvailability.date} >= ${startDate} AND ${vendorAvailability.date} < ${endDate}`);
+      }
+      const records = await db.select().from(vendorAvailability).where(and(...conditions)).orderBy(asc(vendorAvailability.date));
+      res.json(records);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Availability fetch failed", e) });
+    }
+  });
+
+  app.post("/api/vendors/:id/availability", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const vendorId = +param(req, "id");
+      const { date, status, hoursAvailable, notes } = req.body;
+      const [record] = await db.insert(vendorAvailability).values({ vendorId, date, status, hoursAvailable, notes }).onConflictDoUpdate({
+        target: [vendorAvailability.vendorId, vendorAvailability.date],
+        set: { status, hoursAvailable, notes },
+      }).returning();
+      res.json(record);
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Availability update failed", e) });
+    }
+  });
+
+  app.delete("/api/vendors/:id/availability/:date", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const vendorId = +param(req, "id");
+      const dateStr = param(req, "date");
+      await db.delete(vendorAvailability).where(and(eq(vendorAvailability.vendorId, vendorId), eq(vendorAvailability.date, dateStr)));
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Availability delete failed", e) });
+    }
+  });
+
+  // Team-wide availability
+  app.get("/api/availability/team", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { month, year } = req.query;
+      let conditions: any[] = [];
+      if (month && year) {
+        const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
+        const endMonth = +month === 12 ? 1 : +month + 1;
+        const endYear = +month === 12 ? +year + 1 : +year;
+        const endDate = `${endYear}-${String(endMonth).padStart(2, "0")}-01`;
+        conditions.push(sql`${vendorAvailability.date} >= ${startDate} AND ${vendorAvailability.date} < ${endDate}`);
+      }
+      const query = conditions.length > 0
+        ? db.select().from(vendorAvailability).where(and(...conditions))
+        : db.select().from(vendorAvailability);
+      const records = await query.orderBy(asc(vendorAvailability.date));
+      const vendorNames = await db.select({ id: vendors.id, fullName: vendors.fullName }).from(vendors);
+      const nameMap = new Map(vendorNames.map(v => [v.id, v.fullName]));
+      res.json(records.map(r => ({ ...r, vendorName: nameMap.get(r.vendorId) || "Unknown" })));
+    } catch (e: any) {
+      res.status(500).json({ error: safeError("Team availability fetch failed", e) });
+    }
   });
 
   // ── QA Seed endpoint (POST /api/seed-qa) — dev/staging only, admin role required ──

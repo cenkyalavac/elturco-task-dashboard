@@ -37,10 +37,18 @@ import FinancialDashboardPage from "@/pages/financial-dashboard";
 import AutoAcceptPage from "@/pages/auto-accept";
 import IntegrationsPage from "@/pages/integrations";
 
+// Mega Build: New pages
+import QualityAnalyticsPage from "@/pages/quality-analytics";
+import VendorPipelinePage from "@/pages/vendor-pipeline";
+import DocumentCompliancePage from "@/pages/document-compliance";
+import TeamAvailabilityPage from "@/pages/team-availability";
+import CommandPalette from "@/components/CommandPalette";
+
 import {
   LogOut, BarChart3, Sun, Moon, Bell, CheckCheck, Menu, X,
   Users, Building2, FolderKanban, Award, LayoutDashboard, History, Settings,
   DollarSign, FileText, ShoppingCart, Zap, Plug,
+  Search, TrendingUp, Shield, Calendar, GitBranch,
 } from "lucide-react";
 
 // Theme context
@@ -237,6 +245,19 @@ function AppLayout() {
   const userRole = (user as any)?.role || getCurrentUser()?.role || "pm";
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [cmdkOpen, setCmdkOpen] = useState(false);
+
+  // Cmd+K handler
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setCmdkOpen(true);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   const canSeeVendorMgmt = ["gm", "admin", "operations_manager", "vm"].includes(userRole);
   const canSeeFinances = ["gm", "operations_manager", "pm_team_lead", "admin"].includes(userRole);
@@ -265,9 +286,13 @@ function AppLayout() {
           <div className="mb-3">
             {!sidebarCollapsed && <p className="px-3 mb-1 text-[10px] font-semibold text-white/20 uppercase tracking-wider">Management</p>}
             {canSeeVendorMgmt && <SidebarLink href="/vendors" label="Vendors" icon={<Users className="w-4 h-4 shrink-0" />} />}
+            {canSeeVendorMgmt && <SidebarLink href="/vendor-pipeline" label="Pipeline" icon={<GitBranch className="w-4 h-4 shrink-0" />} />}
             <SidebarLink href="/customers" label="Customers" icon={<Building2 className="w-4 h-4 shrink-0" />} />
             <SidebarLink href="/projects" label="Projects" icon={<FolderKanban className="w-4 h-4 shrink-0" />} />
             <SidebarLink href="/quality" label="Quality" icon={<Award className="w-4 h-4 shrink-0" />} />
+            <SidebarLink href="/quality-analytics" label="Quality Analytics" icon={<TrendingUp className="w-4 h-4 shrink-0" />} />
+            {canSeeVendorMgmt && <SidebarLink href="/document-compliance" label="Compliance" icon={<Shield className="w-4 h-4 shrink-0" />} />}
+            {canSeeVendorMgmt && <SidebarLink href="/team-availability" label="Availability" icon={<Calendar className="w-4 h-4 shrink-0" />} />}
           </div>
 
           {canSeeFinances && (
@@ -332,6 +357,14 @@ function AppLayout() {
           </button>
 
           <div className="ml-auto flex items-center gap-1.5 sm:gap-3">
+            <button
+              onClick={() => setCmdkOpen(true)}
+              className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-md text-xs text-white/30 bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.06] hover:text-white/50 transition-all"
+            >
+              <Search className="w-3 h-3" />
+              <span>Search...</span>
+              <kbd className="text-[10px] text-white/20 border border-white/10 rounded px-1 py-0.5 ml-2">Ctrl+K</kbd>
+            </button>
             <span className="hidden sm:inline text-xs text-white/40 font-medium">{displayEmail}</span>
             <div className="hidden sm:block w-px h-4 bg-white/[0.08]" />
             <NotificationBell />
@@ -355,9 +388,13 @@ function AppLayout() {
             <SidebarLink href="/history" label="Assignments" icon={<History className="w-4 h-4" />} />
             <SidebarLink href="/analytics" label="Analytics" icon={<BarChart3 className="w-4 h-4" />} />
             {canSeeVendorMgmt && <SidebarLink href="/vendors" label="Vendors" icon={<Users className="w-4 h-4" />} />}
+            {canSeeVendorMgmt && <SidebarLink href="/vendor-pipeline" label="Pipeline" icon={<GitBranch className="w-4 h-4" />} />}
             <SidebarLink href="/customers" label="Customers" icon={<Building2 className="w-4 h-4" />} />
             <SidebarLink href="/projects" label="Projects" icon={<FolderKanban className="w-4 h-4" />} />
             <SidebarLink href="/quality" label="Quality" icon={<Award className="w-4 h-4" />} />
+            <SidebarLink href="/quality-analytics" label="Quality Analytics" icon={<TrendingUp className="w-4 h-4" />} />
+            {canSeeVendorMgmt && <SidebarLink href="/document-compliance" label="Compliance" icon={<Shield className="w-4 h-4" />} />}
+            {canSeeVendorMgmt && <SidebarLink href="/team-availability" label="Availability" icon={<Calendar className="w-4 h-4" />} />}
             {canSeeFinances && <SidebarLink href="/finances" label="Finances" icon={<DollarSign className="w-4 h-4" />} />}
             {canSeeFinances && <SidebarLink href="/invoices" label="Invoices" icon={<FileText className="w-4 h-4" />} />}
             {canSeeFinances && <SidebarLink href="/purchase-orders" label="POs" icon={<ShoppingCart className="w-4 h-4" />} />}
@@ -375,11 +412,15 @@ function AppLayout() {
             <Route path="/admin">{() => <ProtectedRoute component={AdminPage} />}</Route>
             <Route path="/vendors">{() => <ProtectedRoute component={VendorsPage} />}</Route>
             <Route path="/vendors/:id">{() => <ProtectedRoute component={VendorDetailPage} />}</Route>
+            <Route path="/vendor-pipeline">{() => <ProtectedRoute component={VendorPipelinePage} />}</Route>
             <Route path="/customers">{() => <ProtectedRoute component={CustomersPage} />}</Route>
             <Route path="/customers/:id">{() => <ProtectedRoute component={CustomerDetailPage} />}</Route>
             <Route path="/projects">{() => <ProtectedRoute component={ProjectsPage} />}</Route>
             <Route path="/projects/:id">{() => <ProtectedRoute component={ProjectDetailPage} />}</Route>
             <Route path="/quality">{() => <ProtectedRoute component={QualityPage} />}</Route>
+            <Route path="/quality-analytics">{() => <ProtectedRoute component={QualityAnalyticsPage} />}</Route>
+            <Route path="/document-compliance">{() => <ProtectedRoute component={DocumentCompliancePage} />}</Route>
+            <Route path="/team-availability">{() => <ProtectedRoute component={TeamAvailabilityPage} />}</Route>
             <Route path="/finances">{() => <ProtectedRoute component={FinancialDashboardPage} />}</Route>
             <Route path="/invoices">{() => <ProtectedRoute component={InvoicesPage} />}</Route>
             <Route path="/purchase-orders">{() => <ProtectedRoute component={PurchaseOrdersPage} />}</Route>
@@ -388,6 +429,7 @@ function AppLayout() {
             <Route component={NotFound} />
           </Switch>
         </main>
+        <CommandPalette open={cmdkOpen} onOpenChange={setCmdkOpen} />
       </div>
     </div>
   );

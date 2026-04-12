@@ -19,6 +19,7 @@ import {
   ArrowLeft, Save, Calendar, FolderKanban, Plus, Briefcase, DollarSign,
   Building2, Edit2, ChevronDown, ChevronRight, ExternalLink, Check,
   FileText, Upload, TrendingUp, Hash, Clock, User, Tag, Globe, Trash2,
+  Zap, Award, Star,
 } from "lucide-react";
 
 interface ProjectDetail {
@@ -1051,6 +1052,7 @@ function JobTableRows({ job, currency, isExpanded, hasCat, onToggle, onEdit, onD
   onTransition: (action: string) => void; onAssignVendor: (vendorId: number) => void; vendors: { id: number; name: string }[];
 }) {
   const [showVendorPicker, setShowVendorPicker] = useState(false);
+  const [showSmartMatch, setShowSmartMatch] = useState(false);
   // Determine valid actions for this job's current status
   const jobActions: Record<string, string[]> = {
     unassigned: ["cancel"],
@@ -1078,7 +1080,10 @@ function JobTableRows({ job, currency, isExpanded, hasCat, onToggle, onEdit, onD
           {job.vendorId ? (
             <span>{(job as any).vendorName || `Vendor #${job.vendorId}`}</span>
           ) : (
-            <button onClick={(e) => { e.stopPropagation(); setShowVendorPicker(!showVendorPicker); }} className="text-blue-400 hover:text-blue-300 text-[11px]">+ Assign</button>
+            <div className="flex items-center gap-1">
+              <button onClick={(e) => { e.stopPropagation(); setShowVendorPicker(!showVendorPicker); }} className="text-blue-400 hover:text-blue-300 text-[11px]">+ Assign</button>
+              <button onClick={(e) => { e.stopPropagation(); setShowSmartMatch(true); }} className="text-amber-400 hover:text-amber-300 text-[11px] flex items-center gap-0.5"><Zap className="w-2.5 h-2.5" />Smart</button>
+            </div>
           )}
           {showVendorPicker && (
             <div className="absolute top-full left-0 z-50 bg-[#1a1d27] border border-white/10 rounded-lg shadow-xl w-52 max-h-48 overflow-y-auto mt-1">
@@ -1130,7 +1135,82 @@ function JobTableRows({ job, currency, isExpanded, hasCat, onToggle, onEdit, onD
           </TableCell>
         </TableRow>
       )}
+      {showSmartMatch && <SmartMatchDialog job={job} open={showSmartMatch} onOpenChange={setShowSmartMatch} onAssign={(vendorId) => { onAssignVendor(vendorId); setShowSmartMatch(false); }} />}
     </>
+  );
+}
+
+// ── Smart Match Dialog ──
+function SmartMatchDialog({ job, open, onOpenChange, onAssign }: { job: Job; open: boolean; onOpenChange: (v: boolean) => void; onAssign: (vendorId: number) => void }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["/api/vendors/smart-match", job.sourceLanguage, job.targetLanguage, job.serviceType],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (job.sourceLanguage) params.set("source_language", job.sourceLanguage);
+      if (job.targetLanguage) params.set("target_language", job.targetLanguage);
+      if (job.serviceType) params.set("service_type", job.serviceType);
+      const r = await apiRequest("GET", `/api/vendors/smart-match?${params.toString()}`);
+      return r.json();
+    },
+    enabled: open,
+  });
+
+  const matchedVendors = data?.vendors || [];
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="bg-[#1a1d27] border-white/10 text-white max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="text-sm flex items-center gap-2">
+            <Zap className="w-4 h-4 text-amber-400" /> Smart Vendor Match
+            <Badge variant="outline" className="text-[10px] text-white/40 border-white/10 ml-2">
+              {job.sourceLanguage}→{job.targetLanguage} {job.serviceType}
+            </Badge>
+          </DialogTitle>
+        </DialogHeader>
+        <div className="flex-1 overflow-y-auto min-h-0 space-y-2 py-2">
+          {isLoading ? (
+            <div className="space-y-2">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-16" />)}</div>
+          ) : matchedVendors.length === 0 ? (
+            <div className="text-center py-8 text-white/30 text-sm">No matching vendors found</div>
+          ) : (
+            matchedVendors.map((v: any, i: number) => (
+              <div key={v.id} className="flex items-center gap-3 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg hover:bg-white/[0.05] transition-colors">
+                <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center text-xs font-bold text-blue-400 shrink-0">
+                  {i + 1}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm text-white font-medium truncate">{v.fullName}</p>
+                    {v.tier && <Badge variant="outline" className="text-[9px] text-white/40 border-white/10">{v.tier}</Badge>}
+                  </div>
+                  <div className="flex items-center gap-3 mt-0.5 text-[10px] text-white/30">
+                    <span>{v.email}</span>
+                    {v.combinedQualityScore && <span className="text-amber-400/70">Q: {Number(v.combinedQualityScore).toFixed(0)}</span>}
+                    {v.averageRate && Number(v.averageRate) > 0 && <span>Rate: {v.averageRate}</span>}
+                  </div>
+                  {/* Score breakdown */}
+                  <div className="flex items-center gap-1 mt-1">
+                    {Object.entries(v.breakdown || {}).filter(([, val]) => (val as number) > 0).map(([key, val]) => (
+                      <span key={key} className="text-[9px] px-1 py-0.5 bg-white/[0.04] rounded text-white/40">
+                        {key}: {val as number}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <div className="text-center">
+                    <p className="text-lg font-bold text-emerald-400">{v.score}</p>
+                    <p className="text-[9px] text-white/20">score</p>
+                  </div>
+                  <Button size="sm" onClick={() => onAssign(v.id)} className="bg-blue-600 hover:bg-blue-700 text-xs h-7 px-2">Assign</Button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

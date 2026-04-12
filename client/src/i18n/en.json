@@ -19,7 +19,11 @@
     "purchaseOrders": "Purchase Orders",
     "autoAccept": "Auto-Accept",
     "integrations": "Portals",
-    "admin": "Settings"
+    "admin": "Settings",
+    "qualityAnalytics": "Quality Analytics",
+    "documentCompliance": "Document Compliance",
+    "vendorPipeline": "Vendor Pipeline",
+    "teamAvailability": "Team Availability"
   },
   "sections": {
     "main": "Main",
@@ -196,6 +200,114 @@
       "invoice_generated": "Invoice Generated",
       "po_approved": "PO Approved"
     }
+  },
+  "smartMatch": {
+    "title": "Smart Vendor Match",
+    "matchScore": "Match Score",
+    "languagePair": "Language Pair",
+    "quality": "Quality",
+    "rate": "Rate",
+    "availability": "Availability",
+    "valueIndex": "Value Index",
+    "serviceType": "Service Type",
+    "specialization": "Specialization",
+    "assign": "Assign",
+    "noMatches": "No matching vendors found",
+    "breakdown": "Score Breakdown"
+  },
+  "catDiscounts": {
+    "title": "CAT Discount Grid",
+    "repetitions": "Repetitions",
+    "match100": "100% Matches",
+    "fuzzyHigh": "95-99% (Fuzzy High)",
+    "fuzzyMid": "85-94% (Fuzzy Mid)",
+    "fuzzyLow": "75-84% (Fuzzy Low)",
+    "fuzzyLowest": "50-74% (Fuzzy Lowest)",
+    "noMatch": "No Match (New Words)",
+    "machineTranslated": "Machine Translated",
+    "usingDefaults": "Using Defaults",
+    "custom": "Custom"
+  },
+  "scorecard": {
+    "title": "Vendor Scorecard",
+    "avgQs": "Average QS",
+    "avgLqa": "Average LQA",
+    "combined": "Combined Score",
+    "totalReviews": "Total Reviews",
+    "trend": "Trend",
+    "improving": "Improving",
+    "declining": "Declining",
+    "stable": "Stable",
+    "accountBreakdown": "Per-Account Breakdown"
+  },
+  "pipeline": {
+    "title": "Vendor Pipeline",
+    "stages": {
+      "new": "New Application",
+      "form_sent": "Form Sent",
+      "negotiation": "Price Negotiation",
+      "test_sent": "Test Sent",
+      "approved": "Approved",
+      "inactive": "Inactive",
+      "rejected": "Rejected",
+      "red_flag": "Red Flag"
+    },
+    "cardView": "Card View",
+    "tableView": "Table View",
+    "daysInStage": "days in stage",
+    "moveToStage": "Move to Stage"
+  },
+  "qualityAnalytics": {
+    "title": "Quality Analytics",
+    "totalReports": "Total Reports",
+    "avgQs": "Average QS",
+    "avgLqa": "Average LQA",
+    "flaggedVendors": "Flagged Vendors",
+    "qualityTrend": "Quality Trend",
+    "topPerformers": "Top Performers",
+    "accountBreakdown": "Account Breakdown",
+    "errorAnalysis": "Error Analysis"
+  },
+  "compliance": {
+    "title": "Document Compliance",
+    "overallCompliance": "Overall Compliance",
+    "documentsTracked": "Documents Tracked",
+    "vendorsTracked": "Vendors Tracked",
+    "signed": "Signed",
+    "pending": "Pending",
+    "expired": "Expired",
+    "addDocument": "Add Document",
+    "signDocument": "Sign Document"
+  },
+  "availability": {
+    "title": "Availability Calendar",
+    "teamAvailability": "Team Availability",
+    "available": "Available",
+    "unavailable": "Unavailable",
+    "limited": "Limited",
+    "hours": "Hours",
+    "setAvailability": "Set Availability"
+  },
+  "finance": {
+    "title": "Project Finance",
+    "receivables": "Receivables",
+    "payables": "Payables",
+    "margin": "Margin",
+    "marginPercent": "Margin %",
+    "perJobBreakdown": "Per-Job Breakdown"
+  },
+  "search": {
+    "placeholder": "Search projects, vendors, customers...",
+    "noResults": "No results found",
+    "hint": "Press Ctrl+K to search"
+  },
+  "competencies": {
+    "title": "Competencies",
+    "languagePairs": "Language Pairs",
+    "serviceTypes": "Service Types",
+    "specializations": "Specializations",
+    "addPair": "Add Language Pair",
+    "save": "Save Competencies"
   },
   "common": {
     "save": "Save",

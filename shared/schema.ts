@@ -793,6 +793,19 @@ export const customerRateCards = pgTable("customer_rate_cards", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
+// Vendor Availability Calendar
+export const vendorAvailability = pgTable("vendor_availability", {
+  id: serial("id").primaryKey(),
+  vendorId: integer("vendor_id").notNull().references(() => vendors.id, { onDelete: "cascade" }),
+  date: date("date").notNull(),
+  status: varchar("status", { length: 20 }).default("available"), // available, unavailable, limited
+  hoursAvailable: integer("hours_available"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  uniqueIndex("vendor_avail_date_unique").on(table.vendorId, table.date),
+]);
+
 // ============================================
 // INSERT SCHEMAS (Zod)
 // ============================================
@@ -840,6 +853,7 @@ export const insertVendorSessionSchema = createInsertSchema(vendorSessions).omit
 export const insertCustomerRateCardSchema = createInsertSchema(customerRateCards).omit({ id: true });
 export const insertVendorFileSchema = createInsertSchema(vendorFiles).omit({ id: true });
 export const insertPoLineItemSchema = createInsertSchema(poLineItems).omit({ id: true });
+export const insertVendorAvailabilitySchema = createInsertSchema(vendorAvailability).omit({ id: true });
 
 // ============================================
 // TYPES
@@ -901,3 +915,4 @@ export type NotificationV2 = typeof notificationsV2.$inferSelect;
 export type CustomerRateCard = typeof customerRateCards.$inferSelect;
 export type VendorFile = typeof vendorFiles.$inferSelect;
 export type PoLineItem = typeof poLineItems.$inferSelect;
+export type VendorAvailability = typeof vendorAvailability.$inferSelect;

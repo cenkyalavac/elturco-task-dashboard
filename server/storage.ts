@@ -1274,24 +1274,36 @@ export class DatabaseStorage implements IStorage {
 
   // Dashboard KPIs
   async getDashboardKpis() {
-    const [activeProjects] = await db.select({ count: sql<number>`count(*)::int` }).from(projects).where(eq(projects.status, "active"));
+    const [activeProjects] = await db.select({ count: sql<number>`count(*)::int` }).from(projects).where(sql`${projects.status} IN ('active', 'in_progress', 'confirmed')`);
+    const [openTasks] = await db.select({ count: sql<number>`count(*)::int` }).from(portalTasks).where(eq(portalTasks.status, "pending"));
     const [pendingInvoices] = await db.select({ count: sql<number>`count(*)::int` }).from(clientInvoices).where(sql`${clientInvoices.status} IN ('draft', 'sent')`);
-    const [overdueInvoices] = await db.select({ count: sql<number>`count(*)::int` }).from(clientInvoices).where(eq(clientInvoices.status, "overdue"));
+    const [pendingInvoicesAmount] = await db.select({
+      total: sql<string>`COALESCE(SUM(${clientInvoices.total}::numeric), 0)`,
+    }).from(clientInvoices).where(sql`${clientInvoices.status} IN ('draft', 'sent')`);
+    const [overdueItems] = await db.select({ count: sql<number>`count(*)::int` }).from(projects).where(
+      and(
+        sql`${projects.deadline} IS NOT NULL`,
+        sql`${projects.deadline} < NOW()`,
+        sql`${projects.status} NOT IN ('completed', 'invoiced', 'closed', 'cancelled')`,
+      )
+    );
     const [monthlyRevenue] = await db.select({
       total: sql<string>`COALESCE(SUM(${clientInvoices.total}::numeric), 0)`,
     }).from(clientInvoices).where(and(
       sql`TO_CHAR(${clientInvoices.invoiceDate}::date, 'YYYY-MM') = TO_CHAR(CURRENT_DATE, 'YYYY-MM')`,
-      sql`${clientInvoices.status} IN ('paid', 'sent', 'overdue')`,
+      eq(clientInvoices.status, "paid"),
     ));
     const [availableVendors] = await db.select({ count: sql<number>`count(*)::int` }).from(vendors).where(
-      and(eq(vendors.status, "Approved"), sql`(${vendors.availableUntil} IS NULL OR ${vendors.availableUntil}::date >= CURRENT_DATE)`)
+      sql`${vendors.status} IN ('Approved', 'approved')`
     );
     return {
       activeProjects: activeProjects?.count || 0,
+      openTasks: openTasks?.count || 0,
       pendingInvoices: pendingInvoices?.count || 0,
-      overdueInvoices: overdueInvoices?.count || 0,
+      pendingInvoicesAmount: parseFloat(pendingInvoicesAmount?.total || "0"),
+      overdueItems: overdueItems?.count || 0,
       monthlyRevenue: parseFloat(monthlyRevenue?.total || "0"),
-      availableVendors: availableVendors?.count || 0,
+      vendorAvailability: availableVendors?.count || 0,
     };
   }
 
