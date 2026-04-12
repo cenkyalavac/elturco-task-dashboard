@@ -380,7 +380,7 @@ export default function CustomerDetailPage() {
         <TabsContent value="overview" className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Info Card */}
-            <Card className="bg-white/[0.03] border-white/[0.06]">
+            <Card className="bg-white/[0.03] border-white/[0.06] rounded-xl shadow-lg">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-white/70 flex items-center gap-2">
                   <Building2 className="w-3.5 h-3.5" /> Info
@@ -437,7 +437,7 @@ export default function CustomerDetailPage() {
             </Card>
 
             {/* Contact Card */}
-            <Card className="bg-white/[0.03] border-white/[0.06]">
+            <Card className="bg-white/[0.03] border-white/[0.06] rounded-xl shadow-lg">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-white/70 flex items-center gap-2">
                   <Mail className="w-3.5 h-3.5" /> Contact
@@ -467,7 +467,7 @@ export default function CustomerDetailPage() {
             </Card>
 
             {/* Financial Card */}
-            <Card className="bg-white/[0.03] border-white/[0.06]">
+            <Card className="bg-white/[0.03] border-white/[0.06] rounded-xl shadow-lg">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-white/70 flex items-center gap-2">
                   <DollarSign className="w-3.5 h-3.5" /> Financial
@@ -510,7 +510,7 @@ export default function CustomerDetailPage() {
             </Card>
 
             {/* Notes & Tags */}
-            <Card className="bg-white/[0.03] border-white/[0.06]">
+            <Card className="bg-white/[0.03] border-white/[0.06] rounded-xl shadow-lg">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-white/70 flex items-center gap-2">
                   <FileText className="w-3.5 h-3.5" /> Notes & Tags
@@ -565,38 +565,46 @@ export default function CustomerDetailPage() {
             </Button>
           </div>
           {contactsQuery.isLoading ? (
-            <Skeleton className="h-32 bg-white/[0.04] rounded" />
+            <div className="space-y-3">
+              <Skeleton className="h-10 bg-white/[0.04] rounded-lg" />
+              <Skeleton className="h-10 bg-white/[0.04] rounded-lg" />
+              <Skeleton className="h-10 bg-white/[0.04] rounded-lg" />
+            </div>
           ) : contacts.length === 0 ? (
-            <div className="text-center py-12">
-              <Users className="w-8 h-8 text-white/10 mx-auto mb-2" />
-              <p className="text-xs text-white/20">No contacts yet</p>
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg text-center py-16">
+              <Users className="w-10 h-10 text-white/[0.08] mx-auto mb-3" />
+              <p className="text-sm font-medium text-white/30 mb-1">No contacts yet</p>
+              <p className="text-xs text-white/15 mb-4">Add contact people for this customer</p>
+              <Button size="sm" onClick={() => setShowAddContact(true)} className="bg-blue-600 hover:bg-blue-700 text-white text-xs">
+                <Plus className="w-3 h-3 mr-1" />Add First Contact
+              </Button>
             </div>
           ) : (
-            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg overflow-hidden">
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg overflow-hidden">
               <Table>
                 <TableHeader>
-                  <TableRow className="border-white/[0.06] hover:bg-transparent">
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Name</TableHead>
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Email</TableHead>
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Phone</TableHead>
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Role</TableHead>
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Primary</TableHead>
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3 w-12"></TableHead>
+                  <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3">Name</TableHead>
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3">Email</TableHead>
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3">Phone</TableHead>
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3">Role</TableHead>
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3">Primary</TableHead>
+                    <TableHead className="text-xs text-white/40 font-medium h-9 px-3 w-12"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {contacts.map((c: any) => (
-                    <TableRow key={c.id} className="border-white/[0.06] hover:bg-white/[0.02]">
-                      <TableCell className="text-xs text-white font-medium px-3 py-2">{c.name}</TableCell>
-                      <TableCell className="text-[11px] text-white/50 px-3 py-2">{c.email || "\u2014"}</TableCell>
-                      <TableCell className="text-[11px] text-white/50 px-3 py-2">{c.phone || "\u2014"}</TableCell>
-                      <TableCell className="text-[11px] text-white/50 px-3 py-2">{c.role || "\u2014"}</TableCell>
-                      <TableCell className="px-3 py-2">
-                        {c.isPrimary && <Check className="w-4 h-4 text-green-400" />}
+                    <TableRow key={c.id} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
+                      <TableCell className="text-xs text-white font-medium px-3 py-2.5">{c.name}</TableCell>
+                      <TableCell className="text-xs text-white/50 px-3 py-2.5">{c.email || "\u2014"}</TableCell>
+                      <TableCell className="text-xs text-white/50 px-3 py-2.5">{c.phone || "\u2014"}</TableCell>
+                      <TableCell className="text-xs text-white/50 px-3 py-2.5">{c.role || "\u2014"}</TableCell>
+                      <TableCell className="px-3 py-2.5">
+                        {c.isPrimary && <Badge className="rounded-full px-2.5 py-0.5 text-xs font-medium border bg-green-500/15 text-green-400 border-green-500/25">Primary</Badge>}
                       </TableCell>
-                      <TableCell className="px-3 py-2">
-                        <button onClick={() => deleteContactMutation.mutate(c.id)} className="p-1 rounded hover:bg-red-500/10">
-                          <Trash2 className="w-3.5 h-3.5 text-white/20 hover:text-red-400" />
+                      <TableCell className="px-3 py-2.5">
+                        <button onClick={() => deleteContactMutation.mutate(c.id)} className="p-1 rounded hover:bg-red-500/10 transition-colors">
+                          <Trash2 className="w-3.5 h-3.5 text-white/20 hover:text-red-400 transition-colors" />
                         </button>
                       </TableCell>
                     </TableRow>
@@ -616,36 +624,44 @@ export default function CustomerDetailPage() {
             </Button>
           </div>
           {subAccountsQuery.isLoading ? (
-            <Skeleton className="h-32 bg-white/[0.04] rounded" />
+            <div className="space-y-3">
+              <Skeleton className="h-10 bg-white/[0.04] rounded-lg" />
+              <Skeleton className="h-10 bg-white/[0.04] rounded-lg" />
+              <Skeleton className="h-10 bg-white/[0.04] rounded-lg" />
+            </div>
           ) : subAccounts.length === 0 ? (
-            <div className="text-center py-12">
-              <FolderKanban className="w-8 h-8 text-white/10 mx-auto mb-2" />
-              <p className="text-xs text-white/20">No sub-accounts yet</p>
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg text-center py-16">
+              <FolderKanban className="w-10 h-10 text-white/[0.08] mx-auto mb-3" />
+              <p className="text-sm font-medium text-white/30 mb-1">No sub-accounts yet</p>
+              <p className="text-xs text-white/15 mb-4">Create sub-accounts to organize departments or divisions</p>
+              <Button size="sm" onClick={() => setShowAddSubAccount(true)} className="bg-blue-600 hover:bg-blue-700 text-white text-xs">
+                <Plus className="w-3 h-3 mr-1" />Add First Sub-Account
+              </Button>
             </div>
           ) : (
-            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg overflow-hidden">
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg overflow-hidden">
               <Table>
                 <TableHeader>
-                  <TableRow className="border-white/[0.06] hover:bg-transparent">
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Name</TableHead>
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Code</TableHead>
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Assigned PM</TableHead>
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Notes</TableHead>
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3 w-12"></TableHead>
+                  <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3">Name</TableHead>
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3">Code</TableHead>
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3">Assigned PM</TableHead>
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3">Notes</TableHead>
+                    <TableHead className="text-xs text-white/40 font-medium h-9 px-3 w-12"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {subAccounts.map((sa: any) => {
                     const pmUser = users.find((u: any) => u.id === sa.assignedPmId);
                     return (
-                      <TableRow key={sa.id} className="border-white/[0.06] hover:bg-white/[0.02]">
-                        <TableCell className="text-xs text-white font-medium px-3 py-2">{sa.name}</TableCell>
-                        <TableCell className="text-[11px] text-white/40 font-mono px-3 py-2">{sa.code || "\u2014"}</TableCell>
-                        <TableCell className="text-[11px] text-white/50 px-3 py-2">{pmUser ? pmUser.name : (sa.assignedPmId ? `User #${sa.assignedPmId}` : "\u2014")}</TableCell>
-                        <TableCell className="text-[11px] text-white/40 px-3 py-2 max-w-[200px] truncate">{sa.notes || "\u2014"}</TableCell>
-                        <TableCell className="px-3 py-2">
-                          <button onClick={() => deleteSubAccountMutation.mutate(sa.id)} className="p-1 rounded hover:bg-red-500/10">
-                            <Trash2 className="w-3.5 h-3.5 text-white/20 hover:text-red-400" />
+                      <TableRow key={sa.id} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
+                        <TableCell className="text-xs text-white font-medium px-3 py-2.5">{sa.name}</TableCell>
+                        <TableCell className="text-xs text-white/40 font-mono px-3 py-2.5">{sa.code || "\u2014"}</TableCell>
+                        <TableCell className="text-xs text-white/50 px-3 py-2.5">{pmUser ? pmUser.name : (sa.assignedPmId ? `User #${sa.assignedPmId}` : "\u2014")}</TableCell>
+                        <TableCell className="text-xs text-white/40 px-3 py-2.5 max-w-[200px] truncate">{sa.notes || "\u2014"}</TableCell>
+                        <TableCell className="px-3 py-2.5">
+                          <button onClick={() => deleteSubAccountMutation.mutate(sa.id)} className="p-1 rounded hover:bg-red-500/10 transition-colors">
+                            <Trash2 className="w-3.5 h-3.5 text-white/20 hover:text-red-400 transition-colors" />
                           </button>
                         </TableCell>
                       </TableRow>
@@ -666,38 +682,46 @@ export default function CustomerDetailPage() {
             </Button>
           </div>
           {pmAssignmentsQuery.isLoading ? (
-            <Skeleton className="h-32 bg-white/[0.04] rounded" />
+            <div className="space-y-3">
+              <Skeleton className="h-10 bg-white/[0.04] rounded-lg" />
+              <Skeleton className="h-10 bg-white/[0.04] rounded-lg" />
+              <Skeleton className="h-10 bg-white/[0.04] rounded-lg" />
+            </div>
           ) : pmAssignments.length === 0 ? (
-            <div className="text-center py-12">
-              <UserCheck className="w-8 h-8 text-white/10 mx-auto mb-2" />
-              <p className="text-xs text-white/20">No PM assignments yet</p>
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg text-center py-16">
+              <UserCheck className="w-10 h-10 text-white/[0.08] mx-auto mb-3" />
+              <p className="text-sm font-medium text-white/30 mb-1">No PM assignments yet</p>
+              <p className="text-xs text-white/15 mb-4">Assign project managers to handle this customer</p>
+              <Button size="sm" onClick={() => setShowAddPmAssignment(true)} className="bg-blue-600 hover:bg-blue-700 text-white text-xs">
+                <Plus className="w-3 h-3 mr-1" />Assign First PM
+              </Button>
             </div>
           ) : (
-            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg overflow-hidden">
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg overflow-hidden">
               <Table>
                 <TableHeader>
-                  <TableRow className="border-white/[0.06] hover:bg-transparent">
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">PM</TableHead>
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Role</TableHead>
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Assigned</TableHead>
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3 w-12"></TableHead>
+                  <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3">PM</TableHead>
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3">Role</TableHead>
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3">Assigned</TableHead>
+                    <TableHead className="text-xs text-white/40 font-medium h-9 px-3 w-12"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {pmAssignments.map((pa: any) => {
                     const pmUser = users.find((u: any) => u.id === pa.userId);
                     return (
-                      <TableRow key={pa.id} className="border-white/[0.06] hover:bg-white/[0.02]">
-                        <TableCell className="text-xs text-white font-medium px-3 py-2">{pmUser ? pmUser.name : `User #${pa.userId}`}</TableCell>
-                        <TableCell className="px-3 py-2">
-                          <Badge className={`text-[10px] border ${pa.role === "primary" ? "bg-blue-500/15 text-blue-400 border-blue-500/25" : "bg-zinc-500/15 text-zinc-400 border-zinc-500/25"}`}>
+                      <TableRow key={pa.id} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
+                        <TableCell className="text-xs text-white font-medium px-3 py-2.5">{pmUser ? pmUser.name : `User #${pa.userId}`}</TableCell>
+                        <TableCell className="px-3 py-2.5">
+                          <Badge className={`rounded-full px-2.5 py-0.5 text-xs font-medium border ${pa.role === "primary" ? "bg-blue-500/15 text-blue-400 border-blue-500/25" : pa.role === "backup" ? "bg-amber-500/15 text-amber-400 border-amber-500/25" : "bg-zinc-500/15 text-zinc-400 border-zinc-500/25"}`}>
                             {pa.role || "primary"}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-[11px] text-white/40 px-3 py-2">{formatDate(pa.createdAt)}</TableCell>
-                        <TableCell className="px-3 py-2">
-                          <button onClick={() => deletePmAssignmentMutation.mutate(pa.id)} className="p-1 rounded hover:bg-red-500/10">
-                            <Trash2 className="w-3.5 h-3.5 text-white/20 hover:text-red-400" />
+                        <TableCell className="text-xs text-white/40 px-3 py-2.5">{formatDate(pa.createdAt)}</TableCell>
+                        <TableCell className="px-3 py-2.5">
+                          <button onClick={() => deletePmAssignmentMutation.mutate(pa.id)} className="p-1 rounded hover:bg-red-500/10 transition-colors">
+                            <Trash2 className="w-3.5 h-3.5 text-white/20 hover:text-red-400 transition-colors" />
                           </button>
                         </TableCell>
                       </TableRow>
@@ -718,44 +742,52 @@ export default function CustomerDetailPage() {
             </Button>
           </div>
           {rateCardQuery.isLoading ? (
-            <Skeleton className="h-32 bg-white/[0.04] rounded" />
+            <div className="space-y-3">
+              <Skeleton className="h-10 bg-white/[0.04] rounded-lg" />
+              <Skeleton className="h-10 bg-white/[0.04] rounded-lg" />
+              <Skeleton className="h-10 bg-white/[0.04] rounded-lg" />
+            </div>
           ) : rateCards.length === 0 ? (
-            <div className="text-center py-12">
-              <CreditCard className="w-8 h-8 text-white/10 mx-auto mb-2" />
-              <p className="text-xs text-white/20">No rate card entries yet</p>
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg text-center py-16">
+              <CreditCard className="w-10 h-10 text-white/[0.08] mx-auto mb-3" />
+              <p className="text-sm font-medium text-white/30 mb-1">No rate card entries yet</p>
+              <p className="text-xs text-white/15 mb-4">Define pricing rates for language pairs and services</p>
+              <Button size="sm" onClick={() => setShowAddRate(true)} className="bg-blue-600 hover:bg-blue-700 text-white text-xs">
+                <Plus className="w-3 h-3 mr-1" />Add First Rate
+              </Button>
             </div>
           ) : (
-            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg overflow-hidden">
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg overflow-hidden">
               <Table>
                 <TableHeader>
-                  <TableRow className="border-white/[0.06] hover:bg-transparent">
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Source Lang</TableHead>
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Target Lang</TableHead>
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Service Type</TableHead>
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Rate Type</TableHead>
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3 text-right">Rate Value</TableHead>
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Currency</TableHead>
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3 w-12"></TableHead>
+                  <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3">Source</TableHead>
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3">Target</TableHead>
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3">Service</TableHead>
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3">Rate Type</TableHead>
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3 text-right">Value</TableHead>
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3">Currency</TableHead>
+                    <TableHead className="text-xs text-white/40 font-medium h-9 px-3 w-12"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {rateCards.map((rc: any) => (
-                    <TableRow key={rc.id} className="border-white/[0.06] hover:bg-white/[0.02]">
-                      <TableCell className="text-xs text-white font-medium px-3 py-2">{rc.sourceLanguage || "\u2014"}</TableCell>
-                      <TableCell className="text-xs text-white font-medium px-3 py-2">{rc.targetLanguage || "\u2014"}</TableCell>
-                      <TableCell className="text-[11px] text-white/50 px-3 py-2">{rc.serviceType || "\u2014"}</TableCell>
-                      <TableCell className="px-3 py-2">
-                        <Badge className="text-[10px] border bg-zinc-500/15 text-zinc-400 border-zinc-500/25">
+                    <TableRow key={rc.id} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
+                      <TableCell className="text-xs text-white font-medium px-3 py-2.5">{rc.sourceLanguage || "\u2014"}</TableCell>
+                      <TableCell className="text-xs text-white font-medium px-3 py-2.5">{rc.targetLanguage || "\u2014"}</TableCell>
+                      <TableCell className="text-xs text-white/50 px-3 py-2.5">{rc.serviceType || "\u2014"}</TableCell>
+                      <TableCell className="px-3 py-2.5">
+                        <Badge className="rounded-full px-2.5 py-0.5 text-xs font-medium border bg-violet-500/15 text-violet-400 border-violet-500/25">
                           {(rc.rateType || "per_word").replace(/_/g, " ")}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-[11px] text-emerald-400 px-3 py-2 text-right font-medium">
+                      <TableCell className="text-xs text-emerald-400 px-3 py-2.5 text-right font-semibold tabular-nums">
                         {rc.rateValue != null ? parseFloat(rc.rateValue).toFixed(4) : "\u2014"}
                       </TableCell>
-                      <TableCell className="text-[11px] text-white/40 px-3 py-2">{rc.currency || "EUR"}</TableCell>
-                      <TableCell className="px-3 py-2">
-                        <button onClick={() => deleteRateCardMutation.mutate(rc.id)} className="p-1 rounded hover:bg-red-500/10">
-                          <Trash2 className="w-3.5 h-3.5 text-white/20 hover:text-red-400" />
+                      <TableCell className="text-xs text-white/40 font-medium px-3 py-2.5">{rc.currency || "EUR"}</TableCell>
+                      <TableCell className="px-3 py-2.5">
+                        <button onClick={() => deleteRateCardMutation.mutate(rc.id)} className="p-1 rounded hover:bg-red-500/10 transition-colors">
+                          <Trash2 className="w-3.5 h-3.5 text-white/20 hover:text-red-400 transition-colors" />
                         </button>
                       </TableCell>
                     </TableRow>
@@ -770,44 +802,49 @@ export default function CustomerDetailPage() {
         <TabsContent value="projects" className="space-y-4">
           <h3 className="text-sm font-medium text-white/70">Projects</h3>
           {projectsQuery.isLoading ? (
-            <Skeleton className="h-32 bg-white/[0.04] rounded" />
+            <div className="space-y-3">
+              <Skeleton className="h-10 bg-white/[0.04] rounded-lg" />
+              <Skeleton className="h-10 bg-white/[0.04] rounded-lg" />
+              <Skeleton className="h-10 bg-white/[0.04] rounded-lg" />
+            </div>
           ) : projects.length === 0 ? (
-            <div className="text-center py-12">
-              <FolderKanban className="w-8 h-8 text-white/10 mx-auto mb-2" />
-              <p className="text-xs text-white/20">No projects yet</p>
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg text-center py-16">
+              <FolderKanban className="w-10 h-10 text-white/[0.08] mx-auto mb-3" />
+              <p className="text-sm font-medium text-white/30 mb-1">No projects yet</p>
+              <p className="text-xs text-white/15">Projects linked to this customer will appear here</p>
             </div>
           ) : (
-            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg overflow-hidden">
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg overflow-hidden">
               <Table>
                 <TableHeader>
-                  <TableRow className="border-white/[0.06] hover:bg-transparent">
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Code</TableHead>
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Name</TableHead>
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Status</TableHead>
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">PM</TableHead>
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Deadline</TableHead>
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3 text-right">Revenue</TableHead>
+                  <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3">Code</TableHead>
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3">Name</TableHead>
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3">Status</TableHead>
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3">PM</TableHead>
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3">Deadline</TableHead>
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3 text-right">Revenue</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {projects.map((p: any) => {
                     const pmUser = users.find((u: any) => u.id === p.pmId);
                     return (
-                      <TableRow key={p.id} className="border-white/[0.06] hover:bg-white/[0.02]">
-                        <TableCell className="text-[11px] text-white/40 font-mono px-3 py-2">{p.projectCode || "\u2014"}</TableCell>
-                        <TableCell className="text-xs text-white font-medium px-3 py-2">
+                      <TableRow key={p.id} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
+                        <TableCell className="text-xs text-white/40 font-mono px-3 py-2.5">{p.projectCode || "\u2014"}</TableCell>
+                        <TableCell className="text-xs text-white font-medium px-3 py-2.5">
                           <Link href={`/projects/${p.id}`}>
-                            <span className="text-blue-400 hover:text-blue-300 cursor-pointer">{p.projectName}</span>
+                            <span className="text-blue-400 hover:text-blue-300 cursor-pointer transition-colors">{p.projectName}</span>
                           </Link>
                         </TableCell>
-                        <TableCell className="px-3 py-2">
-                          <Badge className={`text-[10px] border ${PROJECT_STATUS_COLORS[p.status] || "bg-zinc-500/15 text-zinc-400 border-zinc-500/25"}`}>
+                        <TableCell className="px-3 py-2.5">
+                          <Badge className={`rounded-full px-2.5 py-0.5 text-xs font-medium border ${PROJECT_STATUS_COLORS[p.status] || "bg-zinc-500/15 text-zinc-400 border-zinc-500/25"}`}>
                             {(p.status || "").replace(/_/g, " ")}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-[11px] text-white/50 px-3 py-2">{pmUser ? pmUser.name : "\u2014"}</TableCell>
-                        <TableCell className="text-[11px] text-white/40 px-3 py-2">{formatDate(p.deadline)}</TableCell>
-                        <TableCell className="text-[11px] text-emerald-400 px-3 py-2 text-right font-medium">{formatCurrency(p.totalRevenue, customer.currency || "EUR")}</TableCell>
+                        <TableCell className="text-xs text-white/50 px-3 py-2.5">{pmUser ? pmUser.name : "\u2014"}</TableCell>
+                        <TableCell className="text-xs text-white/40 px-3 py-2.5">{formatDate(p.deadline)}</TableCell>
+                        <TableCell className="text-xs text-emerald-400 px-3 py-2.5 text-right font-semibold tabular-nums">{formatCurrency(p.totalRevenue, customer.currency || "EUR")}</TableCell>
                       </TableRow>
                     );
                   })}
@@ -826,36 +863,41 @@ export default function CustomerDetailPage() {
             </Link>
           </div>
           {invoicesQuery.isLoading ? (
-            <Skeleton className="h-32 bg-white/[0.04] rounded" />
+            <div className="space-y-3">
+              <Skeleton className="h-10 bg-white/[0.04] rounded-lg" />
+              <Skeleton className="h-10 bg-white/[0.04] rounded-lg" />
+              <Skeleton className="h-10 bg-white/[0.04] rounded-lg" />
+            </div>
           ) : invoices.length === 0 ? (
-            <div className="text-center py-12">
-              <Receipt className="w-8 h-8 text-white/10 mx-auto mb-2" />
-              <p className="text-xs text-white/20">No invoices for this customer</p>
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg text-center py-16">
+              <Receipt className="w-10 h-10 text-white/[0.08] mx-auto mb-3" />
+              <p className="text-sm font-medium text-white/30 mb-1">No invoices for this customer</p>
+              <p className="text-xs text-white/15">Invoices linked to this customer will appear here</p>
             </div>
           ) : (
-            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg overflow-hidden">
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg overflow-hidden">
               <Table>
                 <TableHeader>
-                  <TableRow className="border-white/[0.06] hover:bg-transparent">
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Invoice #</TableHead>
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Date</TableHead>
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Due Date</TableHead>
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3">Status</TableHead>
-                    <TableHead className="text-[11px] text-white/30 font-medium h-9 px-3 text-right">Total</TableHead>
+                  <TableRow className="border-b border-white/[0.06] hover:bg-transparent">
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3">Invoice #</TableHead>
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3">Date</TableHead>
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3">Due Date</TableHead>
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3">Status</TableHead>
+                    <TableHead className="text-xs text-white/40 uppercase tracking-wider font-medium h-9 px-3 text-right">Total</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {invoices.map((inv: any) => (
-                    <TableRow key={inv.id} className="border-white/[0.06] hover:bg-white/[0.02]">
-                      <TableCell className="text-xs text-white font-medium px-3 py-2">{inv.invoiceNumber || `INV-${inv.id}`}</TableCell>
-                      <TableCell className="text-[11px] text-white/40 px-3 py-2">{formatDate(inv.invoiceDate)}</TableCell>
-                      <TableCell className="text-[11px] text-white/40 px-3 py-2">{formatDate(inv.dueDate)}</TableCell>
-                      <TableCell className="px-3 py-2">
-                        <Badge className={`text-[10px] border ${INV_STATUS_COLORS[inv.status] || "bg-zinc-500/15 text-zinc-400 border-zinc-500/25"}`}>
+                    <TableRow key={inv.id} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
+                      <TableCell className="text-xs text-white font-medium px-3 py-2.5">{inv.invoiceNumber || `INV-${inv.id}`}</TableCell>
+                      <TableCell className="text-xs text-white/40 px-3 py-2.5">{formatDate(inv.invoiceDate)}</TableCell>
+                      <TableCell className="text-xs text-white/40 px-3 py-2.5">{formatDate(inv.dueDate)}</TableCell>
+                      <TableCell className="px-3 py-2.5">
+                        <Badge className={`rounded-full px-2.5 py-0.5 text-xs font-medium border ${INV_STATUS_COLORS[inv.status] || "bg-zinc-500/15 text-zinc-400 border-zinc-500/25"}`}>
                           {inv.status}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-[11px] text-emerald-400 px-3 py-2 text-right font-medium">{formatCurrency(inv.total, inv.currency)}</TableCell>
+                      <TableCell className="text-xs text-emerald-400 px-3 py-2.5 text-right font-semibold tabular-nums">{formatCurrency(inv.total, inv.currency)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -867,26 +909,26 @@ export default function CustomerDetailPage() {
         {/* TAB: Financial Summary */}
         <TabsContent value="financial" className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4 text-center">
-              <p className="text-[10px] text-white/30 mb-1">Total Invoiced</p>
-              <p className="text-xl font-bold text-emerald-400">{formatCurrency(financialSummary.totalRevenue, customer.currency || "EUR")}</p>
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg p-4 text-center">
+              <p className="text-xs text-white/40 uppercase tracking-wider font-medium mb-1">Total Invoiced</p>
+              <p className="text-xl font-bold text-emerald-400 tabular-nums">{formatCurrency(financialSummary.totalRevenue, customer.currency || "EUR")}</p>
             </div>
-            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4 text-center">
-              <p className="text-[10px] text-white/30 mb-1">Outstanding</p>
-              <p className="text-xl font-bold text-amber-400">{formatCurrency(financialSummary.outstanding, customer.currency || "EUR")}</p>
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg p-4 text-center">
+              <p className="text-xs text-white/40 uppercase tracking-wider font-medium mb-1">Outstanding</p>
+              <p className="text-xl font-bold text-amber-400 tabular-nums">{formatCurrency(financialSummary.outstanding, customer.currency || "EUR")}</p>
             </div>
-            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4 text-center">
-              <p className="text-[10px] text-white/30 mb-1">Paid</p>
-              <p className="text-xl font-bold text-blue-400">{formatCurrency(financialSummary.paid, customer.currency || "EUR")}</p>
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg p-4 text-center">
+              <p className="text-xs text-white/40 uppercase tracking-wider font-medium mb-1">Paid</p>
+              <p className="text-xl font-bold text-blue-400 tabular-nums">{formatCurrency(financialSummary.paid, customer.currency || "EUR")}</p>
             </div>
-            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4 text-center">
-              <p className="text-[10px] text-white/30 mb-1">Overdue</p>
-              <p className="text-xl font-bold text-red-400">{financialSummary.overdue}</p>
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg p-4 text-center">
+              <p className="text-xs text-white/40 uppercase tracking-wider font-medium mb-1">Overdue</p>
+              <p className="text-xl font-bold text-red-400 tabular-nums">{financialSummary.overdue}</p>
               <p className="text-[10px] text-white/20 mt-1">invoices</p>
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4">
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg p-4">
               <h4 className="text-xs font-medium text-white/50 mb-3 flex items-center gap-2"><TrendingUp className="w-3 h-3" /> Projects Summary</h4>
               <div className="space-y-2">
                 <div className="flex justify-between text-xs">
@@ -903,7 +945,7 @@ export default function CustomerDetailPage() {
                 </div>
               </div>
             </div>
-            <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4">
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-lg p-4">
               <h4 className="text-xs font-medium text-white/50 mb-3 flex items-center gap-2"><CreditCard className="w-3 h-3" /> Payment Terms</h4>
               <div className="space-y-2">
                 <div className="flex justify-between text-xs">
