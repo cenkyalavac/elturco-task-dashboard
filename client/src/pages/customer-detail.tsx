@@ -267,6 +267,30 @@ export default function CustomerDetailPage() {
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  // Derive data from queries (must be before any conditional returns to satisfy React hooks rules)
+  const users: any[] = usersQuery.data || [];
+  const contacts: any[] = contactsQuery.data || [];
+  const subAccounts: any[] = subAccountsQuery.data || [];
+  const pmAssignments: any[] = pmAssignmentsQuery.data || [];
+  const projects: any[] = Array.isArray(projectsQuery.data) ? projectsQuery.data : [];
+  const invoices: any[] = Array.isArray(invoicesQuery.data) ? invoicesQuery.data : [];
+  const rateCards: any[] = Array.isArray(rateCardQuery.data) ? rateCardQuery.data : [];
+  const primaryPmUser = customer ? users.find((u: any) => u.id === customer.primaryPmId) : null;
+
+  // Financial summary from invoices
+  const financialSummary = useMemo(() => {
+    const totalRevenue = invoices.reduce((s: number, inv: any) => s + (parseFloat(inv.total) || 0), 0);
+    const outstanding = invoices.filter((inv: any) => inv.status === "sent" || inv.status === "overdue")
+      .reduce((s: number, inv: any) => s + (parseFloat(inv.total) || 0), 0);
+    const paid = invoices.filter((inv: any) => inv.status === "paid")
+      .reduce((s: number, inv: any) => s + (parseFloat(inv.total) || 0), 0);
+    const overdue = invoices.filter((inv: any) => inv.status === "overdue").length;
+    return { totalRevenue, outstanding, paid, overdue };
+  }, [invoices]);
+
+  const startEdit = () => { setForm({ ...customer }); setEditing(true); };
+  const setFormField = (key: string, value: any) => setForm((p: any) => ({ ...p, [key]: value }));
+
   if (isLoading) {
     return (
       <div className="p-6 space-y-4 max-w-5xl">
@@ -292,29 +316,6 @@ export default function CustomerDetailPage() {
       </div>
     );
   }
-
-  const users: any[] = usersQuery.data || [];
-  const contacts: any[] = contactsQuery.data || [];
-  const subAccounts: any[] = subAccountsQuery.data || [];
-  const pmAssignments: any[] = pmAssignmentsQuery.data || [];
-  const projects: any[] = Array.isArray(projectsQuery.data) ? projectsQuery.data : [];
-  const invoices: any[] = Array.isArray(invoicesQuery.data) ? invoicesQuery.data : [];
-  const rateCards: any[] = Array.isArray(rateCardQuery.data) ? rateCardQuery.data : [];
-  const primaryPmUser = users.find((u: any) => u.id === customer.primaryPmId);
-
-  // Financial summary from invoices
-  const financialSummary = useMemo(() => {
-    const totalRevenue = invoices.reduce((s: number, inv: any) => s + (parseFloat(inv.total) || 0), 0);
-    const outstanding = invoices.filter((inv: any) => inv.status === "sent" || inv.status === "overdue")
-      .reduce((s: number, inv: any) => s + (parseFloat(inv.total) || 0), 0);
-    const paid = invoices.filter((inv: any) => inv.status === "paid")
-      .reduce((s: number, inv: any) => s + (parseFloat(inv.total) || 0), 0);
-    const overdue = invoices.filter((inv: any) => inv.status === "overdue").length;
-    return { totalRevenue, outstanding, paid, overdue };
-  }, [invoices]);
-
-  const startEdit = () => { setForm({ ...customer }); setEditing(true); };
-  const setFormField = (key: string, value: any) => setForm((p: any) => ({ ...p, [key]: value }));
 
   const formatAddress = (address: any) => {
     if (!address) return null;
