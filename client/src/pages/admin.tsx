@@ -652,6 +652,10 @@ function PmUsersSection() {
 
 function EmailTemplatesSection() {
   const { toast } = useToast();
+  const [showCreate, setShowCreate] = useState(false);
+  const [newKey, setNewKey] = useState("");
+  const [newSubject, setNewSubject] = useState("");
+  const [newBody, setNewBody] = useState("");
 
   const { data: templates, isLoading } = useQuery<EmailTemplate[]>({
     queryKey: ["/api/email-templates"],
@@ -661,13 +665,34 @@ function EmailTemplatesSection() {
     },
   });
 
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/email-templates", { key: newKey, subject: newSubject, body: newBody || "<p>Hello {{freelancerName}},</p>" });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/email-templates"] });
+      toast({ title: "Template created" });
+      setShowCreate(false);
+      setNewKey("");
+      setNewSubject("");
+      setNewBody("");
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
   return (
     <Card className="border border-border">
-      <CardHeader className="pb-3">
+      <CardHeader className="pb-3 flex flex-row items-center justify-between">
         <CardTitle className="text-sm font-semibold flex items-center gap-2">
           <Mail className="w-4 h-4 text-muted-foreground" />
           Email Templates
         </CardTitle>
+        <Button size="sm" className="h-7 text-xs gap-1" onClick={() => setShowCreate(true)}>
+          <Plus className="w-3 h-3" /> New Template
+        </Button>
       </CardHeader>
       <CardContent>
         <div className="mb-3 p-2 rounded bg-muted/30 flex items-start gap-2">
@@ -677,12 +702,43 @@ function EmailTemplatesSection() {
           </p>
         </div>
 
+        {showCreate && (
+          <div className="mb-4 p-3 border border-border rounded-lg bg-muted/20 space-y-3">
+            <p className="text-xs font-semibold text-foreground">Create New Template</p>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Template Key</label>
+              <Input value={newKey} onChange={e => setNewKey(e.target.value)} placeholder="e.g. invoice_reminder" className="h-8 text-sm" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Subject Line</label>
+              <Input value={newSubject} onChange={e => setNewSubject(e.target.value)} placeholder="e.g. Invoice Reminder — {{account}}" className="h-8 text-sm" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Body (HTML)</label>
+              <Textarea value={newBody} onChange={e => setNewBody(e.target.value)} placeholder="<p>Hello {{freelancerName}},</p>" className="text-xs font-mono min-h-[80px]" />
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" className="h-7 text-xs" onClick={() => createMutation.mutate()} disabled={!newKey.trim() || !newSubject.trim() || createMutation.isPending}>
+                {createMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Plus className="w-3 h-3 mr-1" />}
+                Create
+              </Button>
+              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setShowCreate(false)}>Cancel</Button>
+            </div>
+          </div>
+        )}
+
         {isLoading ? (
           <div className="space-y-2">
             {[...Array(2)].map((_, i) => <Skeleton key={i} className="h-32 w-full rounded" />)}
           </div>
         ) : !templates || templates.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-6">No email templates yet.</p>
+          <div className="flex flex-col items-center justify-center py-8 gap-2">
+            <Mail className="w-8 h-8 text-muted-foreground opacity-40" />
+            <p className="text-sm text-muted-foreground">No email templates yet.</p>
+            <Button size="sm" className="h-7 text-xs gap-1" onClick={() => setShowCreate(true)}>
+              <Plus className="w-3 h-3" /> Create your first template
+            </Button>
+          </div>
         ) : (
           <div className="space-y-4">
             {templates.map((tpl) => (

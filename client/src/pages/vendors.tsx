@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, getAuthToken } from "@/lib/queryClient";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -2067,18 +2067,36 @@ function CsvImportButton({ onImported }: { onImported: () => void }) {
       try {
         const formData = new FormData();
         formData.append("file", file);
+        const headers: Record<string, string> = {};
+        const token = getAuthToken();
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        // Use fetch directly (not apiRequest) so we send multipart/form-data
+        // without a JSON Content-Type header — the browser sets the correct
+        // multipart boundary automatically when body is FormData.
         const res = await fetch("/api/vendors/import", {
           method: "POST",
+          headers,
           body: formData,
-          credentials: "include",
         });
         if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.message || "Import failed");
+          const err = await res.json().catch(() => ({ message: "" }));
+          throw new Error(err.message || err.error || "Import failed");
         }
         const result = await res.json();
-        toast({ title: "Import complete", description: `${result.imported ?? 0} vendor(s) imported` });
-        onImported();
+        const parts: string[] = [`${result.imported ?? 0} vendor(s) imported`];
+        if (result.skipped) parts.push(`${result.skipped} skipped`);
+        if (result.errors?.length) {
+          const shown = result.errors.slice(0, 5);
+          const errorLines = shown.map((e: { index: number; error: string }) => `Row ${e.index + 1}: ${e.error}`);
+          if (result.errors.length > 5) errorLines.push(`...and ${result.errors.length - 5} more`);
+          parts.push("\n" + errorLines.join("\n"));
+        }
+        toast({
+          title: result.imported > 0 ? "Import complete" : "Import finished with errors",
+          description: parts.join(". "),
+          variant: result.imported > 0 ? "default" : "destructive",
+        });
+        if (result.imported > 0) onImported();
       } catch (err: any) {
         toast({ title: "Import failed", description: err.message, variant: "destructive" });
       } finally {

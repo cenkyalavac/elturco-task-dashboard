@@ -10,6 +10,7 @@ import { randomUUID } from "crypto";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
+import multer from "multer";
 
 // ============================================
 // ZOD VALIDATION SCHEMAS
@@ -3197,16 +3198,109 @@ const freelancers = (Array.isArray(data) ? data : [])
   });
 
   // ---- VENDOR IMPORT ----
-  app.post("/api/vendors/import", requireAuth, requireRole("vm", "gm", "admin"), async (req: Request, res: Response) => {
-    try {
-      const vendors = req.body;
-      if (!Array.isArray(vendors)) {
-        return res.status(400).json({ error: "Request body must be a JSON array of vendor objects" });
+  // CSV parsing helper
+  function parseCSV(text: string): Record<string, string>[] {
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) return [];
+    const headers = lines[0].split(",").map(h => h.trim().replace(/^"(.*)"$/, "$1"));
+    const rows: Record<string, string>[] = [];
+    for (let i = 1; i < lines.length; i++) {
+      const values: string[] = [];
+      let current = "";
+      let inQuotes = false;
+      for (const ch of lines[i]) {
+        if (ch === '"') { inQuotes = !inQuotes; }
+        else if (ch === "," && !inQuotes) { values.push(current.trim()); current = ""; }
+        else { current += ch; }
       }
+      values.push(current.trim());
+      const row: Record<string, string> = {};
+      headers.forEach((h, idx) => { if (values[idx] !== undefined) row[h] = values[idx]; });
+      rows.push(row);
+    }
+    return rows;
+  }
+
+  function generateResourceCode(name: string, index: number): string {
+    const prefix = name.replace(/[^a-zA-Z]/g, "").substring(0, 3).toUpperCase();
+    return `${prefix || "VND"}${String(index).padStart(4, "0")}`;
+  }
+
+  const csvUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+
+  // Vendor import — accepts CSV file upload OR JSON array
+  app.post("/api/vendors/import", requireAuth, requireRole("vm", "gm", "admin"), csvUpload.single("file"), async (req: Request, res: Response) => {
+    try {
+      let vendorRows: Record<string, any>[];
+
+      // Check if it's a file upload (CSV)
+      const file = (req as any).file as Express.Multer.File | undefined;
+      if (file) {
+        const csvText = file.buffer.toString("utf-8");
+        const parsed = parseCSV(csvText);
+        if (parsed.length === 0) {
+          return res.status(400).json({ error: "CSV file is empty or has no data rows" });
+        }
+        // Map CSV columns to vendor fields
+        const fieldMap: Record<string, string> = {
+          name: "fullName", full_name: "fullName", fullname: "fullName",
+          email: "email", contact_person: "contactPerson", contactperson: "contactPerson",
+          phone: "phone", country: "location", location: "location",
+          source_languages: "sourceLanguages", sourcelanguages: "sourceLanguages",
+          target_languages: "targetLanguages", targetlanguages: "targetLanguages",
+          service_types: "serviceTypes", servicetypes: "serviceTypes",
+          specializations: "specializations", status: "status", notes: "notes",
+          resource_code: "resourceCode", resourcecode: "resourceCode",
+          native_language: "nativeLanguage", nativelanguage: "nativeLanguage",
+          currency: "currency", resource_type: "resourceType", resourcetype: "resourceType",
+        };
+        vendorRows = parsed.map((row) => {
+          const mapped: Record<string, any> = {};
+          for (const [csvKey, value] of Object.entries(row)) {
+            const normalizedKey = csvKey.toLowerCase().replace(/[\s-]/g, "_");
+            const mappedKey = fieldMap[normalizedKey] || normalizedKey;
+            if (value) mapped[mappedKey] = value;
+          }
+          // Convert comma-separated arrays
+          for (const arrField of ["sourceLanguages", "targetLanguages", "serviceTypes", "specializations"]) {
+            if (typeof mapped[arrField] === "string") {
+              mapped[arrField] = mapped[arrField].split(";").map((s: string) => s.trim()).filter(Boolean);
+            }
+          }
+          return mapped;
+        });
+      } else if (Array.isArray(req.body)) {
+        vendorRows = req.body;
+      } else {
+        return res.status(400).json({ error: "Provide a CSV file upload or a JSON array of vendor objects" });
+      }
+
+      // Get existing vendor count for resource code generation
+      const existingCount = await storage.getVendorCount();
       const imported: number[] = [];
       const errors: { index: number; error: string }[] = [];
-      for (let i = 0; i < vendors.length; i++) {
-        const result = createVendorSchema.safeParse(vendors[i]);
+
+      for (let i = 0; i < vendorRows.length; i++) {
+        const row = vendorRows[i];
+        // Ensure required fields
+        if (!row.fullName && !row.full_name && !row.name) {
+          errors.push({ index: i, error: "Missing required field: name/fullName" });
+          continue;
+        }
+        if (!row.email) {
+          errors.push({ index: i, error: "Missing required field: email" });
+          continue;
+        }
+        // Map alternate names
+        if (!row.fullName && row.full_name) row.fullName = row.full_name;
+        if (!row.fullName && row.name) row.fullName = row.name;
+
+        // Auto-generate resource code if missing
+        if (!row.resourceCode) {
+          row.resourceCode = generateResourceCode(row.fullName, existingCount + imported.length + 1);
+        }
+
+        const result = createVendorSchema.safeParse(row);
         if (!result.success) {
           errors.push({ index: i, error: result.error.errors.map(e => e.message).join(", ") });
           continue;
