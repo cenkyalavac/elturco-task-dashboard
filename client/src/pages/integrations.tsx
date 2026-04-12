@@ -24,9 +24,9 @@ interface PortalCredential {
 
 function statusBadge(status: string) {
   switch (status) {
-    case "connected": return <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/25"><CheckCircle2 className="w-3 h-3 mr-1" /> Connected</Badge>;
-    case "error": return <Badge className="bg-red-500/20 text-red-400 border-red-500/25"><XCircle className="w-3 h-3 mr-1" /> Error</Badge>;
-    default: return <Badge className="bg-white/10 text-white/40 border-white/10"><AlertTriangle className="w-3 h-3 mr-1" /> Disconnected</Badge>;
+    case "connected": return <Badge className="rounded-full px-2.5 py-0.5 text-xs font-medium bg-emerald-500/20 text-emerald-400 border-emerald-500/25"><CheckCircle2 className="w-3 h-3 mr-1" /> Connected</Badge>;
+    case "error": return <Badge className="rounded-full px-2.5 py-0.5 text-xs font-medium bg-red-500/20 text-red-400 border-red-500/25"><XCircle className="w-3 h-3 mr-1" /> Error</Badge>;
+    default: return <Badge className="rounded-full px-2.5 py-0.5 text-xs font-medium bg-white/10 text-white/40 border-white/10"><AlertTriangle className="w-3 h-3 mr-1" /> Disconnected</Badge>;
   }
 }
 
@@ -43,11 +43,11 @@ export default function IntegrationsPage() {
   return (
     <div className="h-full overflow-auto">
       <div className="max-w-4xl mx-auto p-6 space-y-6">
-        <div>
-          <h1 className="text-lg font-semibold text-foreground flex items-center gap-2">
+        <div className="border-b border-white/[0.06] bg-white/[0.02] -mx-6 -mt-6 px-6 py-5 mb-2">
+          <h1 className="text-lg font-semibold text-white flex items-center gap-2">
             <Plug className="w-5 h-5 text-blue-400" /> Portal Integrations
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">Manage connections to external project portals</p>
+          <p className="text-sm text-white/50 mt-1">Manage connections to external project portals</p>
         </div>
 
         <Tabs defaultValue="aps">
