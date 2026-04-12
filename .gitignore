@@ -9,3 +9,7 @@ vite.config.ts.*
 *.db-wal
 service-account.json
 *.json.bak
+.env
+.env.*
+.env.local
+.env.production

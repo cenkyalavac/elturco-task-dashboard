@@ -24,7 +24,10 @@ import {
   type ClientInvoice, type ClientInvoiceLine, type Payment,
 } from "@shared/schema";
 
-const DATABASE_URL = process.env.DATABASE_URL || "REDACTED_DATABASE_URL";
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) {
+  throw new Error("DATABASE_URL environment variable is required");
+}
 
 const pool = new pg.Pool({
   connectionString: DATABASE_URL,

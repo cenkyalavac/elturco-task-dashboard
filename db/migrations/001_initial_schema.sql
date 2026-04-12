@@ -459,9 +459,9 @@ CREATE TABLE app_settings (
 
 -- Default settings
 INSERT INTO app_settings (key, value, description) VALUES
-    ('symfonie_client_id', 'REDACTED_SYMFONIE_CLIENT_ID', 'Symfonie Azure AD Client ID'),
-    ('symfonie_tenant_id', 'REDACTED_SYMFONIE_TENANT_ID', 'Azure AD Tenant ID'),
-    ('symfonie_scope', 'api://c2e8870d-faef-45ea-919c-b603f97bd0cc/.default', 'Symfonie API scope'),
+    ('symfonie_client_id', '', 'Symfonie Azure AD Client ID — set via environment'),
+    ('symfonie_tenant_id', '', 'Azure AD Tenant ID — set via environment'),
+    ('symfonie_scope', '', 'Symfonie API scope — set via environment'),
     ('symfonie_api_base', 'https://projects.moravia.com/Api/V5', 'Symfonie API base URL'),
     ('symfonie_company_id', '9565', 'Verbato Ltd company ID in Symfonie'),
     ('symfonie_user_id', '85202', 'Cenk Yalavac user ID in Symfonie'),
